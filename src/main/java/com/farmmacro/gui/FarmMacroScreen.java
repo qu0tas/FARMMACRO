@@ -3,16 +3,15 @@ package com.farmmacro.gui;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.macro.MacroStorage;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.input.KeyInput;
-import net.minecraft.text.Text;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.network.chat.Component;
 
 public class FarmMacroScreen extends Screen {
 
@@ -31,12 +30,12 @@ public class FarmMacroScreen extends Screen {
 
     private int activeTab = 0;
 
-    private TextFieldWidget fieldYaw, fieldPitch, fieldTeleport, fieldBlockRadius;
-    private TextFieldWidget fieldServerRotTicks;
-    private TextFieldWidget fieldStuckThreshold;
-    private TextFieldWidget fieldSoundId, fieldSoundVol, fieldSoundPitch;
-    private TextFieldWidget fieldSoundRepeats, fieldSoundRepeatDelay;
-    private TextFieldWidget fieldRedTicks;
+    private EditBox fieldYaw, fieldPitch, fieldTeleport, fieldBlockRadius;
+    private EditBox fieldServerRotTicks;
+    private EditBox fieldStuckThreshold;
+    private EditBox fieldSoundId, fieldSoundVol, fieldSoundPitch;
+    private EditBox fieldSoundRepeats, fieldSoundRepeatDelay;
+    private EditBox fieldRedTicks;
 
     private final List<String> lblText  = new ArrayList<>();
     private final List<int[]>  lblPos   = new ArrayList<>();
@@ -44,7 +43,7 @@ public class FarmMacroScreen extends Screen {
     private final Screen parent;
 
     public FarmMacroScreen(Screen parent) {
-        super(Text.literal("FarmMacro"));
+        super(Component.literal("FarmMacro"));
         this.parent = parent;
     }
 
@@ -68,24 +67,24 @@ public class FarmMacroScreen extends Screen {
             String shortLabel = TAB_LABELS[i].length() > 4
                     ? TAB_LABELS[i].substring(0, 4)
                     : TAB_LABELS[i];
-            addDrawableChild(ButtonWidget.builder(
-                    Text.literal(shortLabel),
-                    b -> { saveAll(); activeTab = idx; clearAndInit(); }
-            ).dimensions(px + 2, py + 30 + i * (tabH + 4), SIDEBAR_W - 4, tabH).build());
+            addRenderableWidget(Button.builder(
+                    Component.literal(shortLabel),
+                    b -> { saveAll(); activeTab = idx; rebuildWidgets(); }
+            ).bounds(px + 2, py + 30 + i * (tabH + 4), SIDEBAR_W - 4, tabH).build());
         }
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("×"),
-                b -> { saveAll(); client.setScreen(parent); }
-        ).dimensions(px + pw - 22, py + 4, 18, 14).build());
+        addRenderableWidget(Button.builder(Component.literal("×"),
+                b -> { saveAll(); minecraft.setScreen(parent); }
+        ).bounds(px + pw - 22, py + 4, 18, 14).build());
 
         int btnY = py + ph - 24;
         int btnW = (cW() - 12) / 2;
-        addDrawableChild(ButtonWidget.builder(Text.literal("✔  Сохранить"),
-                b -> { saveAll(); client.setScreen(parent); }
-        ).dimensions(cX() + 4, btnY, btnW, 20).build());
-        addDrawableChild(ButtonWidget.builder(Text.literal("✖  Отмена"),
-                b -> client.setScreen(parent)
-        ).dimensions(cX() + btnW + 8, btnY, btnW, 20).build());
+        addRenderableWidget(Button.builder(Component.literal("✔  Сохранить"),
+                b -> { saveAll(); minecraft.setScreen(parent); }
+        ).bounds(cX() + 4, btnY, btnW, 20).build());
+        addRenderableWidget(Button.builder(Component.literal("✖  Отмена"),
+                b -> minecraft.setScreen(parent)
+        ).bounds(cX() + btnW + 8, btnY, btnW, 20).build());
 
         int cy = py + 28;
         int ch = ph - 52;
@@ -114,15 +113,15 @@ public class FarmMacroScreen extends Screen {
         int r = y + 6;
 
         lbl("ДЕТЕКТОРЫ", L, r, TEXT_GRAY); r += 14;
-        tog(c.panicEnabled,         L, r, "Паника включена",             v -> { c.panicEnabled = v;            clearAndInit(); }); r += 24;
-        tog(c.detectRotation,       L, r, "А: Поворот камеры",           v -> { c.detectRotation = v;          clearAndInit(); }); r += 24;
-        tog(c.detectTeleport,       L, r, "Б: Телепорт",                 v -> { c.detectTeleport = v;          clearAndInit(); }); r += 24;
-        tog(c.detectBlockInFace,    L, r, "В: Блок в лицо",              v -> { c.detectBlockInFace = v;       clearAndInit(); }); r += 24;
-        tog(c.detectSlotChange,     L, r, "Г: Смена слота",              v -> { c.detectSlotChange = v;        clearAndInit(); }); r += 24;
-        tog(c.detectGuiOpen,        L, r, "Д: GUI снаружи",              v -> { c.detectGuiOpen = v;           clearAndInit(); }); r += 24;
-        tog(c.detectDamage,         L, r, "Урон",                        v -> { c.detectDamage = v;            clearAndInit(); }); r += 24;
-        tog(c.detectServerRotation, L, r, "Ж: Ротация сервером",         v -> { c.detectServerRotation = v;    clearAndInit(); }); r += 24;
-        tog(c.detectPotionEffect,   L, r, "З: Эффекты (potion)",         v -> { c.detectPotionEffect = v;      clearAndInit(); });
+        tog(c.panicEnabled,         L, r, "Паника включена",             v -> { c.panicEnabled = v;            rebuildWidgets(); }); r += 24;
+        tog(c.detectRotation,       L, r, "А: Поворот камеры",           v -> { c.detectRotation = v;          rebuildWidgets(); }); r += 24;
+        tog(c.detectTeleport,       L, r, "Б: Телепорт",                 v -> { c.detectTeleport = v;          rebuildWidgets(); }); r += 24;
+        tog(c.detectBlockInFace,    L, r, "В: Блок в лицо",              v -> { c.detectBlockInFace = v;       rebuildWidgets(); }); r += 24;
+        tog(c.detectSlotChange,     L, r, "Г: Смена слота",              v -> { c.detectSlotChange = v;        rebuildWidgets(); }); r += 24;
+        tog(c.detectGuiOpen,        L, r, "Д: GUI снаружи",              v -> { c.detectGuiOpen = v;           rebuildWidgets(); }); r += 24;
+        tog(c.detectDamage,         L, r, "Урон",                        v -> { c.detectDamage = v;            rebuildWidgets(); }); r += 24;
+        tog(c.detectServerRotation, L, r, "Ж: Ротация сервером",         v -> { c.detectServerRotation = v;    rebuildWidgets(); }); r += 24;
+        tog(c.detectPotionEffect,   L, r, "З: Эффекты (potion)",         v -> { c.detectPotionEffect = v;      rebuildWidgets(); });
 
         int rr = y + 6;
         lbl("ПОРОГИ", R, rr, TEXT_GRAY); rr += 16;
@@ -133,7 +132,7 @@ public class FarmMacroScreen extends Screen {
         lbl("Ж: мышь (тики)", R, rr + 4, TEXT_LIGHT); fieldServerRotTicks = inp(s(c.serverRotationMouseTickWindow),  fieldX, rr, 58); rr += 28;
         lbl("Застрял (тики)",  R, rr + 4, TEXT_LIGHT); fieldStuckThreshold = inp(s(c.stuckThresholdTicks),           fieldX, rr, 58); rr += 22;
         tog(c.stuckBlockDetectEnabled, R, rr, "З: Блок на пути",
-                v -> { c.stuckBlockDetectEnabled = v; ModConfig.save(); clearAndInit(); });
+                v -> { c.stuckBlockDetectEnabled = v; ModConfig.save(); rebuildWidgets(); });
     }
 
     private void initReaction(int x, int y, int w, int h) {
@@ -146,14 +145,14 @@ public class FarmMacroScreen extends Screen {
 
         lbl("ЗВУК ПРИ ПАНИКЕ", cx, r, TEXT_GRAY); r += 14;
         tog(c.panicSoundEnabled, cx, r, "Включён",
-                v -> { c.panicSoundEnabled = v; clearAndInit(); }); r += 24;
+                v -> { c.panicSoundEnabled = v; rebuildWidgets(); }); r += 24;
 
         lbl("Sound ID", cx + 4, r + 4, TEXT_LIGHT);
-        fieldSoundId = new net.minecraft.client.gui.widget.TextFieldWidget(
-                textRenderer, cx + 65, r, w - 78, 16, net.minecraft.text.Text.empty());
-        fieldSoundId.setText(c.panicSoundId);
+        fieldSoundId = new net.minecraft.client.gui.components.EditBox(
+                font, cx + 65, r, w - 78, 16, net.minecraft.network.chat.Component.empty());
+        fieldSoundId.setValue(c.panicSoundId);
         fieldSoundId.setMaxLength(64);
-        addDrawableChild(fieldSoundId); r += 22;
+        addRenderableWidget(fieldSoundId); r += 22;
 
         lbl("Громкость", cx + 4, r + 4, TEXT_LIGHT);
         fieldSoundVol   = inp(s(c.panicSoundVolume), fld1X, r, fldW);
@@ -167,7 +166,7 @@ public class FarmMacroScreen extends Screen {
 
         lbl("КРАСНЫЙ ЭКРАН", cx, r, TEXT_GRAY); r += 14;
         tog(c.panicRedScreenEnabled, cx, r, "Включён",
-                v -> { c.panicRedScreenEnabled = v; clearAndInit(); }); r += 24;
+                v -> { c.panicRedScreenEnabled = v; rebuildWidgets(); }); r += 24;
 
         lbl("Длительность (тики)", cx + 4, r + 4, TEXT_LIGHT);
         fieldRedTicks = inp(s(c.panicRedScreenTicks), fld1X, r, fldW);
@@ -204,32 +203,32 @@ public class FarmMacroScreen extends Screen {
             int rowY = r;
             lbl(info.name, cx + 4, rowY + 5, TEXT_LIGHT);
             lbl(info.frameCount + " кадров",
-                    cx + 4 + textRenderer.getWidth(info.name) + 6, rowY + 5, TEXT_GRAY);
+                    cx + 4 + font.width(info.name) + 6, rowY + 5, TEXT_GRAY);
 
             int btnX = x + w - 118;
-            addDrawableChild(ButtonWidget.builder(
-                    Text.literal("Загрузить"),
+            addRenderableWidget(Button.builder(
+                    Component.literal("Загрузить"),
                     b -> {
                         var frames = MacroStorage.INSTANCE.load(info.filename);
                         if (frames != null) {
-                            MacroManager.INSTANCE.loadMacro(frames, client);
+                            MacroManager.INSTANCE.loadMacro(frames, minecraft);
                         }
-                        clearAndInit();
+                        rebuildWidgets();
                     }
-            ).dimensions(btnX, rowY + 1, 56, 18)
-             .tooltip(net.minecraft.client.gui.tooltip.Tooltip.of(
-                     Text.literal("Загрузить «" + info.name + "» в буфер")))
+            ).bounds(btnX, rowY + 1, 56, 18)
+             .tooltip(net.minecraft.client.gui.components.Tooltip.create(
+                     Component.literal("Загрузить «" + info.name + "» в буфер")))
              .build());
 
-            addDrawableChild(ButtonWidget.builder(
-                    Text.literal("X"),
+            addRenderableWidget(Button.builder(
+                    Component.literal("X"),
                     b -> {
                         MacroStorage.INSTANCE.delete(info.filename);
-                        clearAndInit();
+                        rebuildWidgets();
                     }
-            ).dimensions(btnX + 60, rowY + 1, 18, 18)
-             .tooltip(net.minecraft.client.gui.tooltip.Tooltip.of(
-                     Text.literal("Удалить «" + info.name + "»")))
+            ).bounds(btnX + 60, rowY + 1, 18, 18)
+             .tooltip(net.minecraft.client.gui.components.Tooltip.create(
+                     Component.literal("Удалить «" + info.name + "»")))
              .build());
 
             r += rowH;
@@ -249,7 +248,7 @@ public class FarmMacroScreen extends Screen {
         c.blockDetectRadius             = pd(fieldBlockRadius,       c.blockDetectRadius);
         c.serverRotationMouseTickWindow = pi(fieldServerRotTicks,    c.serverRotationMouseTickWindow);
         c.stuckThresholdTicks           = Math.max(5, pi(fieldStuckThreshold, c.stuckThresholdTicks));
-        if (fieldSoundId != null) c.panicSoundId = fieldSoundId.getText().trim();
+        if (fieldSoundId != null) c.panicSoundId = fieldSoundId.getValue().trim();
         c.panicSoundVolume              = pf(fieldSoundVol,          c.panicSoundVolume);
         c.panicSoundPitch               = pf(fieldSoundPitch,        c.panicSoundPitch);
         c.panicSoundRepeats             = pi(fieldSoundRepeats,      c.panicSoundRepeats);
@@ -259,8 +258,8 @@ public class FarmMacroScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(DrawContext ctx, int mx, int my, float delta) {
-        super.renderBackground(ctx, mx, my, delta);
+    public void extractBackground(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
+        super.extractBackground(ctx, mx, my, delta);
 
         int px = pX(), py = pY(), pw = pW(), ph = pH();
         int cx = cX();
@@ -282,41 +281,41 @@ public class FarmMacroScreen extends Screen {
         ctx.fill(cx, py + ph - 26, px + pw, py + ph - 25, BORDER);
 
         String tabName = TAB_LABELS[activeTab];
-        ctx.drawTextWithShadow(textRenderer, "FarmMacro", cx + 8, py + 8, ACCENT_RED);
-        ctx.drawTextWithShadow(textRenderer, "/ " + tabName, cx + 8 + textRenderer.getWidth("FarmMacro") + 4, py + 8, TEXT_GRAY);
+        ctx.text(font, "FarmMacro", cx + 8, py + 8, ACCENT_RED);
+        ctx.text(font, "/ " + tabName, cx + 8 + font.width("FarmMacro") + 4, py + 8, TEXT_GRAY);
     }
 
     @Override
-    public void render(DrawContext ctx, int mx, int my, float delta) {
-        super.render(ctx, mx, my, delta);
+    public void extractRenderState(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
+        super.extractRenderState(ctx, mx, my, delta);
         for (int i = 0; i < lblText.size(); i++) {
             int[] p = lblPos.get(i);
-            ctx.drawTextWithShadow(textRenderer, lblText.get(i), p[0], p[1], p[2]);
+            ctx.text(font, lblText.get(i), p[0], p[1], p[2]);
         }
     }
 
     @Override
-    protected void clearAndInit() { super.clearAndInit(); }
+    protected void rebuildWidgets() { super.rebuildWidgets(); }
 
     @Override
-    public boolean keyPressed(KeyInput input) { return super.keyPressed(input); }
+    public boolean keyPressed(KeyEvent input) { return super.keyPressed(input); }
 
     @Override public boolean shouldCloseOnEsc() { return true; }
-    @Override public void close() { saveAll(); client.setScreen(parent); }
+    @Override public void onClose() { saveAll(); minecraft.setScreen(parent); }
 
     private void tog(boolean cur, int x, int y, String label, Consumer<Boolean> setter) {
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal(cur ? "●  ON" : "○  OFF"),
+        addRenderableWidget(Button.builder(
+                Component.literal(cur ? "●  ON" : "○  OFF"),
                 b -> setter.accept(!cur)
-        ).dimensions(x, y, 52, 16).build());
+        ).bounds(x, y, 52, 16).build());
         lbl(label, x + 58, y + 4, cur ? TEXT_WHITE : TEXT_GRAY);
     }
 
-    private TextFieldWidget inp(String val, int x, int y, int w) {
-        TextFieldWidget f = new TextFieldWidget(textRenderer, x, y, w, 16, Text.empty());
-        f.setText(val);
+    private EditBox inp(String val, int x, int y, int w) {
+        EditBox f = new EditBox(font, x, y, w, 16, Component.empty());
+        f.setValue(val);
         f.setMaxLength(12);
-        addDrawableChild(f);
+        addRenderableWidget(f);
         return f;
     }
 
@@ -332,7 +331,7 @@ public class FarmMacroScreen extends Screen {
     private String s(double v) { return String.valueOf(v); }
     private String s(int v)    { return String.valueOf(v); }
 
-    private int    pi(TextFieldWidget f, int d)    { if(f==null)return d; try{return Integer.parseInt(f.getText().trim());}    catch(Exception e){return d;} }
-    private float  pf(TextFieldWidget f, float d)  { if(f==null)return d; try{return Float.parseFloat(f.getText().trim());}    catch(Exception e){return d;} }
-    private double pd(TextFieldWidget f, double d) { if(f==null)return d; try{return Double.parseDouble(f.getText().trim());} catch(Exception e){return d;} }
+    private int    pi(EditBox f, int d)    { if(f==null)return d; try{return Integer.parseInt(f.getValue().trim());}    catch(Exception e){return d;} }
+    private float  pf(EditBox f, float d)  { if(f==null)return d; try{return Float.parseFloat(f.getValue().trim());}    catch(Exception e){return d;} }
+    private double pd(EditBox f, double d) { if(f==null)return d; try{return Double.parseDouble(f.getValue().trim());} catch(Exception e){return d;} }
 }

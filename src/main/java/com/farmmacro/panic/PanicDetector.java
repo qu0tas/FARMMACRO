@@ -2,13 +2,13 @@ package com.farmmacro.panic;
 
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroManager;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.sound.AbstractSoundInstance;
-import net.minecraft.registry.Registries;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.random.Random;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.AbstractSoundInstance;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.RandomSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,7 +69,7 @@ public class PanicDetector {
         potionEffectChanged = true;
     }
 
-    public void notifyStuck(MinecraftClient client) {
+    public void notifyStuck(Minecraft client) {
         LOGGER.warn("[Stuck] Застревание! pos=({}, {}, {})",
                 client.player != null ? String.format("%.2f", client.player.getX()) : "?",
                 client.player != null ? String.format("%.2f", client.player.getY()) : "?",
@@ -77,13 +77,13 @@ public class PanicDetector {
         triggerPanic(client, "Застрял — координаты не меняются");
     }
 
-    public void snapshot(MinecraftClient client) {
+    public void snapshot(Minecraft client) {
         if (client.player == null) return;
         prevX          = client.player.getX();
         prevY          = client.player.getY();
         prevZ          = client.player.getZ();
-        prevYaw        = client.player.getYaw();
-        prevPitch      = client.player.getPitch();
+        prevYaw        = client.player.getYRot();
+        prevPitch      = client.player.getXRot();
         expectedHealth = client.player.getHealth();
         expectedSlot   = client.player.getInventory().getSelectedSlot();
         redScreenTicksLeft  = 0;
@@ -108,7 +108,7 @@ public class PanicDetector {
                 cfg.detectPotionEffect);
     }
 
-    public void tick(MinecraftClient client) {
+    public void tick(Minecraft client) {
         if (client.player == null) return;
         ModConfig cfg = ModConfig.INSTANCE;
 
@@ -131,8 +131,8 @@ public class PanicDetector {
         debugTickCounter++;
         if (debugTickCounter >= DEBUG_LOG_INTERVAL) {
             debugTickCounter = 0;
-            float dYaw = angleDiff(client.player.getYaw(), prevYaw);
-            float dPitch = Math.abs(client.player.getPitch() - prevPitch);
+            float dYaw = angleDiff(client.player.getYRot(), prevYaw);
+            float dPitch = Math.abs(client.player.getXRot() - prevPitch);
             double dist = Math.sqrt(
                 Math.pow(client.player.getX() - prevX, 2) +
                 Math.pow(client.player.getY() - prevY, 2) +
@@ -156,7 +156,7 @@ public class PanicDetector {
         if (cfg.detectGuiOpen && guiOpenedExternally) {
             reason = "GUI открылось снаружи";
             LOGGER.warn("[Детект-Д] GUI открылось снаружи. screen={}",
-                    client.currentScreen != null ? client.currentScreen.getClass().getSimpleName() : "null");
+                    client.screen != null ? client.screen.getClass().getSimpleName() : "null");
         }
 
         // В: блок в лицо
@@ -170,19 +170,19 @@ public class PanicDetector {
 
         // А: поворот камеры
         if (reason == null && cfg.detectRotation) {
-            float dy = angleDiff(client.player.getYaw(), prevYaw);
-            float dp = Math.abs(client.player.getPitch() - prevPitch);
+            float dy = angleDiff(client.player.getYRot(), prevYaw);
+            float dp = Math.abs(client.player.getXRot() - prevPitch);
             if (dy > cfg.yawThreshold) {
                 reason = "Камера повернулась (yaw +" + String.format("%.2f", dy) + ")";
                 LOGGER.warn("[Детект-А] Yaw: было={} стало={} D={} порог={}",
                         String.format("%.2f", prevYaw),
-                        String.format("%.2f", client.player.getYaw()),
+                        String.format("%.2f", client.player.getYRot()),
                         String.format("%.2f", dy), cfg.yawThreshold);
             } else if (dp > cfg.pitchThreshold) {
                 reason = "Камера повернулась (pitch +" + String.format("%.2f", dp) + ")";
                 LOGGER.warn("[Детект-А] Pitch: было={} стало={} D={} порог={}",
                         String.format("%.2f", prevPitch),
-                        String.format("%.2f", client.player.getPitch()),
+                        String.format("%.2f", client.player.getXRot()),
                         String.format("%.2f", dp), cfg.pitchThreshold);
             }
         }
@@ -254,7 +254,7 @@ public class PanicDetector {
         updatePrev(client);
     }
 
-    private void triggerPanic(MinecraftClient client, String reason) {
+    private void triggerPanic(Minecraft client, String reason) {
         ModConfig cfg = ModConfig.INSTANCE;
 
         LOGGER.error("╔═══════════════════════════════════════════════════");
@@ -264,8 +264,8 @@ public class PanicDetector {
                     String.format("%.2f", client.player.getX()),
                     String.format("%.2f", client.player.getY()),
                     String.format("%.2f", client.player.getZ()),
-                    String.format("%.2f", client.player.getYaw()),
-                    String.format("%.2f", client.player.getPitch()));
+                    String.format("%.2f", client.player.getYRot()),
+                    String.format("%.2f", client.player.getXRot()));
             LOGGER.error("║  prevYaw={} prevPitch={}",
                     String.format("%.2f", prevYaw), String.format("%.2f", prevPitch));
             LOGGER.error("║  hp={} slot={} (ожидался {})",
@@ -287,22 +287,22 @@ public class PanicDetector {
             redScreenTicksLeft = cfg.panicRedScreenTicks;
     }
 
-    private void playPanicSound(MinecraftClient client, ModConfig cfg) {
+    private void playPanicSound(Minecraft client, ModConfig cfg) {
         if (cfg.panicSoundSystem) {
             playSystemSound(cfg.panicSoundVolume);
             return;
         }
-        if (client.world == null || client.player == null) return;
+        if (client.level == null || client.player == null) return;
         try {
-            Identifier id    = Identifier.of(cfg.panicSoundId);
-            SoundEvent sound = Registries.SOUND_EVENT.get(id);
+            Identifier id    = Identifier.parse(cfg.panicSoundId);
+            SoundEvent sound = BuiltInRegistries.SOUND_EVENT.getValue(id);
             if (sound == null) {
                 LOGGER.warn("[Звук] Звук не найден: {}", cfg.panicSoundId);
                 return;
             }
             float pitch  = cfg.panicSoundPitch;
             float volume = cfg.panicSoundVolume;
-            client.getSoundManager().play(new AbstractSoundInstance(sound, SoundCategory.MASTER, Random.create()) {
+            client.getSoundManager().play(new AbstractSoundInstance(sound, SoundSource.MASTER, RandomSource.create()) {
                 { this.volume = volume; this.pitch = pitch; this.relative = true; }
             });
         } catch (Exception e) {
@@ -387,7 +387,7 @@ public class PanicDetector {
     public boolean isInPanic()         { return redScreenTicksLeft > 0; }
     public int     getRedScreenTicks() { return redScreenTicksLeft; }
 
-    public void tickEffectsOnly(MinecraftClient client) {
+    public void tickEffectsOnly(Minecraft client) {
         if (redScreenTicksLeft > 0) redScreenTicksLeft--;
         if (soundRepeatsLeft > 0) {
             if (soundRepeatDelay > 0) {
@@ -400,13 +400,13 @@ public class PanicDetector {
         }
     }
 
-    private void updatePrev(MinecraftClient client) {
+    private void updatePrev(Minecraft client) {
         if (client.player == null) return;
         prevX     = client.player.getX();
         prevY     = client.player.getY();
         prevZ     = client.player.getZ();
-        prevYaw   = client.player.getYaw();
-        prevPitch = client.player.getPitch();
+        prevYaw   = client.player.getYRot();
+        prevPitch = client.player.getXRot();
     }
 
     private void clearFlags() {

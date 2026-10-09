@@ -1,8 +1,9 @@
 package com.farmmacro.macro;
 
 import com.farmmacro.config.ModConfig;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.minecraft.resources.Identifier;
+import net.minecraft.client.Minecraft;
 
 /**
  * HUD-оверлей статистики текущей сессии.
@@ -23,18 +24,18 @@ public class StatsOverlay {
     private static final int PANEL_H      = 44;
 
     public static void register() {
-        HudRenderCallback.EVENT.register((ctx, tickDelta) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "stats"), (ctx, tickDelta) -> {
             if (!ModConfig.INSTANCE.statsHudEnabled) return;
 
             MacroManager mgr = MacroManager.INSTANCE;
             if (mgr.getSessionRuns() == 0) return;
 
-            MinecraftClient client = MinecraftClient.getInstance();
+            Minecraft client = Minecraft.getInstance();
             if (client.player == null) return;
             // Не показываем поверх GUI
-            if (client.currentScreen != null) return;
+            if (client.screen != null) return;
 
-            int sw = client.getWindow().getScaledWidth();
+            int sw = client.getWindow().getGuiScaledWidth();
             int px = sw - PANEL_W - MARGIN_RIGHT;
             int py = MARGIN_TOP;
 
@@ -47,16 +48,16 @@ public class StatsOverlay {
             ctx.fill(px + PANEL_W - 1, py,               px + PANEL_W,  py + PANEL_H,  COLOR_BORDER);
 
             // Заголовок
-            ctx.drawText(client.textRenderer, "§f[FM] §7Статистика", px + 5, py + 4, COLOR_TITLE, false);
+            ctx.text(client.font, "§f[FM] §7Статистика", px + 5, py + 4, COLOR_TITLE, false);
 
             // Длительность сессии
             long elapsed = mgr.getSessionStartMs() > 0
                     ? System.currentTimeMillis() - mgr.getSessionStartMs() : 0;
             String timeStr = formatDuration(elapsed);
-            ctx.drawText(client.textRenderer, "§7Сессия: §a" + timeStr, px + 5, py + 16, COLOR_LABEL, false);
+            ctx.text(client.font, "§7Сессия: §a" + timeStr, px + 5, py + 16, COLOR_LABEL, false);
 
             // Количество запусков
-            ctx.drawText(client.textRenderer, "§7Запусков: §a" + mgr.getSessionRuns(), px + 5, py + 28, COLOR_LABEL, false);
+            ctx.text(client.font, "§7Запусков: §a" + mgr.getSessionRuns(), px + 5, py + 28, COLOR_LABEL, false);
         });
     }
 

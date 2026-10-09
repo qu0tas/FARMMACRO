@@ -5,13 +5,13 @@ import com.farmmacro.gui.FarmMacroScreen;
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.macro.SavedPositionRenderer;
 import com.farmmacro.panic.PanicDetector;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,20 +20,20 @@ public class FarmMacroMod implements ClientModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("farmmacro");
 
     /** Своя категория в меню управления (1.21.9+: категория — объект, а не строка). */
-    private static final KeyBinding.Category CATEGORY =
-            KeyBinding.Category.create(Identifier.of("farmmacro", "general"));
+    private static final KeyMapping.Category CATEGORY =
+            KeyMapping.Category.register(Identifier.fromNamespaceAndPath("farmmacro", "general"));
 
-    private static KeyBinding makeKey(String id, int defaultCode) {
-        return KeyBindingHelper.registerKeyBinding(
-                new KeyBinding(id, InputUtil.Type.KEYSYM, defaultCode, CATEGORY));
+    private static KeyMapping makeKey(String id, int defaultCode) {
+        return KeyMappingHelper.registerKeyMapping(
+                new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
     }
 
-    public static KeyBinding keyRecord;
-    public static KeyBinding keyPlay;
-    public static KeyBinding keyClear;
-    public static KeyBinding keyOpenGui;
-    public static KeyBinding keyResume;
-    public static KeyBinding keyResetPos;
+    public static KeyMapping keyRecord;
+    public static KeyMapping keyPlay;
+    public static KeyMapping keyClear;
+    public static KeyMapping keyOpenGui;
+    public static KeyMapping keyResume;
+    public static KeyMapping keyResetPos;
 
     @Override
     public void onInitializeClient() {
@@ -62,19 +62,19 @@ public class FarmMacroMod implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
 
-            while (keyRecord.wasPressed())  MacroManager.INSTANCE.toggleRecording(client);
-            while (keyPlay.wasPressed()) {
+            while (keyRecord.consumeClick())  MacroManager.INSTANCE.toggleRecording(client);
+            while (keyPlay.consumeClick()) {
                     MacroManager.INSTANCE.togglePlayback(client);
             }
-            while (keyClear.wasPressed())   MacroManager.INSTANCE.clearRecording(client);
-            while (keyResume.wasPressed())  MacroManager.INSTANCE.resumeFromSaved(client);
-            while (keyResetPos.wasPressed()) {
+            while (keyClear.consumeClick())   MacroManager.INSTANCE.clearRecording(client);
+            while (keyResume.consumeClick())  MacroManager.INSTANCE.resumeFromSaved(client);
+            while (keyResetPos.consumeClick()) {
                 MacroManager.INSTANCE.clearSavedPosition();
                 if (client.player != null)
-                    client.player.sendMessage(net.minecraft.text.Text.literal("§7[FM] Сохранённая позиция очищена"), true);
+                    client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal("§7[FM] Сохранённая позиция очищена"));
             }
-            while (keyOpenGui.wasPressed()) {
-                client.setScreen(new FarmMacroScreen(client.currentScreen));
+            while (keyOpenGui.consumeClick()) {
+                client.setScreen(new FarmMacroScreen(client.screen));
             }
 
             MacroManager.INSTANCE.tickRecord(client);
@@ -91,8 +91,8 @@ public class FarmMacroMod implements ClientModInitializer {
         });
     }
 
-    private static void msg(net.minecraft.client.MinecraftClient client, String text) {
+    private static void msg(net.minecraft.client.Minecraft client, String text) {
         if (client.player != null)
-            client.player.sendMessage(Text.literal("[FM] " + text), true);
+            client.player.sendOverlayMessage(Component.literal("[FM] " + text));
     }
 }

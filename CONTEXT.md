@@ -116,3 +116,25 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 ================================================================
+
+================================================================
+  ПЕРЕНОС НА 26.2 (октябрь 2026)
+================================================================
+Целевая версия: Minecraft 26.1.2 (есть и вариант под 26.2)
+Загрузчик: Fabric, маппинги: официальные имена Mojang (игра больше не обфусцирована)
+  net.fabricmc.fabric-loom 1.18.3 (без remap, implementation вместо modImplementation)
+  fabric-loader 0.19.5, fabric-api 0.155.3+26.1.2, Gradle 9.7.1, JDK 25
+
+Шаги переноса:
+1. 1.21.11: Yarn -> Mojang (./gradlew migrateMappings --mappings "net.minecraft:mappings:1.21.11")
+2. 26.2: новые имена API:
+   - KeyBindingHelper (keybinding.v1) -> KeyMappingHelper (keymapping.v1)
+   - HudRenderCallback -> HudElementRegistry.addLast(Identifier, (graphics, delta) -> ...)
+   - GuiGraphics -> GuiGraphicsExtractor; drawString -> text
+   - Screen.render/renderBackground -> extractRenderState/extractBackground
+   - Minecraft.setScreen / .screen -> minecraft.gui.setScreen(...) / minecraft.gui.screen()
+   - player.displayClientMessage(msg, true) -> player.sendOverlayMessage(msg)
+   - PanicGuiMixin: цель Minecraft.setScreen -> Gui.setScreen
+================================================================
+Отличие 26.1.2 от 26.2: в 26.1.2 окна по-прежнему открываются через minecraft.setScreen(...) / minecraft.screen,
+и PanicGuiMixin целится в Minecraft.setScreen. В 26.2 это переехало в minecraft.gui (Gui.setScreen).

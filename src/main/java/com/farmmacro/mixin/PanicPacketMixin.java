@@ -2,10 +2,10 @@ package com.farmmacro.mixin;
 
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.panic.PanicDetector;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.network.packet.s2c.play.EntityStatusEffectS2CPacket;
-import net.minecraft.network.packet.s2c.play.PlayerPositionLookS2CPacket;
-import net.minecraft.network.packet.s2c.play.RemoveEntityStatusEffectS2CPacket;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveMobEffectPacket;
+import net.minecraft.network.protocol.game.ClientboundUpdateMobEffectPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
@@ -13,14 +13,14 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(ClientPlayNetworkHandler.class)
+@Mixin(ClientPacketListener.class)
 public class PanicPacketMixin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/PanicPacketMixin");
 
     // Ж: Server-forced rotation
-    @Inject(method = "onPlayerPositionLook", at = @At("HEAD"))
-    private void onPlayerPositionLook(PlayerPositionLookS2CPacket packet, CallbackInfo ci) {
+    @Inject(method = "handleMovePlayer", at = @At("HEAD"))
+    private void onPlayerPositionLook(ClientboundPlayerPositionPacket packet, CallbackInfo ci) {
         boolean playing = MacroManager.INSTANCE.isPlaying();
         LOGGER.debug("[PanicPacketMixin] PlayerPositionLookS2CPacket получен, playing={}", playing);
         if (!playing) return;
@@ -29,8 +29,8 @@ public class PanicPacketMixin {
     }
 
     // З: Potion add
-    @Inject(method = "onEntityStatusEffect", at = @At("HEAD"))
-    private void onEntityStatusEffect(EntityStatusEffectS2CPacket packet, CallbackInfo ci) {
+    @Inject(method = "handleUpdateMobEffect", at = @At("HEAD"))
+    private void onEntityStatusEffect(ClientboundUpdateMobEffectPacket packet, CallbackInfo ci) {
         boolean playing = MacroManager.INSTANCE.isPlaying();
         LOGGER.debug("[PanicPacketMixin] EntityStatusEffect (добавление): entityId={} playing={}",
                 packet.getEntityId(), playing);
@@ -40,8 +40,8 @@ public class PanicPacketMixin {
     }
 
     // З: Potion remove
-    @Inject(method = "onRemoveEntityStatusEffect", at = @At("HEAD"))
-    private void onRemoveEntityStatusEffect(RemoveEntityStatusEffectS2CPacket packet, CallbackInfo ci) {
+    @Inject(method = "handleRemoveMobEffect", at = @At("HEAD"))
+    private void onRemoveEntityStatusEffect(ClientboundRemoveMobEffectPacket packet, CallbackInfo ci) {
         boolean playing = MacroManager.INSTANCE.isPlaying();
         LOGGER.debug("[PanicPacketMixin] RemoveEntityStatusEffect: playing={}", playing);
         if (!playing) return;

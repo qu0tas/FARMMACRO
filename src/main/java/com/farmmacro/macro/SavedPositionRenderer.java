@@ -1,8 +1,8 @@
 package com.farmmacro.macro;
 
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.minecraft.resources.Identifier;
+import net.minecraft.client.Minecraft;
 
 /**
  * Рисует HUD-маркер сохранённой позиции остановки макроса.
@@ -27,11 +27,11 @@ public class SavedPositionRenderer {
     private static final int PANEL_H      = 36;
 
     public static void register() {
-        HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "saved_position"), (drawContext, tickDelta) -> {
             MacroManager mgr = MacroManager.INSTANCE;
             if (!mgr.hasSavedPosition() || mgr.isPlaying()) return;
 
-            MinecraftClient client = MinecraftClient.getInstance();
+            Minecraft client = Minecraft.getInstance();
             if (client.player == null) return;
 
             double px = client.player.getX();
@@ -45,11 +45,11 @@ public class SavedPositionRenderer {
 
             // Угол между взглядом игрока и направлением к точке (горизонтально)
             double targetYaw   = Math.toDegrees(Math.atan2(tz - pz, tx - px)) - 90.0;
-            double playerYaw   = client.player.getYaw();
+            double playerYaw   = client.player.getYRot();
             double relAngle    = (targetYaw - playerYaw + 360.0) % 360.0;
             // relAngle: 0=вперёд, 90=право, 180=назад, 270=лево
 
-            int sw = client.getWindow().getScaledWidth();
+            int sw = client.getWindow().getGuiScaledWidth();
             int panelX = sw - PANEL_W - MARGIN_RIGHT;
             int panelY = MARGIN_TOP;
 
@@ -67,22 +67,22 @@ public class SavedPositionRenderer {
             drawContext.fill(panelX + PANEL_W - 1, panelY,                panelX + PANEL_W,  panelY + PANEL_H,   borderColor);
 
             // Заголовок
-            drawContext.drawText(client.textRenderer,
+            drawContext.text(client.font,
                     "§f[FM] §aSaved pos", panelX + 5, panelY + 4, COLOR_TITLE, false);
 
             // Дистанция
             String distStr = String.format("%.1fm", dist);
-            drawContext.drawText(client.textRenderer,
+            drawContext.text(client.font,
                     distStr, panelX + 5, panelY + 15, COLOR_GREEN, false);
 
             // Стрелка направления (ASCII-арт символы)
             String arrow = getArrow(relAngle);
             int arrowX = panelX + PANEL_W - 28;
-            drawContext.drawText(client.textRenderer,
+            drawContext.text(client.font,
                     arrow, arrowX, panelY + 10, COLOR_ARROW, false);
 
             // Подсказка клавиши
-            drawContext.drawText(client.textRenderer,
+            drawContext.text(client.font,
                     "§7[O] resume", panelX + 5, panelY + 26, 0xFFAAAAAA, false);
         });
     }

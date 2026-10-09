@@ -2,13 +2,12 @@ package com.farmmacro.gui;
 
 import com.farmmacro.macro.MacroFrame;
 import com.farmmacro.macro.MacroStorage;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.text.Text;
-
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
 /**
  * SaveMacroScreen — маленькое диалоговое окно, которое появляется
@@ -27,12 +26,12 @@ public class SaveMacroScreen extends Screen {
 
     private final Screen         parent;
     private final List<MacroFrame> frames;
-    private TextFieldWidget      nameField;
+    private EditBox      nameField;
     private String               statusMsg = "";
     private int                  statusColor = TEXT_LIGHT;
 
     public SaveMacroScreen(Screen parent, List<MacroFrame> frames) {
-        super(Text.literal("Сохранить макрос"));
+        super(Component.literal("Сохранить макрос"));
         this.parent = parent;
         this.frames = frames;
     }
@@ -51,28 +50,28 @@ public class SaveMacroScreen extends Screen {
         int x = dX(), y = dY(), w = dW();
 
         // Поле ввода имени
-        nameField = new TextFieldWidget(textRenderer,
-                x + 10, y + 36, w - 20, 20, Text.empty());
+        nameField = new EditBox(font,
+                x + 10, y + 36, w - 20, 20, Component.empty());
         nameField.setMaxLength(48);
-        nameField.setPlaceholder(Text.literal("Название макроса..."));
+        nameField.setHint(Component.literal("Название макроса..."));
         nameField.setFocused(true);
-        addDrawableChild(nameField);
+        addRenderableWidget(nameField);
 
         // Кнопки
         int btnW = (w - 28) / 2;
-        addDrawableChild(ButtonWidget.builder(Text.literal("Сохранить"),
+        addRenderableWidget(Button.builder(Component.literal("Сохранить"),
                 b -> trySave()
-        ).dimensions(x + 8, y + dH() - 30, btnW, 20).build());
+        ).bounds(x + 8, y + dH() - 30, btnW, 20).build());
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("Отмена"),
-                b -> client.setScreen(parent)
-        ).dimensions(x + btnW + 12, y + dH() - 30, btnW, 20).build());
+        addRenderableWidget(Button.builder(Component.literal("Отмена"),
+                b -> minecraft.setScreen(parent)
+        ).bounds(x + btnW + 12, y + dH() - 30, btnW, 20).build());
     }
 
     // ── Логика сохранения ─────────────────────────────────────────────────────
 
     private void trySave() {
-        String name = nameField.getText().trim();
+        String name = nameField.getValue().trim();
         if (name.isEmpty()) {
             statusMsg   = "Введи название!";
             statusColor = ACCENT_RED;
@@ -80,7 +79,7 @@ public class SaveMacroScreen extends Screen {
         }
         boolean ok = MacroStorage.INSTANCE.save(name, frames);
         if (ok) {
-            client.setScreen(parent);
+            minecraft.setScreen(parent);
         } else {
             statusMsg   = "Ошибка сохранения";
             statusColor = ACCENT_RED;
@@ -90,17 +89,17 @@ public class SaveMacroScreen extends Screen {
     // ── keyPressed — Enter сохраняет ──────────────────────────────────────────
 
     @Override
-    public boolean keyPressed(net.minecraft.client.input.KeyInput input) {
+    public boolean keyPressed(net.minecraft.client.input.KeyEvent input) {
         if (input.key() == 257) { trySave(); return true; } // ENTER
-        if (input.key() == 256) { client.setScreen(parent); return true; } // ESC
+        if (input.key() == 256) { minecraft.setScreen(parent); return true; } // ESC
         return super.keyPressed(input);
     }
 
     // ── Рендер ────────────────────────────────────────────────────────────────
 
     @Override
-    public void renderBackground(DrawContext ctx, int mx, int my, float delta) {
-        super.renderBackground(ctx, mx, my, delta);
+    public void extractBackground(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
+        super.extractBackground(ctx, mx, my, delta);
         int x = dX(), y = dY(), w = dW(), h = dH();
 
         // Тень
@@ -117,20 +116,20 @@ public class SaveMacroScreen extends Screen {
     }
 
     @Override
-    public void render(DrawContext ctx, int mx, int my, float delta) {
-        super.render(ctx, mx, my, delta);
+    public void extractRenderState(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
+        super.extractRenderState(ctx, mx, my, delta);
         int x = dX(), y = dY();
 
-        ctx.drawTextWithShadow(textRenderer,
+        ctx.text(font,
                 "Сохранить макрос", x + 10, y + 8, ACCENT_RED);
-        ctx.drawTextWithShadow(textRenderer,
+        ctx.text(font,
                 "Кадров: " + frames.size(), x + 10, y + 22, TEXT_GRAY);
 
         if (!statusMsg.isEmpty()) {
-            ctx.drawTextWithShadow(textRenderer, statusMsg, x + 10, y + 60, statusColor);
+            ctx.text(font, statusMsg, x + 10, y + 60, statusColor);
         }
     }
 
     @Override public boolean shouldCloseOnEsc() { return true; }
-    @Override public void close() { client.setScreen(parent); }
+    @Override public void onClose() { minecraft.setScreen(parent); }
 }

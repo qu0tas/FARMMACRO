@@ -1,20 +1,20 @@
 package com.farmmacro.panic;
 
 import com.farmmacro.config.ModConfig;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.minecraft.resources.Identifier;
+import net.minecraft.client.Minecraft;
 
 /**
  * PanicOverlayRenderer — рисует красный оверлей поверх экрана во время паники.
  *
- * Регистрируется через HudRenderCallback в FarmMacroMod.
+ * Регистрируется через HudElementRegistry в FarmMacroMod.
  * Интенсивность плавно спадает по мере истечения redScreenTicks.
  */
 public class PanicOverlayRenderer {
 
     public static void register() {
-        HudRenderCallback.EVENT.register((drawContext, tickDeltaManager) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "panic_overlay"), (drawContext, tickDeltaManager) -> {
             ModConfig cfg = ModConfig.INSTANCE;
             if (!cfg.panicRedScreenEnabled) return;
 
@@ -22,7 +22,7 @@ public class PanicOverlayRenderer {
             int maxTicks  = cfg.panicRedScreenTicks;
             if (ticksLeft <= 0 || maxTicks <= 0) return;
 
-            MinecraftClient client = MinecraftClient.getInstance();
+            Minecraft client = Minecraft.getInstance();
             if (client.player == null) return;
 
             // ticksLeft убывает maxTicks→0, поэтому:
@@ -31,8 +31,8 @@ public class PanicOverlayRenderer {
             int alpha   = (int)(ratio * 160); // макс 160 из 255 (~63% прозрачности)
             int color   = (alpha << 24) | 0xFF0000;
 
-            int w = client.getWindow().getScaledWidth();
-            int h = client.getWindow().getScaledHeight();
+            int w = client.getWindow().getGuiScaledWidth();
+            int h = client.getWindow().getGuiScaledHeight();
             drawContext.fill(0, 0, w, h, color);
         });
     }

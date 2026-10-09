@@ -1,14 +1,14 @@
 package com.farmmacro.macro;
 
 import com.farmmacro.panic.PanicDetector;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.GameOptions;
-import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Options;
+import net.minecraft.network.chat.Component;
 
 public class MacroManager {
 
@@ -41,7 +41,7 @@ public class MacroManager {
     // ── Кеш XZ-позиций макроса для фильтрации стен фермы ─────────────────────
     private java.util.Set<Long> macroXZCache = null;
 
-    public void toggleRecording(MinecraftClient client) {
+    public void toggleRecording(Minecraft client) {
         if (playing) { msg(client, "§cСначала останови воспроизведение (P)"); return; }
         if (!recording) {
             frames.clear();
@@ -50,35 +50,35 @@ public class MacroManager {
         } else {
             recording = false;
             msg(client, "§e■ Запись остановлена. Кадров: " + frames.size());
-            if (!frames.isEmpty() && client.currentScreen == null) {
+            if (!frames.isEmpty() && client.screen == null) {
                 client.setScreen(new com.farmmacro.gui.SaveMacroScreen(null, new java.util.ArrayList<>(frames)));
             }
         }
     }
 
-    public void tickRecord(MinecraftClient client) {
+    public void tickRecord(Minecraft client) {
         if (!recording || client.player == null) return;
-        GameOptions opt = client.options;
+        Options opt = client.options;
         MacroFrame frame = new MacroFrame(
                 client.player.getX(), client.player.getY(), client.player.getZ(),
-                client.player.getYaw(), client.player.getPitch(),
-                opt.forwardKey.isPressed(), opt.backKey.isPressed(),
-                opt.leftKey.isPressed(), opt.rightKey.isPressed(),
-                opt.jumpKey.isPressed(), opt.sneakKey.isPressed(), opt.sprintKey.isPressed(),
-                opt.attackKey.isPressed(), opt.useKey.isPressed(),
+                client.player.getYRot(), client.player.getXRot(),
+                opt.keyUp.isDown(), opt.keyDown.isDown(),
+                opt.keyLeft.isDown(), opt.keyRight.isDown(),
+                opt.keyJump.isDown(), opt.keyShift.isDown(), opt.keySprint.isDown(),
+                opt.keyAttack.isDown(), opt.keyUse.isDown(),
                 client.player.getInventory().getSelectedSlot()
         );
         frames.add(frame);
     }
 
-    public void clearRecording(MinecraftClient client) {
+    public void clearRecording(Minecraft client) {
         if (playing) { msg(client, "§cСначала останови воспроизведение (P)"); return; }
         frames.clear();
         recording = false;
         msg(client, "§7Запись очищена.");
     }
 
-    public void togglePlayback(MinecraftClient client) {
+    public void togglePlayback(Minecraft client) {
         if (recording) { msg(client, "§cСначала останови запись (R)"); return; }
         if (frames.isEmpty()) { msg(client, "§cНет записи! Сначала запиши макрос (R)"); return; }
         if (!playing) {
@@ -101,7 +101,7 @@ public class MacroManager {
         }
     }
 
-    public void tickPlayback(MinecraftClient client) {
+    public void tickPlayback(Minecraft client) {
         if (!playing || client.player == null) return;
 
         double curX = client.player.getX();
@@ -162,15 +162,15 @@ public class MacroManager {
         client.player.getInventory().setSelectedSlot(f.selectedSlot);
         PanicDetector.INSTANCE.updateExpectedSlot(f.selectedSlot);
 
-        applyKey(client.options.forwardKey,  f.forward);
-        applyKey(client.options.backKey,     f.back);
-        applyKey(client.options.leftKey,     f.left);
-        applyKey(client.options.rightKey,    f.right);
-        applyKey(client.options.jumpKey,     f.jump);
-        applyKey(client.options.sneakKey,    f.sneak);
-        applyKey(client.options.sprintKey,   f.sprint);
-        applyKey(client.options.attackKey,   f.attackPressed);
-        applyKey(client.options.useKey,      f.usePressed);
+        applyKey(client.options.keyUp,  f.forward);
+        applyKey(client.options.keyDown,     f.back);
+        applyKey(client.options.keyLeft,     f.left);
+        applyKey(client.options.keyRight,    f.right);
+        applyKey(client.options.keyJump,     f.jump);
+        applyKey(client.options.keyShift,    f.sneak);
+        applyKey(client.options.keySprint,   f.sprint);
+        applyKey(client.options.keyAttack,   f.attackPressed);
+        applyKey(client.options.keyUse,      f.usePressed);
 
         playbackIndex++;
     }
@@ -182,8 +182,8 @@ public class MacroManager {
      * Используется исключительно BlockPos + world.getBlockState — без raycast,
      * чтобы не зависеть от угла камеры.
      */
-    private boolean isBlockedByWall(MinecraftClient client, List<MacroFrame> frames) {
-        if (client.player == null || client.world == null) return false;
+    private boolean isBlockedByWall(Minecraft client, List<MacroFrame> frames) {
+        if (client.player == null || client.level == null) return false;
         if (playbackIndex <= 0 || playbackIndex > frames.size()) return false;
 
         MacroFrame cf = frames.get(playbackIndex - 1);
@@ -211,15 +211,15 @@ public class MacroManager {
         double py = client.player.getY();
 
         // Проверяем ноги (Y) и голову (Y+1)
-        net.minecraft.util.math.BlockPos feet = new net.minecraft.util.math.BlockPos(
+        net.minecraft.core.BlockPos feet = new net.minecraft.core.BlockPos(
                 (int) Math.floor(px), (int) Math.floor(py), (int) Math.floor(pz));
-        net.minecraft.util.math.BlockPos head = new net.minecraft.util.math.BlockPos(
+        net.minecraft.core.BlockPos head = new net.minecraft.core.BlockPos(
                 (int) Math.floor(px), (int) Math.floor(py + 1), (int) Math.floor(pz));
 
-        boolean feetBlocked = !client.world.getBlockState(feet).getCollisionShape(
-                client.world, feet).isEmpty();
-        boolean headBlocked = !client.world.getBlockState(head).getCollisionShape(
-                client.world, head).isEmpty();
+        boolean feetBlocked = !client.level.getBlockState(feet).getCollisionShape(
+                client.level, feet).isEmpty();
+        boolean headBlocked = !client.level.getBlockState(head).getCollisionShape(
+                client.level, head).isEmpty();
 
         if (!feetBlocked && !headBlocked) return false;
 
@@ -251,13 +251,13 @@ public class MacroManager {
         return macroXZCache;
     }
 
-    private void applyKey(net.minecraft.client.option.KeyBinding key, boolean pressed) {
+    private void applyKey(net.minecraft.client.KeyMapping key, boolean pressed) {
         // Жмём ту клавишу, на которую игрок реально назначил действие (а не дефолтную)
-        net.minecraft.client.option.KeyBinding.setKeyPressed(
-                net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.getBoundKeyOf(key), pressed);
+        net.minecraft.client.KeyMapping.set(
+                net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.getBoundKeyOf(key), pressed);
     }
 
-    public void stopPlayback(MinecraftClient client, String reason) {
+    public void stopPlayback(Minecraft client, String reason) {
         if (playing && client.player != null && playbackIndex > 0) {
             savedIndex       = playbackIndex - 1;
             savedX           = client.player.getX();
@@ -272,7 +272,7 @@ public class MacroManager {
         msg(client, reason);
     }
 
-    public void resumeFromSaved(MinecraftClient client) {
+    public void resumeFromSaved(Minecraft client) {
         if (recording)         { msg(client, "§cСначала останови запись (R)"); return; }
         if (playing)           { msg(client, "§cМакрос уже играет"); return; }
         if (!hasSavedPosition) { msg(client, "§7Нет сохранённой позиции"); return; }
@@ -301,17 +301,17 @@ public class MacroManager {
     public double  getSavedZ()          { return savedZ; }
     public void    clearSavedPosition() { hasSavedPosition = false; savedIndex = -1; }
 
-    private void releaseAll(MinecraftClient client) {
+    private void releaseAll(Minecraft client) {
         if (client.options == null) return;
-        applyKey(client.options.forwardKey,  false);
-        applyKey(client.options.backKey,     false);
-        applyKey(client.options.leftKey,     false);
-        applyKey(client.options.rightKey,    false);
-        applyKey(client.options.jumpKey,     false);
-        applyKey(client.options.sneakKey,    false);
-        applyKey(client.options.sprintKey,   false);
-        applyKey(client.options.attackKey,   false);
-        applyKey(client.options.useKey,      false);
+        applyKey(client.options.keyUp,  false);
+        applyKey(client.options.keyDown,     false);
+        applyKey(client.options.keyLeft,     false);
+        applyKey(client.options.keyRight,    false);
+        applyKey(client.options.keyJump,     false);
+        applyKey(client.options.keyShift,    false);
+        applyKey(client.options.keySprint,   false);
+        applyKey(client.options.keyAttack,   false);
+        applyKey(client.options.keyUse,      false);
     }
 
     public boolean isRecording()    { return recording; }
@@ -327,7 +327,7 @@ public class MacroManager {
         com.farmmacro.config.ModConfig.save();
     }
 
-    public void loadMacro(java.util.List<MacroFrame> loadedFrames, MinecraftClient client) {
+    public void loadMacro(java.util.List<MacroFrame> loadedFrames, Minecraft client) {
         if (playing)    { msg(client, "§cСначала останови воспроизведение (P)"); return; }
         if (recording)  { msg(client, "§cСначала останови запись (R)"); return; }
         frames.clear();
@@ -337,8 +337,8 @@ public class MacroManager {
         msg(client, "§aМакрос загружен. Кадров: " + frames.size() + "  Нажми P для запуска.");
     }
 
-    private void msg(MinecraftClient client, String text) {
+    private void msg(Minecraft client, String text) {
         if (client.player != null)
-            client.player.sendMessage(Text.literal("[FarmMacro] " + text), true);
+            client.player.sendOverlayMessage(Component.literal("[FarmMacro] " + text));
     }
 }
