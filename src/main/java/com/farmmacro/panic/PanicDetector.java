@@ -1,422 +1,269 @@
 package com.farmmacro.panic;
 
 import com.farmmacro.config.ModConfig;
+import com.farmmacro.gui.FarmMacroScreen;
+import com.farmmacro.gui.SaveMacroScreen;
 import com.farmmacro.macro.MacroManager;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.sounds.AbstractSoundInstance;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
-import net.minecraft.sounds.SoundEvent;
-import net.minecraft.sounds.SoundSource;
-import net.minecraft.util.RandomSource;
+import net.minecraft.client.gui.screens.ChatScreen;
+import net.minecraft.client.gui.screens.PauseScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Locale;
+
+/**
+ * Детекторы паники. Паника = аварийный стоп макроса + красный экран + звук. Больше ничего.
+ *
+ * Как устроено:
+ *  • События от сервера (телепорт/поворот, блок рядом, эффекты) приходят из {@code PanicPacketMixin}
+ *    уже в главном потоке и складываются в {@link #pendingReason}.
+ *  • Открытие чужого GUI приходит из {@code PanicGuiMixin}.
+ *  • {@link #tick} (каждый клиентский тик, пока макрос играет) проверяет мышь, слот, урон
+ *    и, если есть причина, вызывает {@link #triggerPanic}.
+ *  • Застревание и сход с маршрута проверяет MacroManager (ему нужна запись) и тоже зовёт triggerPanic.
+ */
 public class PanicDetector {
 
     public static final PanicDetector INSTANCE = new PanicDetector();
+    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Panic");
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/PanicDetector");
+    private float prevYaw, prevPitch;
+    private float expectedHealth;
+    private int   expectedSlot;
 
-    private double  prevX, prevY, prevZ;
-    private float   prevYaw, prevPitch;
-    private float   expectedHealth;
-    private int     expectedSlot;
+    /** Первая причина паники, пришедшая из пакета/GUI за этот тик. Только главный поток. */
+    private String pendingReason;
 
-    private volatile boolean guiOpenedExternally  = false;
-    private volatile boolean blockAppearedInFace  = false;
-    private volatile boolean serverForcedRotation = false;
-    private volatile boolean potionEffectChanged  = false;
+    // захват состояния перед обработкой пакета движения
+    private boolean moveCaptured;
+    private double  mvX, mvY, mvZ;
+    private float   mvYaw, mvPitch;
 
-    private int ticksSinceMouseMove = 999;
-    private int redScreenTicksLeft = 0;
-    private int soundRepeatsLeft = 0;
-    private int soundRepeatDelay = 0;
+    private int redScreenTicksLeft;
+    private int soundRepeatsLeft;
+    private int soundRepeatDelay;
 
-    private int debugTickCounter = 0;
-    private static final int DEBUG_LOG_INTERVAL = 100;
+    private String lastReason;
+    private long   lastPanicMs;
+    private String overlayText;
 
-    public void updateExpected(double x, double y, double z, float yaw, float pitch) {}
-    public void updateExpectedRotation(float yaw, float pitch) {}
+    // ── Состояние ────────────────────────────────────────────────────────────
 
-    public void updateExpectedSlot(int slot) {
-        if (slot != expectedSlot) {
-            LOGGER.debug("[Слот] ожидаемый обновлён: {} -> {}", expectedSlot, slot);
-        }
-        expectedSlot = slot;
+    private static boolean armed() {
+        return MacroManager.INSTANCE.isPlaying() && ModConfig.INSTANCE.panicEnabled;
     }
 
-    public void notifyGuiOpenedExternally() {
-        LOGGER.warn("[Mixin/GUI] notifyGuiOpenedExternally() вызван, playing={}", MacroManager.INSTANCE.isPlaying());
-        guiOpenedExternally = true;
+    private void flag(String reason) {
+        if (pendingReason == null) {
+            pendingReason = reason;
+            LOGGER.warn("[Флаг] {}", reason);
+        }
     }
 
-    public void notifyBlockAppearedInFace() {
-        LOGGER.warn("[Mixin/Block] notifyBlockAppearedInFace() вызван, playing={}", MacroManager.INSTANCE.isPlaying());
-        blockAppearedInFace = true;
+    /** Запомнить исходное состояние при старте/новом круге макроса. */
+    public void snapshot(Minecraft mc) {
+        LocalPlayer p = mc.player;
+        if (p == null) return;
+        prevYaw        = p.getYRot();
+        prevPitch      = p.getXRot();
+        expectedHealth = p.getHealth();
+        expectedSlot   = p.getInventory().getSelectedSlot();
+        pendingReason  = null;
+        moveCaptured   = false;
     }
 
-    public void notifyMouseInput() { ticksSinceMouseMove = 0; }
+    /** Макрос сам поставил этот слот — это не «внешняя» смена. */
+    public void expectSlot(int slot) { expectedSlot = slot; }
 
-    public void notifyServerRotation() {
-        LOGGER.warn("[Mixin/Packet] notifyServerRotation() вызван, playing={}, ticksSinceMouseMove={}",
-                MacroManager.INSTANCE.isPlaying(), ticksSinceMouseMove);
-        serverForcedRotation = true;
+    /** Макрос сам повернул камеру (replayCamera) — это не «чужой» поворот. */
+    public void expectRotation(float yaw, float pitch) { prevYaw = yaw; prevPitch = pitch; }
+
+    // ── Хуки из миксинов (главный поток) ─────────────────────────────────────
+
+    public void onScreenOpening(Screen screen) {
+        if (!armed() || !ModConfig.INSTANCE.detectGuiOpen || screen == null) return;
+        if (screen instanceof PauseScreen || screen instanceof ChatScreen
+                || screen instanceof FarmMacroScreen || screen instanceof SaveMacroScreen) return;
+        flag("Открылось окно: " + screen.getTitle().getString()
+                + " (" + screen.getClass().getSimpleName() + ")");
     }
 
-    public void notifyPotionEffect() {
-        LOGGER.warn("[Mixin/Packet] notifyPotionEffect() вызван, playing={}", MacroManager.INSTANCE.isPlaying());
-        potionEffectChanged = true;
+    public void beforeServerMove() {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null || !armed()) { moveCaptured = false; return; }
+        mvX = p.getX(); mvY = p.getY(); mvZ = p.getZ();
+        mvYaw = p.getYRot(); mvPitch = p.getXRot();
+        moveCaptured = true;
     }
 
-    public void notifyStuck(Minecraft client) {
-        LOGGER.warn("[Stuck] Застревание! pos=({}, {}, {})",
-                client.player != null ? String.format("%.2f", client.player.getX()) : "?",
-                client.player != null ? String.format("%.2f", client.player.getY()) : "?",
-                client.player != null ? String.format("%.2f", client.player.getZ()) : "?");
-        triggerPanic(client, "Застрял — координаты не меняются");
+    public void afterServerMove() {
+        if (!moveCaptured) return;
+        moveCaptured = false;
+        LocalPlayer p = Minecraft.getInstance().player;
+        ModConfig c = ModConfig.INSTANCE;
+        if (p == null || !armed() || !c.detectServerMove) return;
+        double dx = p.getX() - mvX, dy = p.getY() - mvY, dz = p.getZ() - mvZ;
+        double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        float rot = Math.max(angleDiff(p.getYRot(), mvYaw), Math.abs(p.getXRot() - mvPitch));
+        if (dist >= c.serverMoveThreshold) {
+            flag(String.format(Locale.ROOT, "Сервер телепортировал (%.1f бл)", dist));
+        } else if (rot >= c.serverRotateThreshold) {
+            flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.0f°)", rot));
+        }
     }
 
-    public void snapshot(Minecraft client) {
-        if (client.player == null) return;
-        prevX          = client.player.getX();
-        prevY          = client.player.getY();
-        prevZ          = client.player.getZ();
-        prevYaw        = client.player.getYRot();
-        prevPitch      = client.player.getXRot();
-        expectedHealth = client.player.getHealth();
-        expectedSlot   = client.player.getInventory().getSelectedSlot();
-        redScreenTicksLeft  = 0;
-        soundRepeatsLeft    = 0;
-        soundRepeatDelay    = 0;
-        ticksSinceMouseMove = 999;
-        debugTickCounter    = 0;
-        clearFlags();
-        ModConfig cfg = ModConfig.INSTANCE;
-        LOGGER.info("[Snapshot] pos=({},{},{}) yaw={} pitch={} health={} slot={}",
-                String.format("%.2f", prevX), String.format("%.2f", prevY), String.format("%.2f", prevZ),
-                String.format("%.2f", prevYaw), String.format("%.2f", prevPitch),
-                String.format("%.1f", expectedHealth), expectedSlot);
-        LOGGER.info("[Config] panicEnabled={} | A:rot({}/yaw={}/pitch={}) B:tp({}/thr={}) " +
-                "C:block({}) D:slot({}) dmg({}) GUI({}) J:srvRot({}/win={}) Z:potion({})",
-                cfg.panicEnabled,
-                cfg.detectRotation, cfg.yawThreshold, cfg.pitchThreshold,
-                cfg.detectTeleport, cfg.teleportThreshold,
-                cfg.detectBlockInFace, cfg.detectSlotChange,
-                cfg.detectDamage, cfg.detectGuiOpen,
-                cfg.detectServerRotation, cfg.serverRotationMouseTickWindow,
-                cfg.detectPotionEffect);
-    }
+    /** Блок из пакета сервера. Вызывается ДО применения, поэтому в мире ещё старое состояние. */
+    public void onServerBlockChange(BlockPos pos, BlockState newState) {
+        if (!armed() || !ModConfig.INSTANCE.detectBlockInFace) return;
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        ClientLevel level = mc.level;
+        if (p == null || level == null) return;
 
-    public void tick(Minecraft client) {
-        if (client.player == null) return;
-        ModConfig cfg = ModConfig.INSTANCE;
+        // Свои постановки блоков клиент уже предсказал — там старое состояние уже твёрдое.
+        if (!level.getBlockState(pos).getCollisionShape(level, pos).isEmpty()) return;
+        VoxelShape shape = newState.getCollisionShape(level, pos);
+        if (shape.isEmpty()) return;
 
-        if (redScreenTicksLeft > 0) redScreenTicksLeft--;
-        if (soundRepeatsLeft > 0) {
-            if (soundRepeatDelay > 0) {
-                soundRepeatDelay--;
-            } else {
-                playPanicSound(client, cfg);
-                soundRepeatsLeft--;
-                soundRepeatDelay = cfg.panicSoundRepeatDelayTicks;
-            }
-        }
-
-        if (ticksSinceMouseMove < 999) ticksSinceMouseMove++;
-
-        if (!cfg.panicEnabled) { clearFlags(); updatePrev(client); return; }
-
-        // Периодический дебаг
-        debugTickCounter++;
-        if (debugTickCounter >= DEBUG_LOG_INTERVAL) {
-            debugTickCounter = 0;
-            float dYaw = angleDiff(client.player.getYRot(), prevYaw);
-            float dPitch = Math.abs(client.player.getXRot() - prevPitch);
-            double dist = Math.sqrt(
-                Math.pow(client.player.getX() - prevX, 2) +
-                Math.pow(client.player.getY() - prevY, 2) +
-                Math.pow(client.player.getZ() - prevZ, 2));
-            LOGGER.debug("[Tick~5s] pos=({},{},{}) Dyaw={} Dpitch={} Ddist={} hp={} slot={} | flags: gui={} block={} srvRot={} potion={} | mouseTicks={}",
-                    String.format("%.2f", client.player.getX()),
-                    String.format("%.2f", client.player.getY()),
-                    String.format("%.2f", client.player.getZ()),
-                    String.format("%.2f", dYaw), String.format("%.2f", dPitch),
-                    String.format("%.2f", dist),
-                    String.format("%.1f", client.player.getHealth()),
-                    client.player.getInventory().getSelectedSlot(),
-                    guiOpenedExternally, blockAppearedInFace,
-                    serverForcedRotation, potionEffectChanged,
-                    ticksSinceMouseMove);
-        }
-
-        String reason = null;
-
-        // Д: GUI снаружи
-        if (cfg.detectGuiOpen && guiOpenedExternally) {
-            reason = "GUI открылось снаружи";
-            LOGGER.warn("[Детект-Д] GUI открылось снаружи. screen={}",
-                    client.screen != null ? client.screen.getClass().getSimpleName() : "null");
-        }
-
-        // В: блок в лицо
-        if (reason == null && cfg.detectBlockInFace && blockAppearedInFace) {
-            reason = "Блок появился перед лицом";
-            LOGGER.warn("[Детект-В] Блок в лицо. pos=({},{},{})",
-                    String.format("%.2f", client.player.getX()),
-                    String.format("%.2f", client.player.getY()),
-                    String.format("%.2f", client.player.getZ()));
-        }
-
-        // А: поворот камеры
-        if (reason == null && cfg.detectRotation) {
-            float dy = angleDiff(client.player.getYRot(), prevYaw);
-            float dp = Math.abs(client.player.getXRot() - prevPitch);
-            if (dy > cfg.yawThreshold) {
-                reason = "Камера повернулась (yaw +" + String.format("%.2f", dy) + ")";
-                LOGGER.warn("[Детект-А] Yaw: было={} стало={} D={} порог={}",
-                        String.format("%.2f", prevYaw),
-                        String.format("%.2f", client.player.getYRot()),
-                        String.format("%.2f", dy), cfg.yawThreshold);
-            } else if (dp > cfg.pitchThreshold) {
-                reason = "Камера повернулась (pitch +" + String.format("%.2f", dp) + ")";
-                LOGGER.warn("[Детект-А] Pitch: было={} стало={} D={} порог={}",
-                        String.format("%.2f", prevPitch),
-                        String.format("%.2f", client.player.getXRot()),
-                        String.format("%.2f", dp), cfg.pitchThreshold);
-            }
-        }
-
-        // Б: телепорт
-        if (reason == null && cfg.detectTeleport) {
-            double d = Math.sqrt(
-                Math.pow(client.player.getX() - prevX, 2) +
-                Math.pow(client.player.getY() - prevY, 2) +
-                Math.pow(client.player.getZ() - prevZ, 2));
-            if (d > cfg.teleportThreshold) {
-                reason = "Телепортация (" + String.format("%.1f", d) + " бл)";
-                LOGGER.warn("[Детект-Б] Телепорт: было=({},{},{}) стало=({},{},{}) D={} порог={}",
-                        String.format("%.2f", prevX), String.format("%.2f", prevY), String.format("%.2f", prevZ),
-                        String.format("%.2f", client.player.getX()),
-                        String.format("%.2f", client.player.getY()),
-                        String.format("%.2f", client.player.getZ()),
-                        String.format("%.2f", d), cfg.teleportThreshold);
-            }
-        }
-
-        // Г: слот снаружи
-        if (reason == null && cfg.detectSlotChange) {
-            int real = client.player.getInventory().getSelectedSlot();
-            if (real != expectedSlot) {
-                reason = "Слот сменился снаружи";
-                LOGGER.warn("[Детект-Г] Слот: ожидался={} реальный={}", expectedSlot, real);
-                expectedSlot = real;
-            }
-        }
-
-        // Урон
-        if (reason == null && cfg.detectDamage) {
-            float h = client.player.getHealth();
-            if (h < expectedHealth - 0.01f) {
-                reason = "Получен урон";
-                LOGGER.warn("[Детект-Урон] HP: было={} стало={} потеря={}",
-                        String.format("%.1f", expectedHealth), String.format("%.1f", h),
-                        String.format("%.1f", expectedHealth - h));
-            }
-            expectedHealth = h;
-        }
-
-        // Ж: принудительная ротация сервером
-        if (reason == null && cfg.detectServerRotation && serverForcedRotation) {
-            if (ticksSinceMouseMove > cfg.serverRotationMouseTickWindow) {
-                reason = "Сервер принудительно повернул камеру";
-                LOGGER.warn("[Детект-Ж] Серверная ротация: ticksSinceMouseMove={} (окно={})",
-                        ticksSinceMouseMove, cfg.serverRotationMouseTickWindow);
-            } else {
-                LOGGER.debug("[Детект-Ж] Серверная ротация проигнорирована: мышь={} тиков назад (окно={})",
-                        ticksSinceMouseMove, cfg.serverRotationMouseTickWindow);
-            }
-        }
-
-        // З: зелья
-        if (reason == null && cfg.detectPotionEffect && potionEffectChanged) {
-            reason = "Получен/снят эффект зелья";
-            LOGGER.warn("[Детект-З] Эффект зелья изменился");
-        }
-
-        clearFlags();
-
-        if (reason != null) {
-            triggerPanic(client, reason);
-            return;
-        }
-
-        updatePrev(client);
-    }
-
-    private void triggerPanic(Minecraft client, String reason) {
-        ModConfig cfg = ModConfig.INSTANCE;
-
-        LOGGER.error("╔═══════════════════════════════════════════════════");
-        LOGGER.error("║  [ПАНИКА] {}", reason);
-        if (client.player != null) {
-            LOGGER.error("║  pos=({}, {}, {}) yaw={} pitch={}",
-                    String.format("%.2f", client.player.getX()),
-                    String.format("%.2f", client.player.getY()),
-                    String.format("%.2f", client.player.getZ()),
-                    String.format("%.2f", client.player.getYRot()),
-                    String.format("%.2f", client.player.getXRot()));
-            LOGGER.error("║  prevYaw={} prevPitch={}",
-                    String.format("%.2f", prevYaw), String.format("%.2f", prevPitch));
-            LOGGER.error("║  hp={} slot={} (ожидался {})",
-                    String.format("%.1f", client.player.getHealth()),
-                    client.player.getInventory().getSelectedSlot(), expectedSlot);
-        }
-        LOGGER.error("╚═══════════════════════════════════════════════════");
-
-        // Паника = аварийный стоп: отпускаем все клавиши и останавливаем макрос.
-        MacroManager.INSTANCE.stopPlayback(client, "§c[FarmMacro] Паника: " + reason);
-
-        if (cfg.panicSoundEnabled) {
-            playPanicSound(client, cfg);
-            soundRepeatsLeft = Math.max(0, cfg.panicSoundRepeats - 1);
-            soundRepeatDelay = cfg.panicSoundRepeatDelayTicks;
-        }
-
-        if (cfg.panicRedScreenEnabled)
-            redScreenTicksLeft = cfg.panicRedScreenTicks;
-    }
-
-    private void playPanicSound(Minecraft client, ModConfig cfg) {
-        if (cfg.panicSoundSystem) {
-            playSystemSound(cfg.panicSoundVolume);
-            return;
-        }
-        if (client.level == null || client.player == null) return;
-        try {
-            Identifier id    = Identifier.parse(cfg.panicSoundId);
-            SoundEvent sound = BuiltInRegistries.SOUND_EVENT.getValue(id);
-            if (sound == null) {
-                LOGGER.warn("[Звук] Звук не найден: {}", cfg.panicSoundId);
+        AABB zone = p.getBoundingBox().inflate(ModConfig.INSTANCE.blockDetectRadius);
+        for (AABB box : shape.toAabbs()) {
+            if (box.move(pos).intersects(zone)) {
+                flag("Рядом появился блок: " + newState.getBlock().getName().getString()
+                        + " " + pos.toShortString());
                 return;
             }
-            float pitch  = cfg.panicSoundPitch;
-            float volume = cfg.panicSoundVolume;
-            client.getSoundManager().play(new AbstractSoundInstance(sound, SoundSource.MASTER, RandomSource.create()) {
-                { this.volume = volume; this.pitch = pitch; this.relative = true; }
-            });
-        } catch (Exception e) {
-            LOGGER.error("[Звук] Ошибка: {}", e.getMessage());
         }
     }
 
-    /**
-     * Воспроизводит звук через javax.sound.sampled — полностью игнорирует
-     * настройки громкости Minecraft.
-     *
-     * Сначала ищет .minecraft/config/farmmacro/panic.wav
-     * Если файл не найден — играет встроенный программный бип.
-     */
-    private void playSystemSound(float volume) {
-        Thread t = new Thread(() -> {
-            try {
-                java.io.File wavFile = net.fabricmc.loader.api.FabricLoader.getInstance()
-                        .getConfigDir()
-                        .resolve("farmmacro")
-                        .resolve("panic.wav")
-                        .toFile();
-
-                if (wavFile.exists()) {
-                    // Играем пользовательский .wav
-                    try (javax.sound.sampled.AudioInputStream ais =
-                                 javax.sound.sampled.AudioSystem.getAudioInputStream(wavFile)) {
-                        javax.sound.sampled.AudioFormat fmt = ais.getFormat();
-                        javax.sound.sampled.DataLine.Info info =
-                                new javax.sound.sampled.DataLine.Info(javax.sound.sampled.SourceDataLine.class, fmt);
-                        javax.sound.sampled.SourceDataLine line =
-                                (javax.sound.sampled.SourceDataLine) javax.sound.sampled.AudioSystem.getLine(info);
-                        line.open(fmt);
-                        // Применяем громкость через FloatControl если доступен
-                        if (line.isControlSupported(javax.sound.sampled.FloatControl.Type.MASTER_GAIN)) {
-                            javax.sound.sampled.FloatControl gain =
-                                    (javax.sound.sampled.FloatControl) line.getControl(javax.sound.sampled.FloatControl.Type.MASTER_GAIN);
-                            float db = (float)(20.0 * Math.log10(Math.max(0.0001f, volume)));
-                            gain.setValue(Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), db)));
-                        }
-                        line.start();
-                        byte[] buf = new byte[4096];
-                        int read;
-                        while ((read = ais.read(buf, 0, buf.length)) != -1) {
-                            line.write(buf, 0, read);
-                        }
-                        line.drain();
-                        line.close();
-                    }
-                } else {
-                    // Фолбэк: программный бип 880 Гц, 300 мс
-                    LOGGER.warn("[СистемныйЗвук] panic.wav не найден в config/farmmacro/, играю встроенный бип");
-                    int sampleRate = 44100;
-                    int samples    = sampleRate * 300 / 1000;
-                    byte[] buf     = new byte[samples * 2];
-                    float amp      = Math.min(1.0f, Math.max(0.0f, volume)) * 32767f;
-                    for (int i = 0; i < samples; i++) {
-                        double envelope = 1.0 - (double) i / samples;
-                        short s = (short)(Math.sin(2 * Math.PI * 880.0 * i / sampleRate) * amp * envelope);
-                        buf[i * 2]     = (byte)(s & 0xFF);
-                        buf[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
-                    }
-                    javax.sound.sampled.AudioFormat fmt = new javax.sound.sampled.AudioFormat(sampleRate, 16, 1, true, false);
-                    javax.sound.sampled.DataLine.Info info =
-                            new javax.sound.sampled.DataLine.Info(javax.sound.sampled.SourceDataLine.class, fmt);
-                    javax.sound.sampled.SourceDataLine line =
-                            (javax.sound.sampled.SourceDataLine) javax.sound.sampled.AudioSystem.getLine(info);
-                    line.open(fmt);
-                    line.start();
-                    line.write(buf, 0, buf.length);
-                    line.drain();
-                    line.close();
-                }
-            } catch (Exception e) {
-                LOGGER.error("[СистемныйЗвук] Ошибка: {}", e.getMessage());
-            }
-        }, "farmmacro-panic-sound");
-        t.setDaemon(true);
-        t.start();
+    public void onEffectAdded(int entityId, Holder<MobEffect> effect, int amplifier) {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null || entityId != p.getId() || !armed() || !ModConfig.INSTANCE.detectPotionEffect) return;
+        MobEffectInstance cur = p.getEffect(effect);
+        if (cur != null && cur.getAmplifier() == amplifier) return; // продление (маяк/проводник) — норма
+        flag("Эффект: " + effect.value().getDisplayName().getString() + " " + (amplifier + 1));
     }
 
-    public boolean isInPanic()         { return redScreenTicksLeft > 0; }
-    public int     getRedScreenTicks() { return redScreenTicksLeft; }
+    public void onEffectRemoved(int entityId, Holder<MobEffect> effect) {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null || entityId != p.getId() || !armed() || !ModConfig.INSTANCE.detectPotionEffect) return;
+        MobEffectInstance cur = p.getEffect(effect);
+        if (cur == null) return;
+        // Естественное окончание — норма; снятие задолго до конца (молоко, /effect clear) — нет.
+        if (cur.isInfiniteDuration() || cur.getDuration() > 40) {
+            flag("Сняли эффект: " + effect.value().getDisplayName().getString());
+        }
+    }
 
-    public void tickEffectsOnly(Minecraft client) {
+    // ── Тик ──────────────────────────────────────────────────────────────────
+
+    /** Вызывается каждый тик, пока макрос играет, ДО применения очередного кадра. */
+    public void tick(Minecraft mc) {
+        LocalPlayer p = mc.player;
+        if (p == null) return;
+        ModConfig c = ModConfig.INSTANCE;
+
+        String reason = pendingReason;
+        pendingReason = null;
+
+        if (!c.panicEnabled) { updatePrev(p); return; }
+
+        if (reason == null && c.detectRotation) {
+            float dy = angleDiff(p.getYRot(), prevYaw);
+            float dp = Math.abs(p.getXRot() - prevPitch);
+            if (dy > c.yawThreshold)        reason = String.format(Locale.ROOT, "Камера повернулась (yaw %.1f°)", dy);
+            else if (dp > c.pitchThreshold) reason = String.format(Locale.ROOT, "Камера повернулась (pitch %.1f°)", dp);
+        }
+
+        if (reason == null && c.detectSlotChange) {
+            int real = p.getInventory().getSelectedSlot();
+            if (real != expectedSlot) reason = "Слот сменился: " + (expectedSlot + 1) + " → " + (real + 1);
+        }
+
+        float hp = p.getHealth();
+        if (reason == null && c.detectDamage && hp < expectedHealth - 0.01f) {
+            reason = String.format(Locale.ROOT, "Получен урон (−%.1f ❤)", (expectedHealth - hp) / 2f);
+        }
+        expectedHealth = hp;
+
+        if (reason != null) triggerPanic(mc, reason);
+        else updatePrev(p);
+    }
+
+    /** Красный экран и повторы звука — каждый тик, независимо от макроса. */
+    public void tickEffects() {
         if (redScreenTicksLeft > 0) redScreenTicksLeft--;
         if (soundRepeatsLeft > 0) {
-            if (soundRepeatDelay > 0) {
-                soundRepeatDelay--;
-            } else {
-                playPanicSound(client, ModConfig.INSTANCE);
+            if (soundRepeatDelay > 0) soundRepeatDelay--;
+            else {
+                PanicSound.playPanic();
                 soundRepeatsLeft--;
                 soundRepeatDelay = ModConfig.INSTANCE.panicSoundRepeatDelayTicks;
             }
         }
     }
 
-    private void updatePrev(Minecraft client) {
-        if (client.player == null) return;
-        prevX     = client.player.getX();
-        prevY     = client.player.getY();
-        prevZ     = client.player.getZ();
-        prevYaw   = client.player.getYRot();
-        prevPitch = client.player.getXRot();
+    /** Аварийный стоп. Только останавливает макрос и подаёт сигнал. */
+    public void triggerPanic(Minecraft mc, String reason) {
+        ModConfig c = ModConfig.INSTANCE;
+        LocalPlayer p = mc.player;
+        LOGGER.error("[ПАНИКА] {} | pos={} yaw={} pitch={} hp={}", reason,
+                p != null ? String.format(Locale.ROOT, "%.2f %.2f %.2f", p.getX(), p.getY(), p.getZ()) : "?",
+                p != null ? String.format(Locale.ROOT, "%.1f", p.getYRot()) : "?",
+                p != null ? String.format(Locale.ROOT, "%.1f", p.getXRot()) : "?",
+                p != null ? String.format(Locale.ROOT, "%.1f", p.getHealth()) : "?");
+
+        lastReason  = reason;
+        overlayText = reason;
+        lastPanicMs = System.currentTimeMillis();
+        pendingReason = null;
+
+        MacroManager.INSTANCE.stopPlayback(mc, "§c⚠ Паника: " + reason);
+
+        if (c.panicSoundEnabled) {
+            PanicSound.playPanic();
+            soundRepeatsLeft = Math.max(0, c.panicSoundRepeats - 1);
+            soundRepeatDelay = c.panicSoundRepeatDelayTicks;
+        }
+        if (c.panicRedScreenEnabled) redScreenTicksLeft = c.panicRedScreenTicks;
     }
 
-    private void clearFlags() {
-        guiOpenedExternally  = false;
-        blockAppearedInFace  = false;
-        serverForcedRotation = false;
-        potionEffectChanged  = false;
+    /** Проверка из меню: те же звук и красный экран, но без остановки и без записи в «последнюю панику». */
+    public void preview(Minecraft mc) {
+        ModConfig c = ModConfig.INSTANCE;
+        overlayText = "Проверка — так выглядит паника";
+        if (c.panicSoundEnabled) {
+            PanicSound.playPanic();
+            soundRepeatsLeft = Math.max(0, c.panicSoundRepeats - 1);
+            soundRepeatDelay = c.panicSoundRepeatDelayTicks;
+        }
+        redScreenTicksLeft = c.panicRedScreenEnabled ? c.panicRedScreenTicks : 0;
     }
 
-    private float angleDiff(float a, float b) {
+    /** Заглушить повторы сирены (кнопка в GUI / новый старт макроса). */
+    public void silence() { soundRepeatsLeft = 0; }
+
+    public int     getRedScreenTicks() { return redScreenTicksLeft; }
+    public String  getLastReason()     { return lastReason; }
+    public String  getOverlayText()    { return overlayText; }
+    public long    getLastPanicMs()    { return lastPanicMs; }
+
+    private void updatePrev(LocalPlayer p) {
+        prevYaw   = p.getYRot();
+        prevPitch = p.getXRot();
+    }
+
+    private static float angleDiff(float a, float b) {
         float d = Math.abs(a - b) % 360f;
         return d > 180f ? 360f - d : d;
     }

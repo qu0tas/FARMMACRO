@@ -1,337 +1,687 @@
 package com.farmmacro.gui;
 
+import com.farmmacro.FarmMacroMod;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.macro.MacroStorage;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Consumer;
+import com.farmmacro.panic.PanicDetector;
+import com.farmmacro.panic.PanicSound;
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.Util;
 
-public class FarmMacroScreen extends Screen {
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
-    private static final int BG_DARK        = 0xFF0D0D0D;
-    private static final int BG_PANEL       = 0xFF161616;
-    private static final int BG_SIDEBAR     = 0xFF111111;
-    private static final int ACCENT_RED     = 0xFFE02020;
-    private static final int TEXT_WHITE     = 0xFFFFFFFF;
-    private static final int TEXT_GRAY      = 0xFF888888;
-    private static final int TEXT_LIGHT     = 0xFFCCCCCC;
-    private static final int BORDER         = 0xFF2A2A2A;
+/**
+ * Главное меню мода. Свой интерфейс без текстур Minecraft: боковые вкладки, карточки настроек,
+ * анимированные переключатели, числовые поля со стрелками, прокрутка.
+ * Все значения читаются из конфига при каждой отрисовке и сохраняются сразу при изменении.
+ */
+public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
-    private static final int SIDEBAR_W = 48;
-
-    private static final String[] TAB_LABELS = {"Паника", "Реакция", "Сохранения"};
-
-    private int activeTab = 0;
-
-    private EditBox fieldYaw, fieldPitch, fieldTeleport, fieldBlockRadius;
-    private EditBox fieldServerRotTicks;
-    private EditBox fieldStuckThreshold;
-    private EditBox fieldSoundId, fieldSoundVol, fieldSoundPitch;
-    private EditBox fieldSoundRepeats, fieldSoundRepeatDelay;
-    private EditBox fieldRedTicks;
-
-    private final List<String> lblText  = new ArrayList<>();
-    private final List<int[]>  lblPos   = new ArrayList<>();
+    private static final String[] TABS = {"Детекторы", "Реакция", "Запуск", "Макросы"};
+    private static final String[] TAB_ICONS = {"⚠", "♪", "▶", "☰"};
+    private static int lastTab = 0;   // вкладка запоминается между открытиями
 
     private final Screen parent;
+    private int tab = lastTab;
+    private final List<Rows.Row> rows = new ArrayList<>();
+
+    private double scroll, scrollTarget;
+    private long lastFrameNs;
+    private boolean draggingScrollbar;
+    private String tooltip;
+    private boolean wantHand;
+
+    private List<Rows.Choice> soundOptions = List.of();
+    private List<MacroStorage.MacroInfo> macros = List.of();
+    private String confirmDelete;      // имя файла, ожидающего подтверждения удаления
+    private long confirmUntil;
 
     public FarmMacroScreen(Screen parent) {
         super(Component.literal("FarmMacro"));
         this.parent = parent;
     }
 
-    private int pW() { return Math.min(width  - 60, 580); }
-    private int pH() { return Math.min(height - 60, 420); }
-    private int pX() { return (width  - pW()) / 2; }
-    private int pY() { return (height - pH()) / 2; }
-    private int cX() { return pX() + SIDEBAR_W; }
-    private int cW() { return pW() - SIDEBAR_W; }
+    // ── Геометрия (всё от размера окна, поэтому ничего не наезжает на любом масштабе GUI) ──
+
+    private int winW()  { return Math.max(Math.min(width - 16, 500), Math.min(width - 4, 300)); }
+    private int winH()  { return Math.max(Math.min(height - 16, 330), Math.min(height - 4, 180)); }
+    private int winX()  { return (width - winW()) / 2; }
+    private int winY()  { return (height - winH()) / 2; }
+    private int sideW() { return winW() < 400 ? 30 : 104; }  // узкое окно — только иконки
+    private static final int HEADER_H = 30;
+    private int contX() { return winX() + sideW() + 10; }
+    private int contY() { return winY() + HEADER_H + 6; }
+    private int contW() { return winX() + winW() - 10 - contX() - 6; }  // 6 — под полосу прокрутки
+    private int contH() { return winY() + winH() - 8 - contY(); }
 
     @Override
     protected void init() {
-        lblText.clear(); lblPos.clear();
-        resetFields();
+        refreshLists();
+        buildTab();
+    }
 
-        int px = pX(), py = pY(), pw = pW(), ph = pH();
-        int tabH = (ph - 40) / TAB_LABELS.length;
+    private void refreshLists() {
+        List<Rows.Choice> opts = new ArrayList<>();
+        for (PanicSound.Option o : PanicSound.options()) opts.add(new Rows.Choice(o.id(), o.label()));
+        String cur = ModConfig.INSTANCE.panicSound;
+        if (opts.stream().noneMatch(o -> o.id().equals(cur))) opts.add(new Rows.Choice(cur, PanicSound.label(cur)));
+        soundOptions = opts;
+        macros = MacroStorage.INSTANCE.listMacros();
+    }
 
-        for (int i = 0; i < TAB_LABELS.length; i++) {
-            final int idx = i;
-            String shortLabel = TAB_LABELS[i].length() > 4
-                    ? TAB_LABELS[i].substring(0, 4)
-                    : TAB_LABELS[i];
-            addRenderableWidget(Button.builder(
-                    Component.literal(shortLabel),
-                    b -> { saveAll(); activeTab = idx; rebuildWidgets(); }
-            ).bounds(px + 2, py + 30 + i * (tabH + 4), SIDEBAR_W - 4, tabH).build());
-        }
+    private void switchTab(int t) {
+        if (t == tab) return;
+        tab = lastTab = t;
+        scroll = scrollTarget = 0;
+        buildTab();
+    }
 
-        addRenderableWidget(Button.builder(Component.literal("×"),
-                b -> { saveAll(); minecraft.setScreen(parent); }
-        ).bounds(px + pw - 22, py + 4, 18, 14).build());
+    // ── Содержимое вкладок ───────────────────────────────────────────────────
 
-        int btnY = py + ph - 24;
-        int btnW = (cW() - 12) / 2;
-        addRenderableWidget(Button.builder(Component.literal("✔  Сохранить"),
-                b -> { saveAll(); minecraft.setScreen(parent); }
-        ).bounds(cX() + 4, btnY, btnW, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("✖  Отмена"),
-                b -> minecraft.setScreen(parent)
-        ).bounds(cX() + btnW + 8, btnY, btnW, 20).build());
+    private static ModConfig cfg() { return ModConfig.INSTANCE; }
+    private static void save() { ModConfig.save(); }
 
-        int cy = py + 28;
-        int ch = ph - 52;
-        switch (activeTab) {
-            case 0 -> initPanic(cX(), cy, cW(), ch);
-            case 1 -> initReaction(cX(), cy, cW(), ch);
-            case 2 -> initSaved(cX(), cy, cW(), ch);
+    private void buildTab() {
+        rows.clear();
+        switch (tab) {
+            case 0 -> buildDetectors();
+            case 1 -> buildReaction();
+            case 2 -> buildAutomation();
+            case 3 -> buildMacros();
         }
     }
 
-    private void resetFields() {
-        fieldYaw = fieldPitch = fieldTeleport = fieldBlockRadius = null;
-        fieldServerRotTicks = null;
-        fieldStuckThreshold = null;
-        fieldSoundId = fieldSoundVol = fieldSoundPitch = null;
-        fieldSoundRepeats = fieldSoundRepeatDelay = null;
-        fieldRedTicks = null;
+    private Rows.Toggle toggle(String label, String hint, java.util.function.BooleanSupplier get,
+                               java.util.function.Consumer<Boolean> set) {
+        return new Rows.Toggle(label, hint, get, v -> { set.accept(v); save(); });
     }
 
-    private void initPanic(int x, int y, int w, int h) {
-        ModConfig c = ModConfig.INSTANCE;
-        int colW = w / 2 - 8;
-        int L = x + 8;
-        int R = x + w / 2 + 4;
-        int fieldX = R + colW - 60;
-        int r = y + 6;
-
-        lbl("ДЕТЕКТОРЫ", L, r, TEXT_GRAY); r += 14;
-        tog(c.panicEnabled,         L, r, "Паника включена",             v -> { c.panicEnabled = v;            rebuildWidgets(); }); r += 24;
-        tog(c.detectRotation,       L, r, "А: Поворот камеры",           v -> { c.detectRotation = v;          rebuildWidgets(); }); r += 24;
-        tog(c.detectTeleport,       L, r, "Б: Телепорт",                 v -> { c.detectTeleport = v;          rebuildWidgets(); }); r += 24;
-        tog(c.detectBlockInFace,    L, r, "В: Блок в лицо",              v -> { c.detectBlockInFace = v;       rebuildWidgets(); }); r += 24;
-        tog(c.detectSlotChange,     L, r, "Г: Смена слота",              v -> { c.detectSlotChange = v;        rebuildWidgets(); }); r += 24;
-        tog(c.detectGuiOpen,        L, r, "Д: GUI снаружи",              v -> { c.detectGuiOpen = v;           rebuildWidgets(); }); r += 24;
-        tog(c.detectDamage,         L, r, "Урон",                        v -> { c.detectDamage = v;            rebuildWidgets(); }); r += 24;
-        tog(c.detectServerRotation, L, r, "Ж: Ротация сервером",         v -> { c.detectServerRotation = v;    rebuildWidgets(); }); r += 24;
-        tog(c.detectPotionEffect,   L, r, "З: Эффекты (potion)",         v -> { c.detectPotionEffect = v;      rebuildWidgets(); });
-
-        int rr = y + 6;
-        lbl("ПОРОГИ", R, rr, TEXT_GRAY); rr += 16;
-        lbl("Yaw (°)",         R, rr + 4, TEXT_LIGHT); fieldYaw          = inp(s(c.yawThreshold),                    fieldX, rr, 58); rr += 22;
-        lbl("Pitch (°)",       R, rr + 4, TEXT_LIGHT); fieldPitch        = inp(s(c.pitchThreshold),                  fieldX, rr, 58); rr += 22;
-        lbl("Телепорт (бл)",   R, rr + 4, TEXT_LIGHT); fieldTeleport     = inp(s(c.teleportThreshold),               fieldX, rr, 58); rr += 22;
-        lbl("Радиус блока",    R, rr + 4, TEXT_LIGHT); fieldBlockRadius  = inp(s(c.blockDetectRadius),               fieldX, rr, 58); rr += 22;
-        lbl("Ж: мышь (тики)", R, rr + 4, TEXT_LIGHT); fieldServerRotTicks = inp(s(c.serverRotationMouseTickWindow),  fieldX, rr, 58); rr += 28;
-        lbl("Застрял (тики)",  R, rr + 4, TEXT_LIGHT); fieldStuckThreshold = inp(s(c.stuckThresholdTicks),           fieldX, rr, 58); rr += 22;
-        tog(c.stuckBlockDetectEnabled, R, rr, "З: Блок на пути",
-                v -> { c.stuckBlockDetectEnabled = v; ModConfig.save(); rebuildWidgets(); });
+    private Rows.Number number(String label, String hint, java.util.function.DoubleSupplier get,
+                               java.util.function.DoubleConsumer set, double min, double max, double step,
+                               double big, java.util.function.DoubleFunction<String> fmt) {
+        return new Rows.Number(label, hint, get, v -> { set.accept(v); save(); }, min, max, step, big, fmt);
     }
 
-    private void initReaction(int x, int y, int w, int h) {
-        ModConfig c = ModConfig.INSTANCE;
-        int cx = x + 8, r = y + 6;
-        int lbl2X  = cx + 130;
-        int fld1X  = cx + 90;
-        int fld2X  = cx + 190;
-        int fldW   = 55;
+    private static String f1(double v) { return String.format(Locale.ROOT, "%.1f", v); }
+    private static String f2(double v) { return String.format(Locale.ROOT, "%.2f", v); }
+    private static String ticksFmt(double v) { return (int) v + " т · " + f1(v / 20) + " с"; }
 
-        lbl("ЗВУК ПРИ ПАНИКЕ", cx, r, TEXT_GRAY); r += 14;
-        tog(c.panicSoundEnabled, cx, r, "Включён",
-                v -> { c.panicSoundEnabled = v; rebuildWidgets(); }); r += 24;
+    private void buildDetectors() {
+        java.util.function.BooleanSupplier master = () -> cfg().panicEnabled;
+        rows.add(toggle("Паника включена", "Главный выключатель всех детекторов",
+                () -> cfg().panicEnabled, v -> cfg().panicEnabled = v));
+        rows.add(new Rows.Note(() -> {
+            String r = PanicDetector.INSTANCE.getLastReason();
+            if (r == null) return "";
+            long ago = (System.currentTimeMillis() - PanicDetector.INSTANCE.getLastPanicMs()) / 1000;
+            return "Последняя паника " + (ago < 60 ? ago + " с" : ago / 60 + " мин") + " назад: " + r;
+        }, Ui.WARN));
 
-        lbl("Sound ID", cx + 4, r + 4, TEXT_LIGHT);
-        fieldSoundId = new net.minecraft.client.gui.components.EditBox(
-                font, cx + 65, r, w - 78, 16, net.minecraft.network.chat.Component.empty());
-        fieldSoundId.setValue(c.panicSoundId);
-        fieldSoundId.setMaxLength(64);
-        addRenderableWidget(fieldSoundId); r += 22;
+        rows.add(new Rows.Section("Игрок"));
+        rows.add(toggle("Поворот камеры", "Камеру сдвинули мышью во время макроса",
+                () -> cfg().detectRotation, v -> cfg().detectRotation = v).enabledIf(master));
+        rows.add(number("Порог по горизонтали", null, () -> cfg().yawThreshold, v -> cfg().yawThreshold = (float) v,
+                0.5, 90, 0.5, 5, v -> f1(v) + "°").enabledIf(() -> cfg().panicEnabled && cfg().detectRotation));
+        rows.add(number("Порог по вертикали", null, () -> cfg().pitchThreshold, v -> cfg().pitchThreshold = (float) v,
+                0.5, 90, 0.5, 5, v -> f1(v) + "°").enabledIf(() -> cfg().panicEnabled && cfg().detectRotation));
+        rows.add(toggle("Смена слота", "Слот хотбара сменил не макрос",
+                () -> cfg().detectSlotChange, v -> cfg().detectSlotChange = v).enabledIf(master));
+        rows.add(toggle("Урон", "Здоровье уменьшилось (учти падения на маршруте)",
+                () -> cfg().detectDamage, v -> cfg().detectDamage = v).enabledIf(master));
+        rows.add(toggle("Открылось окно", "Любое окно, кроме паузы, чата и меню мода",
+                () -> cfg().detectGuiOpen, v -> cfg().detectGuiOpen = v).enabledIf(master));
 
-        lbl("Громкость", cx + 4, r + 4, TEXT_LIGHT);
-        fieldSoundVol   = inp(s(c.panicSoundVolume), fld1X, r, fldW);
-        lbl("Питч",      lbl2X, r + 4, TEXT_LIGHT);
-        fieldSoundPitch = inp(s(c.panicSoundPitch),  fld2X, r, fldW); r += 22;
+        rows.add(new Rows.Section("Сервер"));
+        rows.add(toggle("Телепорт / поворот сервером", "Сервер сам сдвинул или развернул игрока",
+                () -> cfg().detectServerMove, v -> cfg().detectServerMove = v).enabledIf(master));
+        rows.add(number("Мин. сдвиг", "Мелкие откаты от лагов игнорируются",
+                () -> cfg().serverMoveThreshold, v -> cfg().serverMoveThreshold = v,
+                0.1, 64, 0.1, 1, v -> f1(v) + " бл").enabledIf(() -> cfg().panicEnabled && cfg().detectServerMove));
+        rows.add(number("Мин. поворот", null, () -> cfg().serverRotateThreshold, v -> cfg().serverRotateThreshold = (float) v,
+                0.5, 180, 0.5, 5, v -> f1(v) + "°").enabledIf(() -> cfg().panicEnabled && cfg().detectServerMove));
+        rows.add(toggle("Блок рядом", "Сервер поставил твёрдый блок вплотную к игроку",
+                () -> cfg().detectBlockInFace, v -> cfg().detectBlockInFace = v).enabledIf(master));
+        rows.add(number("Зона вокруг хитбокса", "Свои постановки блоков не считаются",
+                () -> cfg().blockDetectRadius, v -> cfg().blockDetectRadius = v,
+                0, 4, 0.25, 1, v -> f2(v) + " бл").enabledIf(() -> cfg().panicEnabled && cfg().detectBlockInFace));
+        rows.add(toggle("Эффекты", "Новый эффект или снятие раньше срока (маяк — не считается)",
+                () -> cfg().detectPotionEffect, v -> cfg().detectPotionEffect = v).enabledIf(master));
 
-        lbl("Повторов", cx + 4, r + 4, TEXT_LIGHT);
-        fieldSoundRepeats     = inp(s(c.panicSoundRepeats),          fld1X, r, fldW);
-        lbl("Задержка (тики)", lbl2X, r + 4, TEXT_LIGHT);
-        fieldSoundRepeatDelay = inp(s(c.panicSoundRepeatDelayTicks),  fld2X, r, fldW); r += 30;
-
-        lbl("КРАСНЫЙ ЭКРАН", cx, r, TEXT_GRAY); r += 14;
-        tog(c.panicRedScreenEnabled, cx, r, "Включён",
-                v -> { c.panicRedScreenEnabled = v; rebuildWidgets(); }); r += 24;
-
-        lbl("Длительность (тики)", cx + 4, r + 4, TEXT_LIGHT);
-        fieldRedTicks = inp(s(c.panicRedScreenTicks), fld1X, r, fldW);
-        lbl("(20 тиков = 1 сек)", fld1X + fldW + 8, r + 4, TEXT_GRAY);
+        rows.add(new Rows.Section("Маршрут"));
+        rows.add(toggle("Застревание", "По записи игрок идёт, а на деле стоит на месте",
+                () -> cfg().detectStuck, v -> cfg().detectStuck = v).enabledIf(master));
+        rows.add(number("Окно проверки", null, () -> cfg().stuckThresholdTicks, v -> cfg().stuckThresholdTicks = (int) v,
+                10, 400, 5, 20, FarmMacroScreen::ticksFmt).enabledIf(() -> cfg().panicEnabled && cfg().detectStuck));
+        rows.add(toggle("Сход с маршрута", "Траектория разошлась с записью (относительно точки старта)",
+                () -> cfg().detectDrift, v -> cfg().detectDrift = v).enabledIf(master));
+        rows.add(number("Допуск", null, () -> cfg().driftThreshold, v -> cfg().driftThreshold = v,
+                1, 64, 0.5, 4, v -> f1(v) + " бл").enabledIf(() -> cfg().panicEnabled && cfg().detectDrift));
     }
 
-    private void initSaved(int x, int y, int w, int h) {
-        int cx = x + 8, r = y + 6;
+    private void buildReaction() {
+        java.util.function.BooleanSupplier snd = () -> cfg().panicSoundEnabled;
+        rows.add(new Rows.Section("Звук"));
+        rows.add(toggle("Звук паники", null, () -> cfg().panicSoundEnabled, v -> cfg().panicSoundEnabled = v));
+        rows.add(new Rows.Selector("Сигнал", "Встроенные, свои файлы или звуки Minecraft",
+                () -> soundOptions, () -> cfg().panicSound, v -> { cfg().panicSound = v; save(); }).enabledIf(snd));
+        rows.add(new Rows.Buttons(
+                new Rows.Btn("▶ Прослушать", Rows.Style.PRIMARY, PanicSound::playPanic),
+                new Rows.Btn("Папка звуков", Rows.Style.SECONDARY, () -> openFolder(PanicSound.soundsDir()))
+                        .tip("Положи туда .ogg или .wav и нажми «Обновить»"),
+                new Rows.Btn("Обновить", Rows.Style.SECONDARY, () -> { PanicSound.clearCache(); refreshLists(); })
+        ).enabledIf(snd));
+        rows.add(toggle("Мимо громкости игры", "Через систему: слышно даже при выключенном звуке MC",
+                () -> cfg().panicSoundSystem, v -> cfg().panicSoundSystem = v).enabledIf(snd));
+        rows.add(number("Громкость", null, () -> cfg().panicSoundVolume * 100, v -> cfg().panicSoundVolume = (float) (v / 100),
+                0, 100, 5, 25, v -> (int) Math.round(v) + "%").enabledIf(snd));
+        rows.add(number("Тон", null, () -> cfg().panicSoundPitch, v -> cfg().panicSoundPitch = (float) v,
+                0.5, 2, 0.05, 0.25, v -> "×" + f2(v)).enabledIf(snd));
+        rows.add(number("Повторов", null, () -> cfg().panicSoundRepeats, v -> cfg().panicSoundRepeats = (int) v,
+                1, 20, 1, 5, v -> String.valueOf((int) v)).enabledIf(snd));
+        rows.add(number("Пауза между повторами", null, () -> cfg().panicSoundRepeatDelayTicks,
+                v -> cfg().panicSoundRepeatDelayTicks = (int) v, 5, 200, 5, 20, FarmMacroScreen::ticksFmt)
+                .enabledIf(() -> cfg().panicSoundEnabled && cfg().panicSoundRepeats > 1));
+        rows.add(new Rows.Note("Свои звуки: .ogg или .wav в config/farmmacro/sounds/. Звуки «MC:» всегда идут через игру.", Ui.ACCENT));
 
-        boolean loop = MacroManager.INSTANCE.isLoopEnabled();
-        lbl("ВОСПРОИЗВЕДЕНИЕ", cx, r, TEXT_GRAY); r += 14;
-        tog(loop, cx, r, "Зациклить макрос",
-                v -> MacroManager.INSTANCE.setLoopEnabled(v)); r += 24;
-        ModConfig cfg = ModConfig.INSTANCE;
-        tog(cfg.statsHudEnabled, cx, r, "HUD статистики",
-                v -> { cfg.statsHudEnabled = v; ModConfig.save(); }); r += 28;
+        rows.add(new Rows.Section("Экран"));
+        rows.add(toggle("Красный экран", "Вспышка с причиной паники", () -> cfg().panicRedScreenEnabled,
+                v -> cfg().panicRedScreenEnabled = v));
+        rows.add(number("Длительность", null, () -> cfg().panicRedScreenTicks, v -> cfg().panicRedScreenTicks = (int) v,
+                10, 400, 5, 20, FarmMacroScreen::ticksFmt).enabledIf(() -> cfg().panicRedScreenEnabled));
+        rows.add(new Rows.Spacer(4));
+        rows.add(new Rows.Buttons(new Rows.Btn("⚠ Проверить панику", Rows.Style.DANGER, () -> {
+            onClose();
+            PanicDetector.INSTANCE.preview(minecraft);
+        }).tip("Сирена и красный экран без остановки чего-либо")));
+    }
 
-        lbl("СОХРАНЁННЫЕ МАКРОСЫ", cx, r, TEXT_GRAY); r += 16;
+    private void buildAutomation() {
+        rows.add(new Rows.Section("Цикл"));
+        rows.add(toggle("Зациклить", "После последнего кадра начинать заново",
+                () -> cfg().loopEnabled, v -> cfg().loopEnabled = v));
+        rows.add(number("Кругов", "0 — бесконечно", () -> cfg().loopLimit, v -> cfg().loopLimit = (int) v,
+                0, 10000, 1, 10, v -> v == 0 ? "∞" : String.valueOf((int) v)).enabledIf(() -> cfg().loopEnabled));
+        rows.add(number("Лимит времени", "0 — без лимита", () -> cfg().timeLimitMinutes, v -> cfg().timeLimitMinutes = (int) v,
+                0, 1440, 5, 30, v -> v == 0 ? "нет" : (int) v + " мин"));
 
-        var list = MacroStorage.INSTANCE.listMacros();
+        rows.add(new Rows.Section("Автостоп"));
+        rows.add(toggle("Полный инвентарь", "Стоп, когда не осталось пустых слотов (можно продолжить)",
+                () -> cfg().stopWhenInventoryFull, v -> cfg().stopWhenInventoryFull = v));
+        rows.add(toggle("Сигнал по окончании", "Мягкий «дзинь», когда макрос закончился сам",
+                () -> cfg().finishSoundEnabled, v -> cfg().finishSoundEnabled = v));
 
-        if (list.isEmpty()) {
-            lbl("Нет сохранённых макросов.", cx + 4, r + 4, TEXT_GRAY);
-            lbl("Запиши макрос (R) и останови — появится окно сохранения.", cx + 4, r + 18, TEXT_GRAY);
-            return;
+        rows.add(new Rows.Section("Старт"));
+        rows.add(number("Обратный отсчёт", "Удобно для записи видео", () -> cfg().startCountdownSeconds,
+                v -> cfg().startCountdownSeconds = (int) v, 0, 30, 1, 5, v -> v == 0 ? "выкл" : (int) v + " с"));
+        rows.add(number("Точка старта: допуск", "Дальше — предупреждение и стрелка в HUD",
+                () -> cfg().startPointWarnDistance, v -> cfg().startPointWarnDistance = v,
+                0.5, 64, 0.5, 4, v -> f1(v) + " бл"));
+        rows.add(toggle("Строго с точки старта", "Не запускать, если игрок дальше допуска",
+                () -> cfg().requireStartPoint, v -> cfg().requireStartPoint = v));
+        rows.add(toggle("Повторять камеру", "Повороты камеры из записи (выкл — камера как есть)",
+                () -> cfg().replayCamera, v -> cfg().replayCamera = v));
+
+        rows.add(new Rows.Section("HUD"));
+        rows.add(toggle("Панель статуса", "Состояние, прогресс, круги, время сессии",
+                () -> cfg().statsHudEnabled, v -> cfg().statsHudEnabled = v));
+        rows.add(toggle("Навигатор", "Стрелка к точке старта или остановки",
+                () -> cfg().navHudEnabled, v -> cfg().navHudEnabled = v));
+        rows.add(new Rows.Note(() -> {
+            MacroManager m = MacroManager.INSTANCE;
+            if (m.getSessionRuns() == 0) return "Статистика сессии появится после первого запуска.";
+            long sec = (System.currentTimeMillis() - m.getSessionStartMs()) / 1000;
+            return String.format(Locale.ROOT, "Сессия: %d:%02d:%02d · кругов запущено: %d",
+                    sec / 3600, sec / 60 % 60, sec % 60, m.getSessionRuns());
+        }, Ui.ON));
+        rows.add(new Rows.Buttons(new Rows.Btn("Сбросить статистику", Rows.Style.SECONDARY,
+                () -> MacroManager.INSTANCE.resetStats()).enabledIf(() -> MacroManager.INSTANCE.getSessionRuns() > 0)));
+    }
+
+    private void buildMacros() {
+        rows.add(new Rows.Section("Текущий макрос"));
+        rows.add(new BufferCard());
+        rows.add(new Rows.Section("Сохранённые"));
+        if (macros.isEmpty()) {
+            rows.add(new Rows.Note("Пока пусто. Запиши макрос (" + MacroManager.keyName(FarmMacroMod.keyRecord)
+                    + "), останови — появится окно сохранения.", Ui.SUB));
+        } else {
+            for (MacroStorage.MacroInfo info : macros) rows.add(new MacroCard(info));
+        }
+        rows.add(new Rows.Spacer(2));
+        rows.add(new Rows.Buttons(new Rows.Btn("Открыть папку макросов", Rows.Style.SECONDARY,
+                () -> openFolder(MacroStorage.MACRO_DIR))));
+    }
+
+    private void openFolder(java.nio.file.Path dir) {
+        try {
+            java.nio.file.Files.createDirectories(dir);
+            Util.getPlatform().openPath(dir);
+        } catch (Exception e) {
+            FarmMacroMod.LOGGER.warn("Не удалось открыть папку {}: {}", dir, e.toString());
+        }
+    }
+
+    private void startMacroAndClose() {
+        minecraft.setScreen(null);
+        if (!MacroManager.INSTANCE.isActive()) MacroManager.INSTANCE.togglePlayback(minecraft);
+    }
+
+    /** Карточка буфера: что загружено и быстрые действия. */
+    private final class BufferCard extends Rows.Row {
+        int height(Rows.Ctx c, int w) { return 52; }
+
+        void render(Rows.Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            MacroManager m = MacroManager.INSTANCE;
+            Ui.round(g, x, y, w, 49, 5, Ui.CARD);
+            g.fill(x, y + 3, x + 2, y + 46, m.getFrameCount() > 0 ? Ui.ACCENT : Ui.BORDER);
+            String title, sub;
+            if (m.getFrameCount() == 0) { title = "Пусто"; sub = "Запиши или загрузи макрос из списка ниже"; }
+            else {
+                title = m.getLoadedName() != null ? m.getLoadedName() : "Новая запись · не сохранена";
+                sub = MacroManager.formatTicks(m.getFrameCount()) + " · " + m.getFrameCount() + " кадров";
+                if (minecraft != null && minecraft.player != null) sub += String.format(Locale.ROOT, " · до старта %.1f бл",
+                        m.distanceToFrame(minecraft.player, 0));
+            }
+            Ui.text(g, font, Ui.ellipsize(font, title, w - 16), x + 8, y + 5, Ui.TEXT);
+            Ui.text(g, font, Ui.ellipsize(font, sub, w - 16), x + 8, y + 16, Ui.SUB);
+            int bw = (w - 16 - 8) / 3, by = y + 28;
+            boolean has = m.getFrameCount() > 0;
+            boolean active = m.isActive();
+            Rows.drawButton(c, g, x + 8, by, bw, 16, active ? "■ Стоп" : "▶ Запустить",
+                    active ? Rows.Style.DANGER : Rows.Style.SUCCESS, has && !m.isRecording(), mx, my);
+            Rows.drawButton(c, g, x + 12 + bw, by, bw, 16, "Сохранить", Rows.Style.PRIMARY,
+                    has && !m.isRecording(), mx, my);
+            Rows.drawButton(c, g, x + 16 + bw * 2, by, bw, 16, "Очистить", Rows.Style.SECONDARY,
+                    has && !active && !m.isRecording(), mx, my);
         }
 
-        int rowH = 22;
-        int maxVisible = (h - 80) / rowH;
-        int shown = 0;
-
-        for (MacroStorage.MacroInfo info : list) {
-            if (shown >= maxVisible) break;
-            int rowY = r;
-            lbl(info.name, cx + 4, rowY + 5, TEXT_LIGHT);
-            lbl(info.frameCount + " кадров",
-                    cx + 4 + font.width(info.name) + 6, rowY + 5, TEXT_GRAY);
-
-            int btnX = x + w - 118;
-            addRenderableWidget(Button.builder(
-                    Component.literal("Загрузить"),
-                    b -> {
-                        var frames = MacroStorage.INSTANCE.load(info.filename);
-                        if (frames != null) {
-                            MacroManager.INSTANCE.loadMacro(frames, minecraft);
-                        }
-                        rebuildWidgets();
-                    }
-            ).bounds(btnX, rowY + 1, 56, 18)
-             .tooltip(net.minecraft.client.gui.components.Tooltip.create(
-                     Component.literal("Загрузить «" + info.name + "» в буфер")))
-             .build());
-
-            addRenderableWidget(Button.builder(
-                    Component.literal("X"),
-                    b -> {
-                        MacroStorage.INSTANCE.delete(info.filename);
-                        rebuildWidgets();
-                    }
-            ).bounds(btnX + 60, rowY + 1, 18, 18)
-             .tooltip(net.minecraft.client.gui.components.Tooltip.create(
-                     Component.literal("Удалить «" + info.name + "»")))
-             .build());
-
-            r += rowH;
-            shown++;
-        }
-
-        if (list.size() > maxVisible) {
-            lbl("... ещё " + (list.size() - maxVisible) + " макросов", cx + 4, r + 4, TEXT_GRAY);
+        boolean click(Rows.Ctx c, double mx, double my, int button) {
+            MacroManager m = MacroManager.INSTANCE;
+            int bw = (lastW - 24) / 3, by = lastY + 28;
+            boolean has = m.getFrameCount() > 0;
+            if (!has || m.isRecording() || button != 0) return false;
+            if (Ui.inside(mx, my, lastX + 8, by, bw, 16)) {
+                c.clickSound();
+                if (m.isActive()) m.stopPlayback(minecraft, "§e■ Остановлено из меню");
+                else startMacroAndClose();
+                return true;
+            }
+            if (Ui.inside(mx, my, lastX + 12 + bw, by, bw, 16)) {
+                c.clickSound();
+                minecraft.setScreen(new SaveMacroScreen(FarmMacroScreen.this, new ArrayList<>(m.getFrames()),
+                        m.getLoadedName()));
+                return true;
+            }
+            if (!m.isActive() && Ui.inside(mx, my, lastX + 16 + bw * 2, by, bw, 16)) {
+                c.clickSound();
+                m.clearRecording(minecraft);
+                return true;
+            }
+            return false;
         }
     }
 
-    private void saveAll() {
-        ModConfig c = ModConfig.INSTANCE;
-        c.yawThreshold                  = pf(fieldYaw,              c.yawThreshold);
-        c.pitchThreshold                = pf(fieldPitch,             c.pitchThreshold);
-        c.teleportThreshold             = pd(fieldTeleport,          c.teleportThreshold);
-        c.blockDetectRadius             = pd(fieldBlockRadius,       c.blockDetectRadius);
-        c.serverRotationMouseTickWindow = pi(fieldServerRotTicks,    c.serverRotationMouseTickWindow);
-        c.stuckThresholdTicks           = Math.max(5, pi(fieldStuckThreshold, c.stuckThresholdTicks));
-        if (fieldSoundId != null) c.panicSoundId = fieldSoundId.getValue().trim();
-        c.panicSoundVolume              = pf(fieldSoundVol,          c.panicSoundVolume);
-        c.panicSoundPitch               = pf(fieldSoundPitch,        c.panicSoundPitch);
-        c.panicSoundRepeats             = pi(fieldSoundRepeats,      c.panicSoundRepeats);
-        c.panicSoundRepeatDelayTicks    = pi(fieldSoundRepeatDelay,  c.panicSoundRepeatDelayTicks);
-        c.panicRedScreenTicks           = pi(fieldRedTicks,          c.panicRedScreenTicks);
-        ModConfig.save();
+    /** Карточка сохранённого макроса. */
+    private final class MacroCard extends Rows.Row {
+        private final MacroStorage.MacroInfo info;
+        MacroCard(MacroStorage.MacroInfo info) { this.info = info; }
+
+        int height(Rows.Ctx c, int w) { return 30; }
+
+        private int[] buttonsX() {          // ▶, Загрузить, ✕
+            int right = lastX + lastW - 6;
+            int del = right - 18, load = del - 4 - 62, play = load - 4 - 22;
+            return new int[]{play, load, del};
+        }
+
+        void render(Rows.Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            boolean current = info.name().equals(MacroManager.INSTANCE.getLoadedName());
+            Ui.round(g, x, y, w, 27, 4, hover ? Ui.CARD_HOVER : Ui.CARD);
+            if (current) g.fill(x, y + 3, x + 2, y + 24, Ui.ON);
+            lastX = x; lastW = w;
+            int[] bx = buttonsX();
+            int textW = bx[0] - x - 14;
+            Ui.text(g, font, Ui.ellipsize(font, info.name(), textW), x + 8, y + 4, current ? Ui.ON : Ui.TEXT);
+            Ui.text(g, font, Ui.ellipsize(font, MacroManager.formatTicks(info.frameCount()) + " · "
+                    + info.frameCount() + " кадров", textW), x + 8, y + 15, Ui.SUB);
+            boolean idle = MacroManager.INSTANCE.getState() == MacroManager.State.IDLE;
+            boolean confirming = info.filename().equals(confirmDelete) && System.currentTimeMillis() < confirmUntil;
+            int by = y + 5;
+            if (Rows.drawButton(c, g, bx[0], by, 22, 16, "▶", Rows.Style.SUCCESS, idle, mx, my))
+                c.tooltip("Загрузить и запустить");
+            if (confirming) {
+                Rows.drawButton(c, g, bx[1], by, bx[2] + 18 - bx[1], 16, "Точно удалить?", Rows.Style.DANGER, true, mx, my);
+            } else {
+                Rows.drawButton(c, g, bx[1], by, 62, 16, current ? "Загружен" : "Загрузить", Rows.Style.SECONDARY, idle, mx, my);
+                if (Rows.drawButton(c, g, bx[2], by, 18, 16, "✕", Rows.Style.SECONDARY, true, mx, my))
+                    c.tooltip("Удалить «" + info.name() + "»");
+            }
+        }
+
+        boolean click(Rows.Ctx c, double mx, double my, int button) {
+            if (button != 0) return false;
+            int[] bx = buttonsX();
+            int by = lastY + 5;
+            boolean idle = MacroManager.INSTANCE.getState() == MacroManager.State.IDLE;
+            boolean confirming = info.filename().equals(confirmDelete) && System.currentTimeMillis() < confirmUntil;
+            if (confirming && Ui.inside(mx, my, bx[1], by, bx[2] + 18 - bx[1], 16)) {
+                c.clickSound();
+                MacroStorage.INSTANCE.delete(info.filename());
+                confirmDelete = null;
+                refreshLists();
+                buildTab();
+                return true;
+            }
+            if (!confirming && Ui.inside(mx, my, bx[2], by, 18, 16)) {
+                c.clickSound();
+                confirmDelete = info.filename();
+                confirmUntil = System.currentTimeMillis() + 3000;
+                return true;
+            }
+            if (idle && (Ui.inside(mx, my, bx[0], by, 22, 16) || (!confirming && Ui.inside(mx, my, bx[1], by, 62, 16)))) {
+                c.clickSound();
+                var frames = MacroStorage.INSTANCE.load(info.filename());
+                if (frames == null) {
+                    minecraft.player.sendOverlayMessage(Component.literal("§c[FM] Не удалось прочитать файл макроса (подробности в логе)"));
+                    return true;
+                }
+                if (MacroManager.INSTANCE.loadMacro(info.name(), frames, minecraft) && mx < bx[1]) startMacroAndClose();
+                return true;
+            }
+            return false;
+        }
+    }
+
+    // ── Отрисовка ────────────────────────────────────────────────────────────
+
+    @Override
+    public void extractBackground(GuiGraphicsExtractor g, int mx, int my, float delta) {
+        super.extractBackground(g, mx, my, delta);
+        drawWindow(g);
+    }
+
+    /** Подложка окна (отдельно от фона мира, чтобы её можно было рисовать в превью-стенде). */
+    void drawWindow(GuiGraphicsExtractor g) {
+        int x = winX(), y = winY(), w = winW(), h = winH();
+        Ui.shadow(g, x, y, w, h, 8);
+        Ui.round(g, x, y, w, h, 8, Ui.WINDOW);
+        // боковая панель
+        Ui.round(g, x, y, sideW() + 8, h, 8, Ui.SIDEBAR);
+        g.fill(x + sideW(), y, x + sideW() + 8, y + h, Ui.WINDOW);
+        g.fill(x + sideW(), y + 6, x + sideW() + 1, y + h - 6, Ui.BORDER);
     }
 
     @Override
-    public void extractBackground(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
-        super.extractBackground(ctx, mx, my, delta);
+    public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
+        super.extractRenderState(g, mx, my, delta);
+        tooltip = null;
+        wantHand = false;
+        long now = System.nanoTime();
+        float dt = lastFrameNs == 0 ? 0.016f : Math.min(0.1f, (now - lastFrameNs) / 1e9f);
+        lastFrameNs = now;
 
-        int px = pX(), py = pY(), pw = pW(), ph = pH();
-        int cx = cX();
+        int x = winX(), y = winY(), w = winW();
+        renderSidebar(g, x, y, mx, my);
+        renderHeader(g, x, y, w, mx, my);
 
-        ctx.fill(px + 4, py + 4, px + pw + 4, py + ph + 4, 0x88000000);
-        ctx.fill(px, py, px + pw, py + ph, BG_DARK);
-        ctx.fill(px, py, px + SIDEBAR_W, py + ph, BG_SIDEBAR);
-        ctx.fill(px + SIDEBAR_W, py, px + SIDEBAR_W + 1, py + ph, ACCENT_RED);
-        ctx.fill(cx, py, px + pw, py + ph, BG_PANEL);
-        ctx.fill(cx, py, px + pw, py + 26, 0xFF0D0D0D);
-        ctx.fill(cx, py + 26, px + pw, py + 27, BORDER);
-        ctx.fill(px, py, px + pw, py + 2, ACCENT_RED);
+        // содержимое с прокруткой
+        int cx = contX(), cy = contY(), cw = contW(), ch = contH();
+        int total = contentHeight(cw);
+        double maxScroll = Math.max(0, total - ch);
+        scrollTarget = Math.max(0, Math.min(maxScroll, scrollTarget));
+        scroll += (scrollTarget - scroll) * Math.min(1, dt * 16);
+        if (Math.abs(scrollTarget - scroll) < 0.3) scroll = scrollTarget;
 
-        int tabH = (ph - 40) / TAB_LABELS.length;
-        int tabY = py + 30 + activeTab * (tabH + 4);
-        ctx.fill(px, tabY, px + SIDEBAR_W, tabY + tabH, 0xFF1A0000);
-        ctx.fill(px, tabY, px + 2, tabY + tabH, ACCENT_RED);
+        boolean inContent = Ui.inside(mx, my, cx, cy, cw, ch);
+        g.enableScissor(cx - 2, cy, cx + cw + 2, cy + ch);
+        int ry = cy - (int) Math.round(scroll);
+        for (Rows.Row r : rows) {
+            int rh = r.height(this, cw);
+            r.lastX = cx; r.lastY = ry; r.lastW = cw; r.lastH = rh;
+            if (rh > 0 && ry + rh > cy && ry < cy + ch) {
+                boolean hover = inContent && my >= ry && my < ry + rh;
+                r.render(this, g, cx, ry, cw, inContent ? mx : -1, inContent ? my : -1, hover);
+            }
+            ry += rh;
+        }
+        g.disableScissor();
 
-        ctx.fill(cx, py + ph - 26, px + pw, py + ph - 25, BORDER);
+        // полоса прокрутки
+        if (maxScroll > 0) {
+            int sx = cx + cw + 3;
+            int barH = Math.max(18, (int) ((double) ch * ch / total));
+            int barY = cy + (int) ((ch - barH) * (scroll / maxScroll));
+            Ui.pill(g, sx, cy, 3, ch, Ui.alpha(Ui.BORDER, 0.6f));
+            boolean hb = Ui.inside(mx, my, sx - 2, cy, 7, ch);
+            Ui.pill(g, sx, barY, 3, barH, hb || draggingScrollbar ? Ui.ACCENT_HI : Ui.ACCENT);
+            // мягкое затухание у краёв (новый слой, иначе текст рисуется поверх градиента)
+            g.nextStratum();
+            if (scroll > 1) g.fillGradient(cx - 2, cy, cx + cw + 2, cy + 8, 0xC0151A24, 0x00151A24);
+            if (scroll < maxScroll - 1) g.fillGradient(cx - 2, cy + ch - 8, cx + cw + 2, cy + ch, 0x00151A24, 0xC0151A24);
+        }
 
-        String tabName = TAB_LABELS[activeTab];
-        ctx.text(font, "FarmMacro", cx + 8, py + 8, ACCENT_RED);
-        ctx.text(font, "/ " + tabName, cx + 8 + font.width("FarmMacro") + 4, py + 8, TEXT_GRAY);
+        if (wantHand) g.requestCursor(CursorTypes.POINTING_HAND);
+        if (tooltip != null) drawTooltip(g, tooltip, mx, my);
     }
 
-    @Override
-    public void extractRenderState(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
-        super.extractRenderState(ctx, mx, my, delta);
-        for (int i = 0; i < lblText.size(); i++) {
-            int[] p = lblPos.get(i);
-            ctx.text(font, lblText.get(i), p[0], p[1], p[2]);
+    private int contentHeight(int cw) {
+        int t = 0;
+        for (Rows.Row r : rows) t += r.height(this, cw);
+        return t + 4;
+    }
+
+    private void renderHeader(GuiGraphicsExtractor g, int x, int y, int w, int mx, int my) {
+        int hx = x + sideW() + 10;
+        // заголовок вкладки
+        Ui.text(g, font, TABS[tab], hx, y + 11, Ui.TEXT);
+        // статус справа
+        MacroManager m = MacroManager.INSTANCE;
+        String status; int col;
+        switch (m.getState()) {
+            case RECORDING -> { status = "● ЗАПИСЬ " + MacroManager.formatTicks(m.getFrameCount()); col = Ui.DANGER; }
+            case COUNTDOWN -> { status = "◷ СТАРТ ЧЕРЕЗ " + ((m.getCountdownTicks() + 19) / 20); col = Ui.WARN; }
+            case PLAYING -> { status = "▶ " + m.getPlaybackIndex() + "/" + m.getFrameCount()
+                    + (cfg().loopEnabled ? " · круг " + (m.getLoopsDone() + 1) : ""); col = Ui.ON; }
+            default -> {
+                status = m.getFrameCount() > 0 ? "■ ГОТОВ" : "■ НЕТ МАКРОСА";
+                col = m.getFrameCount() > 0 ? Ui.SUB : Ui.DIM;
+            }
+        }
+        // кнопка закрытия
+        int bx = x + w - 24, by = y + 7;
+        boolean hc = Ui.inside(mx, my, bx, by, 16, 16);
+        Ui.round(g, bx, by, 16, 16, 4, hc ? Ui.DANGER : Ui.CARD);
+        Ui.textCentered(g, font, "✕", bx + 8, by + 4, hc ? 0xFFFFFFFF : Ui.SUB);
+        if (hc) hand();
+
+        int maxChip = Math.max(40, bx - 8 - (hx + font.width(TABS[tab]) + 10));
+        status = Ui.ellipsize(font, status, maxChip - 12);
+        int sw = font.width(status) + 12;
+        int sx = bx - 6 - sw;
+        Ui.pill(g, sx, y + 8, sw, 14, Ui.alpha(col, 0.16f));
+        Ui.text(g, font, status, sx + 6, y + 11, col);
+        g.fill(x + sideW() + 10, y + HEADER_H, x + w - 10, y + HEADER_H + 1, Ui.BORDER);
+    }
+
+    private void renderSidebar(GuiGraphicsExtractor g, int x, int y, int mx, int my) {
+        boolean compact = sideW() < 60;
+        // логотип
+        if (compact) {
+            Ui.circle(g, x + sideW() / 2, y + 15, 5, Ui.ACCENT);
+        } else {
+            Ui.circle(g, x + 14, y + 15, 4, Ui.ACCENT);
+            Ui.text(g, font, "Farm", x + 22, y + 11, Ui.TEXT);
+            Ui.text(g, font, "Macro", x + 22 + font.width("Farm"), y + 11, Ui.ACCENT_HI);
+        }
+        int ty = y + HEADER_H + 6;
+        for (int i = 0; i < TABS.length; i++) {
+            int tx = x + 6, tw = sideW() - 12, th = 20;
+            boolean active = i == tab;
+            boolean hover = Ui.inside(mx, my, tx, ty, tw, th);
+            if (active) Ui.round(g, tx, ty, tw, th, 5, Ui.alpha(Ui.ACCENT, 0.18f));
+            else if (hover) Ui.round(g, tx, ty, tw, th, 5, Ui.CARD);
+            if (active) Ui.pill(g, tx, ty + 5, 2, th - 10, Ui.ACCENT);
+            int col = active ? Ui.TEXT : hover ? Ui.TEXT : Ui.SUB;
+            if (compact) {
+                Ui.textCentered(g, font, TAB_ICONS[i], tx + tw / 2, ty + 6, active ? Ui.ACCENT_HI : col);
+                if (hover) tooltip(TABS[i]);
+            } else {
+                Ui.text(g, font, TAB_ICONS[i], tx + 7, ty + 6, active ? Ui.ACCENT_HI : Ui.DIM);
+                Ui.text(g, font, Ui.ellipsize(font, TABS[i], tw - 24), tx + 20, ty + 6, col);
+            }
+            if (hover && !active) hand();
+            ty += th + 3;
+        }
+        // подсказки по клавишам внизу
+        if (!compact) {
+            int ky = y + winH() - 12 - 3 * 11;
+            keyHint(g, x + 10, ky, "Запись", FarmMacroMod.keyRecord);
+            keyHint(g, x + 10, ky + 11, "Старт/стоп", FarmMacroMod.keyPlay);
+            keyHint(g, x + 10, ky + 22, "Продолжить", FarmMacroMod.keyResume);
         }
     }
 
-    @Override
-    protected void rebuildWidgets() { super.rebuildWidgets(); }
+    private void keyHint(GuiGraphicsExtractor g, int x, int y, String what, net.minecraft.client.KeyMapping key) {
+        String k = MacroManager.keyName(key);
+        int kw = font.width(k) + 6;
+        int right = x + sideW() - 20;
+        Ui.text(g, font, Ui.ellipsize(font, what, right - kw - x - 4), x, y + 1, Ui.DIM);
+        Ui.round(g, right - kw, y, kw, 10, 3, Ui.CARD);
+        Ui.text(g, font, k, right - kw + 3, y + 1, Ui.SUB);
+    }
+
+    private void drawTooltip(GuiGraphicsExtractor g, String text, int mx, int my) {
+        g.nextStratum();
+        int maxW = Math.min(220, width - 20);
+        var lines = font.split(Component.literal(text), maxW);
+        int tw = 0;
+        for (var l : lines) tw = Math.max(tw, font.width(l));
+        int th = lines.size() * 10 + 6;
+        int tx = Math.min(mx + 10, width - tw - 14), ty = my + 12;
+        if (ty + th > height - 4) ty = my - th - 4;
+        Ui.roundBordered(g, tx, ty, tw + 12, th + 2, 4, 0xF00B0E14, Ui.BORDER);
+        int ly = ty + 5;
+        for (var l : lines) { g.text(font, l, tx + 6, ly, Ui.TEXT, false); ly += 10; }
+    }
+
+    // ── Rows.Ctx ─────────────────────────────────────────────────────────────
+
+    @Override public Font font() { return font; }
+    @Override public void clickSound() {
+        minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0f));
+    }
+    @Override public void tooltip(String text) { tooltip = text; }
+    @Override public void hand() { wantHand = true; }
+    @Override public boolean shift() { return minecraft.hasShiftDown(); }
+
+    // ── Ввод ─────────────────────────────────────────────────────────────────
 
     @Override
-    public boolean keyPressed(KeyEvent input) { return super.keyPressed(input); }
+    public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
+        double mx = e.x(), my = e.y();
+        int x = winX(), y = winY(), w = winW();
+        // закрыть
+        if (Ui.inside(mx, my, x + w - 24, y + 7, 16, 16)) { clickSound(); onClose(); return true; }
+        // вкладки
+        int ty = y + HEADER_H + 6;
+        for (int i = 0; i < TABS.length; i++) {
+            if (Ui.inside(mx, my, x + 6, ty, sideW() - 12, 20)) {
+                if (i != tab) clickSound();
+                switchTab(i);
+                return true;
+            }
+            ty += 23;
+        }
+        // полоса прокрутки
+        int cx = contX(), cy = contY(), cw = contW(), ch = contH();
+        if (Ui.inside(mx, my, cx + cw + 1, cy, 7, ch) && contentHeight(cw) > ch) {
+            draggingScrollbar = true;
+            dragScroll(my);
+            return true;
+        }
+        // строки
+        if (Ui.inside(mx, my, cx, cy, cw, ch)) {
+            for (Rows.Row r : new ArrayList<>(rows)) {
+                if (r.lastH > 0 && my >= r.lastY && my < r.lastY + r.lastH) {
+                    if (r.click(this, mx, my, e.button())) return true;
+                    break;
+                }
+            }
+        }
+        return super.mouseClicked(e, doubleClick);
+    }
 
+    private void dragScroll(double my) {
+        int cy = contY(), ch = contH();
+        int total = contentHeight(contW());
+        double maxScroll = Math.max(0, total - ch);
+        int barH = Math.max(18, (int) ((double) ch * ch / total));
+        double t = (my - cy - barH / 2.0) / Math.max(1, ch - barH);
+        scrollTarget = scroll = Math.max(0, Math.min(maxScroll, t * maxScroll));
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) {
+        if (draggingScrollbar) { dragScroll(e.y()); return true; }
+        return super.mouseDragged(e, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent e) {
+        draggingScrollbar = false;
+        return super.mouseReleased(e);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        int cx = contX(), cy = contY(), cw = contW(), ch = contH();
+        if (Ui.inside(mx, my, cx, cy, cw, ch)) {
+            for (Rows.Row r : rows) {
+                if (r.lastH > 0 && my >= r.lastY && my < r.lastY + r.lastH) {
+                    if (r.scroll(this, mx, my, sy)) return true;
+                    break;
+                }
+            }
+            scrollTarget -= sy * 24;
+            return true;
+        }
+        // колесо над вкладками — листать вкладки
+        if (Ui.inside(mx, my, winX(), winY(), sideW(), winH())) {
+            switchTab(Math.floorMod(tab + (sy > 0 ? -1 : 1), TABS.length));
+            return true;
+        }
+        return super.mouseScrolled(mx, my, sx, sy);
+    }
+
+    @Override
+    public boolean keyPressed(KeyEvent e) {
+        if (FarmMacroMod.keyOpenGui != null && FarmMacroMod.keyOpenGui.matches(e)) { onClose(); return true; }
+        if (e.key() == 258) {               // Tab — следующая вкладка (Shift+Tab — предыдущая)
+            switchTab(Math.floorMod(tab + (e.hasShiftDown() ? -1 : 1), TABS.length));
+            return true;
+        }
+        if (e.key() == 266) { scrollTarget -= contH() * 0.8; return true; }   // PageUp
+        if (e.key() == 267) { scrollTarget += contH() * 0.8; return true; }   // PageDown
+        return super.keyPressed(e);
+    }
+
+    @Override public boolean isPauseScreen() { return false; }
     @Override public boolean shouldCloseOnEsc() { return true; }
-    @Override public void onClose() { saveAll(); minecraft.setScreen(parent); }
 
-    private void tog(boolean cur, int x, int y, String label, Consumer<Boolean> setter) {
-        addRenderableWidget(Button.builder(
-                Component.literal(cur ? "●  ON" : "○  OFF"),
-                b -> setter.accept(!cur)
-        ).bounds(x, y, 52, 16).build());
-        lbl(label, x + 58, y + 4, cur ? TEXT_WHITE : TEXT_GRAY);
+    @Override
+    public void onClose() {
+        ModConfig.save();
+        minecraft.setScreen(parent);
     }
-
-    private EditBox inp(String val, int x, int y, int w) {
-        EditBox f = new EditBox(font, x, y, w, 16, Component.empty());
-        f.setValue(val);
-        f.setMaxLength(12);
-        addRenderableWidget(f);
-        return f;
-    }
-
-    private void lbl(String t, int x, int y) {
-        lblText.add(t); lblPos.add(new int[]{x, y, 0xFFDDDDDD});
-    }
-
-    private void lbl(String t, int x, int y, int color) {
-        lblText.add(t); lblPos.add(new int[]{x, y, color});
-    }
-
-    private String s(float v)  { return String.valueOf(v); }
-    private String s(double v) { return String.valueOf(v); }
-    private String s(int v)    { return String.valueOf(v); }
-
-    private int    pi(EditBox f, int d)    { if(f==null)return d; try{return Integer.parseInt(f.getValue().trim());}    catch(Exception e){return d;} }
-    private float  pf(EditBox f, float d)  { if(f==null)return d; try{return Float.parseFloat(f.getValue().trim());}    catch(Exception e){return d;} }
-    private double pd(EditBox f, double d) { if(f==null)return d; try{return Double.parseDouble(f.getValue().trim());} catch(Exception e){return d;} }
 }

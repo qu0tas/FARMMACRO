@@ -1,299 +1,350 @@
 package com.farmmacro.macro;
 
+import com.farmmacro.config.ModConfig;
+import com.farmmacro.gui.SaveMacroScreen;
 import com.farmmacro.panic.PanicDetector;
+import com.farmmacro.panic.PanicSound;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Options;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.Options;
-import net.minecraft.network.chat.Component;
+import java.util.Locale;
 
+/**
+ * Запись и воспроизведение макроса.
+ *
+ * Запись: каждый клиентский тик сохраняем позицию, поворот, нажатые клавиши и слот (MacroFrame).
+ * Воспроизведение: каждый тик «нажимаем» клавиши из очередного кадра (через реальные привязки игрока).
+ *
+ * Автоматизация (всё опционально, настраивается в GUI → «Запуск»):
+ * обратный отсчёт, проверка точки старта, лимит кругов/времени, стоп при полном инвентаре,
+ * повтор камеры, сигнал по окончании. Проверки «застрял» и «сошёл с маршрута» живут здесь,
+ * потому что им нужна запись, но срабатывают как обычная паника.
+ */
 public class MacroManager {
 
     public static final MacroManager INSTANCE = new MacroManager();
+    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Macro");
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/MacroManager");
+    public enum State { IDLE, RECORDING, COUNTDOWN, PLAYING }
 
-    private final List<MacroFrame> frames      = new ArrayList<>();
-
-    private boolean recording     = false;
-    private boolean playing       = false;
-    private int     playbackIndex = 0;
-    private boolean loopEnabled   = com.farmmacro.config.ModConfig.INSTANCE.loopEnabled;
-
-    // ── Статистика сессии ─────────────────────────────────────────────────────
-    private long sessionStartMs  = 0;   // System.currentTimeMillis() при первом запуске
-    private int  sessionRuns     = 0;   // сколько раз запущен макрос за сессию
-
-    private double lastX = 0, lastZ = 0;
-    private int    stuckTicks = 0;
-    private static final int STUCK_TIMEOUT_TICKS = 30;
-
-    // ── Сохранённая позиция для возобновления ─────────────────────────────────
     private static final int RESUME_ROLLBACK = 2;
 
+    private final List<MacroFrame> frames = new ArrayList<>();
+    private String loadedName;          // null — несохранённая запись
+    private State  state = State.IDLE;
+
+    // воспроизведение
+    private int    playbackIndex;
+    private int    passStartIndex;      // с какого кадра начался текущий круг
+    private int    loopsDone;           // завершённых кругов в этом запуске
+    private long   runStartMs;
+    private int    countdownTicks;
+    private int    pendingStartIndex;
+    private double offX, offY, offZ;    // сдвиг «реальная позиция − запись» на начало круга
+    private double[] actualX, actualZ;  // реальные позиции по кадрам текущего круга (для «застрял»)
+
+    // статистика сессии (с момента запуска игры)
+    private long sessionStartMs;
+    private int  sessionRuns;
+
+    // точка остановки для «возобновить»
+    private boolean hasSavedPosition;
     private int     savedIndex = -1;
     private double  savedX, savedY, savedZ;
-    private boolean hasSavedPosition = false;
 
-    // ── Кеш XZ-позиций макроса для фильтрации стен фермы ─────────────────────
-    private java.util.Set<Long> macroXZCache = null;
+    // ── Запись ───────────────────────────────────────────────────────────────
 
-    public void toggleRecording(Minecraft client) {
-        if (playing) { msg(client, "§cСначала останови воспроизведение (P)"); return; }
-        if (!recording) {
+    public void toggleRecording(Minecraft mc) {
+        if (state == State.PLAYING || state == State.COUNTDOWN) { msg(mc, "§cСначала останови воспроизведение"); return; }
+        if (state != State.RECORDING) {
             frames.clear();
-            recording = true;
-            msg(client, "§a● Запись началась (нажми R чтобы остановить)");
+            loadedName = null;
+            clearSavedPosition();
+            state = State.RECORDING;
+            msg(mc, "§c● Запись началась §7(" + keyName(com.farmmacro.FarmMacroMod.keyRecord) + " — стоп)");
         } else {
-            recording = false;
-            msg(client, "§e■ Запись остановлена. Кадров: " + frames.size());
-            if (!frames.isEmpty() && client.screen == null) {
-                client.setScreen(new com.farmmacro.gui.SaveMacroScreen(null, new java.util.ArrayList<>(frames)));
+            state = State.IDLE;
+            msg(mc, "§e■ Запись остановлена: " + frames.size() + " кадров (" + formatTicks(frames.size()) + ")");
+            if (frames.size() >= 5 && mc.screen == null) {
+                mc.setScreen(new SaveMacroScreen(null, new ArrayList<>(frames)));
             }
         }
     }
 
-    public void tickRecord(Minecraft client) {
-        if (!recording || client.player == null) return;
-        Options opt = client.options;
-        MacroFrame frame = new MacroFrame(
-                client.player.getX(), client.player.getY(), client.player.getZ(),
-                client.player.getYRot(), client.player.getXRot(),
-                opt.keyUp.isDown(), opt.keyDown.isDown(),
-                opt.keyLeft.isDown(), opt.keyRight.isDown(),
-                opt.keyJump.isDown(), opt.keyShift.isDown(), opt.keySprint.isDown(),
-                opt.keyAttack.isDown(), opt.keyUse.isDown(),
-                client.player.getInventory().getSelectedSlot()
-        );
-        frames.add(frame);
+    public void tickRecord(Minecraft mc) {
+        if (state != State.RECORDING || mc.player == null) return;
+        Options o = mc.options;
+        LocalPlayer p = mc.player;
+        frames.add(new MacroFrame(
+                p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot(),
+                o.keyUp.isDown(), o.keyDown.isDown(), o.keyLeft.isDown(), o.keyRight.isDown(),
+                o.keyJump.isDown(), o.keyShift.isDown(), o.keySprint.isDown(),
+                o.keyAttack.isDown(), o.keyUse.isDown(),
+                p.getInventory().getSelectedSlot()));
     }
 
-    public void clearRecording(Minecraft client) {
-        if (playing) { msg(client, "§cСначала останови воспроизведение (P)"); return; }
+    public void clearRecording(Minecraft mc) {
+        if (state == State.PLAYING || state == State.COUNTDOWN) { msg(mc, "§cСначала останови воспроизведение"); return; }
         frames.clear();
-        recording = false;
-        msg(client, "§7Запись очищена.");
+        loadedName = null;
+        state = State.IDLE;
+        clearSavedPosition();
+        msg(mc, "§7Буфер макроса очищен.");
     }
 
-    public void togglePlayback(Minecraft client) {
-        if (recording) { msg(client, "§cСначала останови запись (R)"); return; }
-        if (frames.isEmpty()) { msg(client, "§cНет записи! Сначала запиши макрос (R)"); return; }
-        if (!playing) {
-            macroXZCache = null;
+    /** Загрузить сохранённый макрос в буфер. */
+    public boolean loadMacro(String name, List<MacroFrame> loaded, Minecraft mc) {
+        if (state != State.IDLE) { msg(mc, "§cСначала останови запись/воспроизведение"); return false; }
+        frames.clear();
+        frames.addAll(loaded);
+        loadedName = name;
+        clearSavedPosition();
+        msg(mc, "§aЗагружен «" + name + "»: " + formatTicks(frames.size()) + ". "
+                + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — запуск");
+        return true;
+    }
 
-            playing = true;
-            playbackIndex = 0;
-            stuckTicks = 0;
-            lastX = client.player.getX();
-            lastZ = client.player.getZ();
-            PanicDetector.INSTANCE.snapshot(client);
+    public void markSaved(String name) { loadedName = name; }
 
-            // Статистика
-            if (sessionStartMs == 0) sessionStartMs = System.currentTimeMillis();
-            sessionRuns++;
+    // ── Воспроизведение ──────────────────────────────────────────────────────
 
-            msg(client, "§a▶ Воспроизведение началось (P чтобы остановить)");
+    public void togglePlayback(Minecraft mc) {
+        if (state == State.PLAYING || state == State.COUNTDOWN) {
+            stopPlayback(mc, "§e■ Остановлено вручную");
         } else {
-            stopPlayback(client, "§e■ Воспроизведение остановлено вручную.");
+            startPlayback(mc, 0, false);
         }
     }
 
-    public void tickPlayback(Minecraft client) {
-        if (!playing || client.player == null) return;
+    public void resumeFromSaved(Minecraft mc) {
+        if (state != State.IDLE)  { msg(mc, "§cСначала останови запись/воспроизведение"); return; }
+        if (!hasSavedPosition)    { msg(mc, "§7Нет сохранённой точки остановки"); return; }
+        startPlayback(mc, Math.max(0, savedIndex - RESUME_ROLLBACK), true);
+    }
 
-        double curX = client.player.getX();
-        double curZ = client.player.getZ();
-        {
-            com.farmmacro.config.ModConfig c = com.farmmacro.config.ModConfig.INSTANCE;
-            double moved = Math.sqrt((curX - lastX) * (curX - lastX) + (curZ - lastZ) * (curZ - lastZ));
+    private void startPlayback(Minecraft mc, int index, boolean resume) {
+        if (state == State.RECORDING) { msg(mc, "§cСначала останови запись"); return; }
+        if (frames.isEmpty())         { msg(mc, "§cНет макроса — запиши (" + keyName(com.farmmacro.FarmMacroMod.keyRecord) + ") или загрузи в меню"); return; }
+        if (mc.player == null) return;
+        ModConfig c = ModConfig.INSTANCE;
+        index = Math.min(index, frames.size() - 1);
 
-            // Макрос должен сейчас двигаться (есть нажатая клавиша движения)
-            List<MacroFrame> checkFrames = this.frames;
-            if (c.stuckBlockDetectEnabled) {
-                // Умная проверка: считаем тики только когда макрос хочет идти
-                boolean macroWantsMove = false;
-                if (playbackIndex > 0 && playbackIndex <= checkFrames.size()) {
-                    MacroFrame cf = checkFrames.get(playbackIndex - 1);
-                    macroWantsMove = cf.forward || cf.back || cf.left || cf.right;
-                }
-                if (macroWantsMove && moved < 0.02) {
-                    stuckTicks++;
-                    if (stuckTicks >= c.stuckThresholdTicks) {
-                        if (isBlockedByWall(client, checkFrames)) {
-                            PanicDetector.INSTANCE.notifyStuck(client);
-                            return;
-                        }
-                    }
-                } else {
-                    stuckTicks = 0;
-                }
-            } else {
-                // Старая логика: просто таймаут без проверки блока
-                if (moved < 0.02) {
-                    stuckTicks++;
-                    if (stuckTicks >= STUCK_TIMEOUT_TICKS) {
-                        PanicDetector.INSTANCE.notifyStuck(client);
-                        return;
-                    }
-                } else {
-                    stuckTicks = 0;
-                }
+        double dist = resume ? distanceTo(mc.player, savedX, savedY, savedZ) : distanceToFrame(mc.player, index);
+        String where = resume ? "точки остановки" : "точки старта";
+        if (dist > c.startPointWarnDistance) {
+            if (c.requireStartPoint) {
+                msg(mc, String.format(Locale.ROOT, "§cДо %s %.1f бл — подойди ближе (стрелка в HUD)", where, dist));
+                return;
             }
+            msg(mc, String.format(Locale.ROOT, "§6Внимание: до %s %.1f бл", where, dist));
         }
-        lastX = curX;
-        lastZ = curZ;
 
-        List<MacroFrame> currentFrames = this.frames;
+        PanicDetector.INSTANCE.silence();
+        if (resume) clearSavedPosition();
+        pendingStartIndex = index;
+        if (c.startCountdownSeconds > 0) {
+            state = State.COUNTDOWN;
+            countdownTicks = c.startCountdownSeconds * 20;
+        } else {
+            beginPlaying(mc);
+        }
+    }
 
-        if (playbackIndex >= currentFrames.size()) {
-            if (!loopEnabled) {
-                stopPlayback(client, "§e■ Макрос завершён (цикл выключен).");
+    private void beginPlaying(Minecraft mc) {
+        state = State.PLAYING;
+        playbackIndex = pendingStartIndex;
+        loopsDone = 0;
+        runStartMs = System.currentTimeMillis();
+        if (sessionStartMs == 0) sessionStartMs = runStartMs;
+        startPass(mc, playbackIndex);
+        msg(mc, "§a▶ Воспроизведение" + (playbackIndex > 0 ? " с кадра " + playbackIndex : "")
+                + " §7(" + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — стоп)");
+    }
+
+    private void startPass(Minecraft mc, int index) {
+        sessionRuns++;
+        passStartIndex = index;
+        LocalPlayer p = mc.player;
+        MacroFrame f = frames.get(index);
+        offX = p.getX() - f.x; offY = p.getY() - f.y; offZ = p.getZ() - f.z;
+        if (actualX == null || actualX.length != frames.size()) {
+            actualX = new double[frames.size()];
+            actualZ = new double[frames.size()];
+        }
+        PanicDetector.INSTANCE.snapshot(mc);
+    }
+
+    public void tickPlayback(Minecraft mc) {
+        if (state == State.COUNTDOWN) { tickCountdown(mc); return; }
+        if (state != State.PLAYING) return;
+        LocalPlayer p = mc.player;
+        if (p == null || mc.level == null) {          // вышли из мира — без следов
+            state = State.IDLE;
+            releaseAll(mc);
+            return;
+        }
+        ModConfig c = ModConfig.INSTANCE;
+
+        // ── лимиты ──
+        if (c.timeLimitMinutes > 0 && System.currentTimeMillis() - runStartMs >= c.timeLimitMinutes * 60_000L) {
+            finish(mc, "§a✔ Лимит времени (" + c.timeLimitMinutes + " мин) — стоп", true);
+            return;
+        }
+        if (c.stopWhenInventoryFull && p.getInventory().getFreeSlot() == -1) {
+            finish(mc, "§a✔ Инвентарь полон — стоп", true);
+            return;
+        }
+
+        // ── конец записи ──
+        if (playbackIndex >= frames.size()) {
+            loopsDone++;
+            if (!c.loopEnabled) { finish(mc, "§a✔ Макрос завершён", false); return; }
+            if (c.loopLimit > 0 && loopsDone >= c.loopLimit) {
+                finish(mc, "§a✔ Пройдено кругов: " + loopsDone, false);
                 return;
             }
             playbackIndex = 0;
-            sessionRuns++;
-            PanicDetector.INSTANCE.snapshot(client);
+            startPass(mc, 0);
         }
-        MacroFrame f = currentFrames.get(playbackIndex);
 
-        client.player.getInventory().setSelectedSlot(f.selectedSlot);
-        PanicDetector.INSTANCE.updateExpectedSlot(f.selectedSlot);
+        // ── застрял / сошёл с маршрута ──
+        actualX[playbackIndex] = p.getX();
+        actualZ[playbackIndex] = p.getZ();
+        if (c.panicEnabled && checkRouteProblems(mc, p, c)) return;
 
-        applyKey(client.options.keyUp,  f.forward);
-        applyKey(client.options.keyDown,     f.back);
-        applyKey(client.options.keyLeft,     f.left);
-        applyKey(client.options.keyRight,    f.right);
-        applyKey(client.options.keyJump,     f.jump);
-        applyKey(client.options.keyShift,    f.sneak);
-        applyKey(client.options.keySprint,   f.sprint);
-        applyKey(client.options.keyAttack,   f.attackPressed);
-        applyKey(client.options.keyUse,      f.usePressed);
+        // ── применяем кадр ──
+        MacroFrame f = frames.get(playbackIndex);
+        p.getInventory().setSelectedSlot(f.selectedSlot);
+        PanicDetector.INSTANCE.expectSlot(f.selectedSlot);
+        if (c.replayCamera) {
+            p.setYRot(f.yaw);
+            p.setXRot(f.pitch);
+            PanicDetector.INSTANCE.expectRotation(f.yaw, f.pitch);
+        }
+        Options o = mc.options;
+        press(o.keyUp, f.forward);
+        press(o.keyDown, f.back);
+        press(o.keyLeft, f.left);
+        press(o.keyRight, f.right);
+        press(o.keyJump, f.jump);
+        press(o.keyShift, f.sneak);
+        press(o.keySprint, f.sprint);
+        press(o.keyAttack, f.attackPressed);
+        press(o.keyUse, f.usePressed);
 
         playbackIndex++;
     }
 
-    /**
-     * Определяет вектор движения из текущего кадра макроса и проверяет,
-     * есть ли твёрдый блок по этому вектору на высоте ног (Y) и головы (Y+1).
-     *
-     * Используется исключительно BlockPos + world.getBlockState — без raycast,
-     * чтобы не зависеть от угла камеры.
-     */
-    private boolean isBlockedByWall(Minecraft client, List<MacroFrame> frames) {
-        if (client.player == null || client.level == null) return false;
-        if (playbackIndex <= 0 || playbackIndex > frames.size()) return false;
-
-        MacroFrame cf = frames.get(playbackIndex - 1);
-
-        // Вычисляем нормализованный вектор движения из флагов кадра
-        double dx = 0, dz = 0;
-        // forward/back в Minecraft — движение вдоль -Z / +Z в мировых координатах
-        // но реальное направление зависит от yaw игрока.
-        // Используем yaw из кадра для корректного пересчёта.
-        float yawRad = (float) Math.toRadians(cf.yaw);
-        if (cf.forward)  { dx -= Math.sin(yawRad); dz += Math.cos(yawRad); }
-        if (cf.back)     { dx += Math.sin(yawRad); dz -= Math.cos(yawRad); }
-        if (cf.left)     { dx -= Math.cos(yawRad); dz -= Math.sin(yawRad); }
-        if (cf.right)    { dx += Math.cos(yawRad); dz += Math.sin(yawRad); }
-
-        if (dx == 0 && dz == 0) return false;
-
-        // Нормализуем и смотрим на 0.6 блока вперёд (ширина хитбокса игрока)
-        double len = Math.sqrt(dx * dx + dz * dz);
-        dx = dx / len * 0.6;
-        dz = dz / len * 0.6;
-
-        double px = client.player.getX() + dx;
-        double pz = client.player.getZ() + dz;
-        double py = client.player.getY();
-
-        // Проверяем ноги (Y) и голову (Y+1)
-        net.minecraft.core.BlockPos feet = new net.minecraft.core.BlockPos(
-                (int) Math.floor(px), (int) Math.floor(py), (int) Math.floor(pz));
-        net.minecraft.core.BlockPos head = new net.minecraft.core.BlockPos(
-                (int) Math.floor(px), (int) Math.floor(py + 1), (int) Math.floor(pz));
-
-        boolean feetBlocked = !client.level.getBlockState(feet).getCollisionShape(
-                client.level, feet).isEmpty();
-        boolean headBlocked = !client.level.getBlockState(head).getCollisionShape(
-                client.level, head).isEmpty();
-
-        if (!feetBlocked && !headBlocked) return false;
-
-        // Блок есть — но лежит ли он на пути макроса?
-        // Если эта XZ-координата НИКОГДА не встречалась в кадрах — это стена фермы, игнорим
-        java.util.Set<Long> xzSet = getMacroXZSet();
-        long blockKey = ((long)(int) Math.floor(px) << 32) | ((int) Math.floor(pz) & 0xFFFFFFFFL);
-        if (!xzSet.contains(blockKey)) return false;
-
-        return true;
-    }
-
-    /**
-     * Строит и кеширует Set всех XZ-координат (в блоках), которые посещает макрос.
-     * Стены фермы по определению не входят в этот набор — игрок доходит до них,
-     * разворачивается и уходит, не наступая на них.
-     */
-    private java.util.Set<Long> getMacroXZSet() {
-        if (macroXZCache != null) return macroXZCache;
-        macroXZCache = new java.util.HashSet<>();
-        for (MacroFrame f : frames) {
-            int fx = (int) Math.floor(f.x);
-            int fz = (int) Math.floor(f.z);
-            // +1 блок вокруг — покрывает хитбокс игрока (0.6 шириной)
-            for (int ddx = -1; ddx <= 1; ddx++)
-                for (int ddz = -1; ddz <= 1; ddz++)
-                    macroXZCache.add(((long)(fx + ddx) << 32) | ((fz + ddz) & 0xFFFFFFFFL));
+    /** @return true если сработала паника */
+    private boolean checkRouteProblems(Minecraft mc, LocalPlayer p, ModConfig c) {
+        int i = playbackIndex;
+        if (c.detectStuck) {
+            int n = c.stuckThresholdTicks;
+            if (i - n >= passStartIndex) {
+                MacroFrame a = frames.get(i - n), b = frames.get(i);
+                double recorded = Math.hypot(b.x - a.x, b.z - a.z);
+                double actual   = Math.hypot(actualX[i] - actualX[i - n], actualZ[i] - actualZ[i - n]);
+                if (recorded >= 1.0 && actual < Math.min(0.3, recorded * 0.15)) {
+                    PanicDetector.INSTANCE.triggerPanic(mc, String.format(Locale.ROOT,
+                            "Застрял: по записи %.1f бл за %.1f с, прошёл %.2f", recorded, n / 20.0, actual));
+                    return true;
+                }
+            }
         }
-        return macroXZCache;
+        if (c.detectDrift) {
+            MacroFrame f = frames.get(i);
+            double drift = Math.hypot(p.getX() - offX - f.x, p.getZ() - offZ - f.z);
+            if (drift > c.driftThreshold) {
+                PanicDetector.INSTANCE.triggerPanic(mc, String.format(Locale.ROOT,
+                        "Сошёл с маршрута на %.1f бл", drift));
+                return true;
+            }
+        }
+        return false;
     }
 
-    private void applyKey(net.minecraft.client.KeyMapping key, boolean pressed) {
-        // Жмём ту клавишу, на которую игрок реально назначил действие (а не дефолтную)
-        net.minecraft.client.KeyMapping.set(
-                net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.getBoundKeyOf(key), pressed);
+    private void tickCountdown(Minecraft mc) {
+        if (mc.player == null) { state = State.IDLE; return; }
+        if (countdownTicks % 20 == 0) {
+            mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_HAT.value(), 1.6f, 0.8f));
+        }
+        if (--countdownTicks <= 0) {
+            mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_PLING.value(), 2.0f, 0.8f));
+            beginPlaying(mc);
+        }
     }
 
-    public void stopPlayback(Minecraft client, String reason) {
-        if (playing && client.player != null && playbackIndex > 0) {
-            savedIndex       = playbackIndex - 1;
-            savedX           = client.player.getX();
-            savedY           = client.player.getY();
-            savedZ           = client.player.getZ();
+    /** Штатное окончание (конец записи/лимит). keepResume — можно продолжить с этого места. */
+    private void finish(Minecraft mc, String message, boolean keepResume) {
+        boolean wasPlaying = state == State.PLAYING;
+        stopInternal(mc, keepResume);
+        msg(mc, message);
+        if (wasPlaying && ModConfig.INSTANCE.finishSoundEnabled) PanicSound.playDone();
+    }
+
+    /** Остановка (вручную или паникой). Точка остановки запоминается для «возобновить». */
+    public void stopPlayback(Minecraft mc, String message) {
+        if (state != State.PLAYING && state != State.COUNTDOWN) return;
+        stopInternal(mc, true);
+        msg(mc, message);
+    }
+
+    private void stopInternal(Minecraft mc, boolean keepResume) {
+        if (keepResume && state == State.PLAYING && mc.player != null && playbackIndex > 0) {
+            savedIndex = Math.min(playbackIndex - 1, frames.size() - 1);
+            savedX = mc.player.getX();
+            savedY = mc.player.getY();
+            savedZ = mc.player.getZ();
             hasSavedPosition = true;
         }
-        playing      = false;
+        state = State.IDLE;
         playbackIndex = 0;
-        macroXZCache  = null;
-        releaseAll(client);
-        msg(client, reason);
+        releaseAll(mc);
     }
 
-    public void resumeFromSaved(Minecraft client) {
-        if (recording)         { msg(client, "§cСначала останови запись (R)"); return; }
-        if (playing)           { msg(client, "§cМакрос уже играет"); return; }
-        if (!hasSavedPosition) { msg(client, "§7Нет сохранённой позиции"); return; }
-        if (frames.isEmpty())  { msg(client, "§cНет загруженного макроса"); return; }
+    // ── Клавиши ──────────────────────────────────────────────────────────────
 
-        int resumeIndex = Math.max(0, savedIndex - RESUME_ROLLBACK);
-        playing       = true;
-        playbackIndex = resumeIndex;
-        stuckTicks    = 0;
-        if (client.player != null) {
-            lastX = client.player.getX();
-            lastZ = client.player.getZ();
-        }
-        PanicDetector.INSTANCE.snapshot(client);
-
-        // Сбрасываем сохранённую позицию — только после успешного запуска
-        hasSavedPosition = false;
-        savedIndex       = -1;
-
-        msg(client, "§a▶ Возобновлено с кадра " + resumeIndex + " (P чтобы остановить)");
+    private static void press(KeyMapping key, boolean down) {
+        // жмём ту клавишу, на которую игрок реально назначил действие
+        KeyMapping.set(KeyMappingHelper.getBoundKeyOf(key), down);
     }
+
+    private static void releaseAll(Minecraft mc) {
+        Options o = mc.options;
+        if (o == null) return;
+        for (KeyMapping k : new KeyMapping[]{o.keyUp, o.keyDown, o.keyLeft, o.keyRight, o.keyJump,
+                o.keyShift, o.keySprint, o.keyAttack, o.keyUse}) press(k, false);
+    }
+
+    // ── Геттеры для GUI/HUD ──────────────────────────────────────────────────
+
+    public State   getState()          { return state; }
+    public boolean isRecording()       { return state == State.RECORDING; }
+    public boolean isPlaying()         { return state == State.PLAYING; }
+    public boolean isCountingDown()    { return state == State.COUNTDOWN; }
+    public boolean isActive()          { return state == State.PLAYING || state == State.COUNTDOWN; }
+    public int     getCountdownTicks() { return countdownTicks; }
+    public int     getFrameCount()     { return frames.size(); }
+    public int     getPlaybackIndex()  { return playbackIndex; }
+    public int     getLoopsDone()      { return loopsDone; }
+    public long    getRunStartMs()     { return runStartMs; }
+    public String  getLoadedName()     { return loadedName; }
+    public List<MacroFrame> getFrames() { return Collections.unmodifiableList(frames); }
+
+    public long getSessionStartMs() { return sessionStartMs; }
+    public int  getSessionRuns()    { return sessionRuns; }
+    public void resetStats()        { sessionStartMs = 0; sessionRuns = 0; }
 
     public boolean hasSavedPosition()   { return hasSavedPosition; }
     public double  getSavedX()          { return savedX; }
@@ -301,44 +352,32 @@ public class MacroManager {
     public double  getSavedZ()          { return savedZ; }
     public void    clearSavedPosition() { hasSavedPosition = false; savedIndex = -1; }
 
-    private void releaseAll(Minecraft client) {
-        if (client.options == null) return;
-        applyKey(client.options.keyUp,  false);
-        applyKey(client.options.keyDown,     false);
-        applyKey(client.options.keyLeft,     false);
-        applyKey(client.options.keyRight,    false);
-        applyKey(client.options.keyJump,     false);
-        applyKey(client.options.keyShift,    false);
-        applyKey(client.options.keySprint,   false);
-        applyKey(client.options.keyAttack,   false);
-        applyKey(client.options.keyUse,      false);
+    /** Позиция первого кадра (точка старта) или null. */
+    public MacroFrame getStartFrame() { return frames.isEmpty() ? null : frames.get(0); }
+
+    public double distanceToFrame(LocalPlayer p, int index) {
+        MacroFrame f = frames.get(index);
+        return distanceTo(p, f.x, f.y, f.z);
     }
 
-    public boolean isRecording()    { return recording; }
-    public boolean isPlaying()      { return playing; }
-    public boolean isLoopEnabled()  { return loopEnabled; }
-
-    public long getSessionStartMs() { return sessionStartMs; }
-    public int  getSessionRuns()    { return sessionRuns; }
-    public void resetStats()        { sessionStartMs = 0; sessionRuns = 0; }
-    public void setLoopEnabled(boolean v) {
-        loopEnabled = v;
-        com.farmmacro.config.ModConfig.INSTANCE.loopEnabled = v;
-        com.farmmacro.config.ModConfig.save();
+    private static double distanceTo(LocalPlayer p, double x, double y, double z) {
+        double dx = p.getX() - x, dy = p.getY() - y, dz = p.getZ() - z;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    public void loadMacro(java.util.List<MacroFrame> loadedFrames, Minecraft client) {
-        if (playing)    { msg(client, "§cСначала останови воспроизведение (P)"); return; }
-        if (recording)  { msg(client, "§cСначала останови запись (R)"); return; }
-        frames.clear();
-        frames.addAll(loadedFrames);
-        hasSavedPosition = false;   // старая позиция относится к другому макросу
-        savedIndex       = -1;
-        msg(client, "§aМакрос загружен. Кадров: " + frames.size() + "  Нажми P для запуска.");
+    // ── Утилиты ──────────────────────────────────────────────────────────────
+
+    public static String formatTicks(int ticks) {
+        long s = ticks / 20;
+        return s >= 60 ? String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60) : String.format(Locale.ROOT, "%.1f с", ticks / 20.0);
     }
 
-    private void msg(Minecraft client, String text) {
-        if (client.player != null)
-            client.player.sendOverlayMessage(Component.literal("[FarmMacro] " + text));
+    public static String keyName(KeyMapping key) {
+        return key == null ? "?" : key.getTranslatedKeyMessage().getString();
+    }
+
+    private static void msg(Minecraft mc, String text) {
+        if (mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §r" + text));
+        LOGGER.info(text.replaceAll("§.", ""));
     }
 }

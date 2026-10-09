@@ -1,135 +1,221 @@
 package com.farmmacro.gui;
 
 import com.farmmacro.macro.MacroFrame;
+import com.farmmacro.macro.MacroManager;
 import com.farmmacro.macro.MacroStorage;
-import java.util.List;
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
+
+import java.util.List;
 
 /**
- * SaveMacroScreen — маленькое диалоговое окно, которое появляется
- * сразу после остановки записи макроса.
- *
- * Игрок вводит название → нажимает Сохранить → макрос пишется в файл.
- * Нажимает Отмена → просто закрывается без сохранения.
+ * Диалог «Сохранить макрос» в стиле меню мода: своё поле ввода (курсор, вставка, удаление слов),
+ * предупреждение о перезаписи, Enter — сохранить, Esc — отмена (запись остаётся в буфере).
  */
-public class SaveMacroScreen extends Screen {
+public class SaveMacroScreen extends Screen implements Rows.Ctx {
 
-    private static final int BG_DARK    = 0xFF0D0D0D;
-    private static final int ACCENT_RED = 0xFFE02020;
-    private static final int TEXT_GRAY  = 0xFF888888;
-    private static final int TEXT_LIGHT = 0xFFCCCCCC;
-    private static final int BORDER     = 0xFF2A2A2A;
+    private static final int MAX_LEN = 48;
 
-    private final Screen         parent;
+    private final Screen parent;
     private final List<MacroFrame> frames;
-    private EditBox      nameField;
-    private String               statusMsg = "";
-    private int                  statusColor = TEXT_LIGHT;
+    private String text;
+    private int cursor;
+    private String status = "";
+    private int statusColor = Ui.SUB;
+    private String confirmOverwrite;   // имя, для которого уже показали предупреждение
+    private boolean wantHand, wantBeam;
 
-    public SaveMacroScreen(Screen parent, List<MacroFrame> frames) {
+    public SaveMacroScreen(Screen parent, List<MacroFrame> frames) { this(parent, frames, null); }
+
+    public SaveMacroScreen(Screen parent, List<MacroFrame> frames, String defaultName) {
         super(Component.literal("Сохранить макрос"));
         this.parent = parent;
         this.frames = frames;
+        this.text = defaultName != null ? defaultName : "";
+        this.cursor = text.length();
     }
 
-    // ── Размеры диалога ───────────────────────────────────────────────────────
-
-    private int dW() { return 260; }
-    private int dH() { return 110; }
-    private int dX() { return (width  - dW()) / 2; }
+    private int dW() { return Math.min(280, width - 20); }
+    private int dH() { return 116; }
+    private int dX() { return (width - dW()) / 2; }
     private int dY() { return (height - dH()) / 2; }
+    private int fieldY() { return dY() + 40; }
 
-    // ── init ──────────────────────────────────────────────────────────────────
-
-    @Override
-    protected void init() {
-        int x = dX(), y = dY(), w = dW();
-
-        // Поле ввода имени
-        nameField = new EditBox(font,
-                x + 10, y + 36, w - 20, 20, Component.empty());
-        nameField.setMaxLength(48);
-        nameField.setHint(Component.literal("Название макроса..."));
-        nameField.setFocused(true);
-        addRenderableWidget(nameField);
-
-        // Кнопки
-        int btnW = (w - 28) / 2;
-        addRenderableWidget(Button.builder(Component.literal("Сохранить"),
-                b -> trySave()
-        ).bounds(x + 8, y + dH() - 30, btnW, 20).build());
-
-        addRenderableWidget(Button.builder(Component.literal("Отмена"),
-                b -> minecraft.setScreen(parent)
-        ).bounds(x + btnW + 12, y + dH() - 30, btnW, 20).build());
-    }
-
-    // ── Логика сохранения ─────────────────────────────────────────────────────
+    // ── Логика ───────────────────────────────────────────────────────────────
 
     private void trySave() {
-        String name = nameField.getValue().trim();
-        if (name.isEmpty()) {
-            statusMsg   = "Введи название!";
-            statusColor = ACCENT_RED;
+        String name = text.trim();
+        if (MacroStorage.sanitize(name).isEmpty()) { setStatus("Введи название", Ui.DANGER); return; }
+        if (MacroStorage.INSTANCE.exists(name) && !name.equals(confirmOverwrite)) {
+            confirmOverwrite = name;
+            setStatus("Такой уже есть — нажми «Сохранить» ещё раз, чтобы заменить", Ui.WARN);
             return;
         }
-        boolean ok = MacroStorage.INSTANCE.save(name, frames);
-        if (ok) {
+        if (MacroStorage.INSTANCE.save(name, frames)) {
+            MacroManager.INSTANCE.markSaved(name);
+            if (minecraft.player != null)
+                minecraft.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §aСохранено: «" + name + "»"));
             minecraft.setScreen(parent);
         } else {
-            statusMsg   = "Ошибка сохранения";
-            statusColor = ACCENT_RED;
+            setStatus("Не удалось сохранить (подробности в логе)", Ui.DANGER);
         }
     }
 
-    // ── keyPressed — Enter сохраняет ──────────────────────────────────────────
+    private void setStatus(String s, int color) { status = s; statusColor = color; }
 
-    @Override
-    public boolean keyPressed(net.minecraft.client.input.KeyEvent input) {
-        if (input.key() == 257) { trySave(); return true; } // ENTER
-        if (input.key() == 256) { minecraft.setScreen(parent); return true; } // ESC
-        return super.keyPressed(input);
+    private void insert(String s) {
+        StringBuilder clean = new StringBuilder();
+        s.codePoints().filter(cp -> cp >= 32 && cp != 127).forEach(clean::appendCodePoint);
+        String add = clean.toString();
+        int room = MAX_LEN - text.length();
+        if (room <= 0 || add.isEmpty()) return;
+        if (add.length() > room) add = add.substring(0, room);
+        text = text.substring(0, cursor) + add + text.substring(cursor);
+        cursor += add.length();
+        confirmOverwrite = null;
+        status = "";
     }
 
-    // ── Рендер ────────────────────────────────────────────────────────────────
+    private int wordLeft() {
+        int i = cursor;
+        while (i > 0 && text.charAt(i - 1) == ' ') i--;
+        while (i > 0 && text.charAt(i - 1) != ' ') i--;
+        return i;
+    }
+
+    private int wordRight() {
+        int i = cursor;
+        while (i < text.length() && text.charAt(i) == ' ') i++;
+        while (i < text.length() && text.charAt(i) != ' ') i++;
+        return i;
+    }
+
+    // ── Ввод ─────────────────────────────────────────────────────────────────
 
     @Override
-    public void extractBackground(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
-        super.extractBackground(ctx, mx, my, delta);
+    public boolean charTyped(CharacterEvent e) {
+        if (!e.isAllowedChatCharacter()) return false;
+        insert(e.codepointAsString());
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(KeyEvent e) {
+        boolean ctrl = e.hasControlDown();
+        switch (e.key()) {
+            case 257, 335 -> { trySave(); return true; }                       // Enter
+            case 256 -> { onClose(); return true; }                            // Esc
+            case 259 -> {                                                      // Backspace
+                if (cursor > 0) {
+                    int from = ctrl ? wordLeft() : cursor - 1;
+                    text = text.substring(0, from) + text.substring(cursor);
+                    cursor = from;
+                    confirmOverwrite = null;
+                }
+                return true;
+            }
+            case 261 -> {                                                      // Delete
+                if (cursor < text.length()) {
+                    int to = ctrl ? wordRight() : cursor + 1;
+                    text = text.substring(0, cursor) + text.substring(to);
+                    confirmOverwrite = null;
+                }
+                return true;
+            }
+            case 263 -> { cursor = ctrl ? wordLeft() : Math.max(0, cursor - 1); return true; }          // ←
+            case 262 -> { cursor = ctrl ? wordRight() : Math.min(text.length(), cursor + 1); return true; } // →
+            case 268 -> { cursor = 0; return true; }                           // Home
+            case 269 -> { cursor = text.length(); return true; }               // End
+            default -> { }
+        }
+        if (e.isPaste()) { insert(minecraft.keyboardHandler.getClipboard().replace('\n', ' ')); return true; }
+        if (ctrl && e.key() == 65) { text = ""; cursor = 0; return true; }     // Ctrl+A — очистить поле
+        return super.keyPressed(e);
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent e, boolean dbl) {
+        int x = dX(), w = dW(), by = dY() + dH() - 28;
+        int bw = (w - 28) / 2;
+        if (Ui.inside(e.x(), e.y(), x + 10, by, bw, 18)) { clickSound(); trySave(); return true; }
+        if (Ui.inside(e.x(), e.y(), x + 18 + bw, by, bw, 18)) { clickSound(); onClose(); return true; }
+        if (Ui.inside(e.x(), e.y(), x + 10, fieldY(), w - 20, 18)) {
+            // курсор туда, куда кликнули
+            int rel = (int) e.x() - (x + 16);
+            int best = text.length();
+            for (int i = 0; i <= text.length(); i++) {
+                if (font.width(text.substring(0, i)) >= rel) { best = i; break; }
+            }
+            cursor = best;
+            return true;
+        }
+        return super.mouseClicked(e, dbl);
+    }
+
+    // ── Отрисовка ────────────────────────────────────────────────────────────
+
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
+        super.extractRenderState(g, mx, my, delta);
+        wantHand = wantBeam = false;
         int x = dX(), y = dY(), w = dW(), h = dH();
+        Ui.shadow(g, x, y, w, h, 8);
+        Ui.round(g, x, y, w, h, 8, Ui.WINDOW);
+        Ui.circle(g, x + 14, y + 14, 3, Ui.ACCENT);
+        Ui.text(g, font, "Сохранить макрос", x + 22, y + 10, Ui.TEXT);
+        Ui.text(g, font, MacroManager.formatTicks(frames.size()) + " · " + frames.size() + " кадров",
+                x + 12, y + 24, Ui.SUB);
 
-        // Тень
-        ctx.fill(x + 4, y + 4, x + w + 4, y + h + 4, 0x88000000);
-        // Фон
-        ctx.fill(x, y, x + w, y + h, BG_DARK);
-        // Красная полоска сверху
-        ctx.fill(x, y, x + w, y + 2, ACCENT_RED);
-        // Рамка
-        ctx.fill(x,     y,     x + w,     y + 1,     BORDER);
-        ctx.fill(x,     y + h, x + w,     y + h + 1, BORDER);
-        ctx.fill(x,     y,     x + 1,     y + h,     BORDER);
-        ctx.fill(x + w, y,     x + w + 1, y + h,     BORDER);
-    }
-
-    @Override
-    public void extractRenderState(GuiGraphicsExtractor ctx, int mx, int my, float delta) {
-        super.extractRenderState(ctx, mx, my, delta);
-        int x = dX(), y = dY();
-
-        ctx.text(font,
-                "Сохранить макрос", x + 10, y + 8, ACCENT_RED);
-        ctx.text(font,
-                "Кадров: " + frames.size(), x + 10, y + 22, TEXT_GRAY);
-
-        if (!statusMsg.isEmpty()) {
-            ctx.text(font, statusMsg, x + 10, y + 60, statusColor);
+        // поле ввода
+        int fy = fieldY(), fw = w - 20;
+        Ui.roundBordered(g, x + 10, fy, fw, 18, 4, Ui.FIELD, Ui.ACCENT);
+        if (Ui.inside(mx, my, x + 10, fy, fw, 18)) wantBeam = true;
+        int tx = x + 16;
+        if (text.isEmpty()) {
+            Ui.text(g, font, "Название, например «Пшеница 3 этажа»", tx, fy + 5, Ui.DIM);
         }
+        // если текст длиннее поля — показываем хвост
+        String visible = text;
+        int offset = 0;
+        while (font.width(visible) > fw - 14 && offset < cursor) { offset++; visible = text.substring(offset); }
+        visible = font.plainSubstrByWidth(visible, fw - 12);
+        Ui.text(g, font, visible, tx, fy + 5, Ui.TEXT);
+        if ((System.currentTimeMillis() / 500) % 2 == 0) {
+            int cx = tx + font.width(text.substring(offset, Math.max(offset, Math.min(cursor, offset + visible.length()))));
+            g.fill(cx, fy + 4, cx + 1, fy + 14, Ui.ACCENT_HI);
+        }
+
+        if (!status.isEmpty()) {
+            Ui.text(g, font, Ui.ellipsize(font, status, w - 24), x + 12, fy + 24, statusColor);
+        } else {
+            Ui.text(g, font, Ui.ellipsize(font, "Enter — сохранить · Esc — отмена (запись останется)", w - 24),
+                    x + 12, fy + 24, Ui.DIM);
+        }
+
+        int by = y + h - 28, bw = (w - 28) / 2;
+        Rows.drawButton(this, g, x + 10, by, bw, 18, "Сохранить", Rows.Style.PRIMARY, true, mx, my);
+        Rows.drawButton(this, g, x + 18 + bw, by, bw, 18, "Отмена", Rows.Style.SECONDARY, true, mx, my);
+        if (wantHand) g.requestCursor(CursorTypes.POINTING_HAND);
+        else if (wantBeam) g.requestCursor(CursorTypes.IBEAM);
     }
 
+    @Override public Font font() { return font; }
+    @Override public void clickSound() {
+        minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0f));
+    }
+    @Override public void tooltip(String t) { }
+    @Override public void hand() { wantHand = true; }
+    @Override public boolean shift() { return minecraft.hasShiftDown(); }
+
+    @Override public boolean isPauseScreen() { return false; }
     @Override public boolean shouldCloseOnEsc() { return true; }
     @Override public void onClose() { minecraft.setScreen(parent); }
 }

@@ -4,7 +4,6 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "PanicGuiMixin",
-    "PanicBlockMixin",
     "PanicPacketMixin"
   ],
   "injectors": {

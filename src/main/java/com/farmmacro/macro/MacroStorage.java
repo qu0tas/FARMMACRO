@@ -2,146 +2,187 @@ package com.farmmacro.macro;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
 import net.fabricmc.loader.api.FabricLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 
 /**
- * MacroStorage — сохраняет и загружает именованные макросы.
- *
- * Каждый макрос = отдельный файл .json в папке config/farmmacro_macros/.
- * Формат: {"name":"...", "frames":[{x,y,z,yaw,pitch,...}, ...]}
+ * Именованные макросы: один файл .json на макрос в config/farmmacro_macros/.
+ * Формат: {"name":"...","version":2,"createdAt":ms,"frameCount":N,"frames":[...]}.
+ * Файлы версии 1 (только name + frames) читаются как раньше.
+ * Список кешируется по времени изменения файла, чтобы меню не перечитывало большие файлы.
  */
 public class MacroStorage {
 
     public static final MacroStorage INSTANCE = new MacroStorage();
-
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path MACRO_DIR =
-            FabricLoader.getInstance().getConfigDir().resolve("farmmacro_macros");
-
-    // ── Структура файла ───────────────────────────────────────────────────────
+    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Storage");
+    private static final Gson GSON = new GsonBuilder().create();
+    public static final Path MACRO_DIR = FabricLoader.getInstance().getConfigDir().resolve("farmmacro_macros");
 
     public static class SavedMacro {
-        public String           name;
+        public String name;
+        public int version = 2;
+        public long createdAt;
+        public int frameCount;
         public List<MacroFrame> frames;
+    }
 
-        public SavedMacro(String name, List<MacroFrame> frames) {
-            this.name   = name;
-            this.frames = frames;
+    public record MacroInfo(String name, int frameCount, String filename, long modified) {}
+
+    private final Map<String, MacroInfo> infoCache = new HashMap<>();
+
+    // ── Сохранение ───────────────────────────────────────────────────────────
+
+    /** Есть ли уже макрос с таким именем (по имени файла). */
+    public boolean exists(String name) {
+        Path f = fileFor(name);
+        return f != null && Files.exists(f);
+    }
+
+    /**
+     * Файл для имени макроса. Если ОС не умеет такие символы в путях (Linux/macOS с не-UTF-8 локалью
+     * и кириллицей), берём безопасное имя из хеша — настоящее имя всё равно хранится внутри файла.
+     */
+    private static Path fileFor(String name) {
+        String safe = sanitize(name);
+        if (safe.isEmpty()) return null;
+        try {
+            return MACRO_DIR.resolve(safe + ".json");
+        } catch (java.nio.file.InvalidPathException e) {
+            return MACRO_DIR.resolve("macro_" + Integer.toHexString(name.trim().hashCode()) + ".json");
         }
     }
 
-    // ── Сохранение ────────────────────────────────────────────────────────────
-
-    /**
-     * Сохраняет макрос под заданным именем.
-     * Имя sanitize-ится (убираем слеши и спецсимволы).
-     * @return true если успешно
-     */
     public boolean save(String name, List<MacroFrame> frames) {
+        Path file = fileFor(name);
+        if (file == null || frames.isEmpty()) return false;
         try {
-            ensureDir();
-            String safe = sanitize(name);
-            if (safe.isEmpty()) return false;
-            Path file = MACRO_DIR.resolve(safe + ".json");
-            SavedMacro macro = new SavedMacro(name, new ArrayList<>(frames));
-            try (Writer w = new FileWriter(file.toFile())) {
-                GSON.toJson(macro, w);
+            Files.createDirectories(MACRO_DIR);
+            SavedMacro m = new SavedMacro();
+            m.name = name.trim();
+            m.createdAt = System.currentTimeMillis();
+            m.frameCount = frames.size();
+            m.frames = new ArrayList<>(frames);
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
+                GSON.toJson(m, w);
             }
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            LOGGER.info("Сохранён макрос «{}» ({} кадров) -> {}", m.name, m.frameCount, file.getFileName());
             return true;
         } catch (Exception e) {
+            LOGGER.error("Не удалось сохранить макрос «{}»", name, e);
             return false;
         }
     }
 
-    // ── Загрузка ──────────────────────────────────────────────────────────────
+    // ── Список ───────────────────────────────────────────────────────────────
 
-    /**
-     * Загружает список всех сохранённых макросов (только имена + кол-во кадров).
-     */
     public List<MacroInfo> listMacros() {
         List<MacroInfo> result = new ArrayList<>();
-        try {
-            ensureDir();
-            File[] files = MACRO_DIR.toFile().listFiles(
-                    (d, n) -> n.endsWith(".json"));
-            if (files == null) return result;
-            for (File f : files) {
-                try (Reader r = new FileReader(f)) {
-                    SavedMacro m = GSON.fromJson(r, SavedMacro.class);
-                    if (m != null && m.name != null) {
-                        result.add(new MacroInfo(
-                                m.name,
-                                m.frames == null ? 0 : m.frames.size(),
-                                f.getName()
-                        ));
-                    }
-                } catch (Exception ignored) {}
+        if (!Files.isDirectory(MACRO_DIR)) return result;
+        try (Stream<Path> s = Files.list(MACRO_DIR)) {
+            for (Path f : (Iterable<Path>) s.filter(p -> p.getFileName().toString().endsWith(".json"))::iterator) {
+                String fn = f.getFileName().toString();
+                long mod = Files.getLastModifiedTime(f).toMillis();
+                MacroInfo cached = infoCache.get(fn);
+                if (cached == null || cached.modified() != mod) {
+                    cached = readInfo(f, fn, mod);
+                    if (cached == null) continue;
+                    infoCache.put(fn, cached);
+                }
+                result.add(cached);
             }
-        } catch (Exception ignored) {}
-        result.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
+        } catch (Exception e) {
+            LOGGER.warn("Не удалось прочитать список макросов: {}", e.toString());
+        }
+        result.sort((a, b) -> a.name().compareToIgnoreCase(b.name()));
         return result;
     }
 
-    /**
-     * Загружает полный макрос по имени файла (filename из MacroInfo).
-     * @return список кадров или null если ошибка
-     */
-    public List<MacroFrame> load(String filename) {
-        try {
-            ensureDir();
-            Path file = MACRO_DIR.resolve(filename);
-            try (Reader r = new FileReader(file.toFile())) {
-                SavedMacro m = GSON.fromJson(r, SavedMacro.class);
-                if (m != null && m.frames != null) return m.frames;
+    /** Читает имя и число кадров; для новых файлов — без разбора всех кадров. */
+    private MacroInfo readInfo(Path f, String fn, long mod) {
+        try (JsonReader r = new JsonReader(Files.newBufferedReader(f, StandardCharsets.UTF_8))) {
+            String name = null;
+            int count = -1;
+            r.beginObject();
+            while (r.hasNext()) {
+                switch (r.nextName()) {
+                    case "name" -> name = r.nextString();
+                    case "frameCount" -> count = r.nextInt();
+                    case "frames" -> {
+                        if (count >= 0 && name != null) { r.skipValue(); }
+                        else {
+                            int n = 0;
+                            r.beginArray();
+                            while (r.hasNext()) { r.skipValue(); n++; }
+                            r.endArray();
+                            count = n;
+                        }
+                    }
+                    default -> r.skipValue();
+                }
+                if (name != null && count >= 0) break;
             }
-        } catch (Exception ignored) {}
+            if (name == null) name = fn.substring(0, fn.length() - 5);
+            return new MacroInfo(name, Math.max(0, count), fn, mod);
+        } catch (Exception e) {
+            LOGGER.warn("Повреждён файл макроса {}: {}", fn, e.toString());
+            return null;
+        }
+    }
+
+    // ── Загрузка / удаление ──────────────────────────────────────────────────
+
+    /** @return кадры или null, если файл не читается */
+    public List<MacroFrame> load(String filename) {
+        Path file = resolve(filename);
+        if (file == null) return null;
+        try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            SavedMacro m = GSON.fromJson(r, SavedMacro.class);
+            if (m != null && m.frames != null && !m.frames.isEmpty()) return m.frames;
+            LOGGER.warn("В файле {} нет кадров", filename);
+        } catch (Exception e) {
+            LOGGER.error("Не удалось загрузить макрос {}", filename, e);
+        }
         return null;
     }
 
-    /**
-     * Удаляет макрос по имени файла.
-     */
     public boolean delete(String filename) {
+        Path file = resolve(filename);
+        if (file == null) return false;
         try {
-            ensureDir();
-            return Files.deleteIfExists(MACRO_DIR.resolve(filename));
+            infoCache.remove(filename);
+            return Files.deleteIfExists(file);
         } catch (Exception e) {
+            LOGGER.error("Не удалось удалить {}", filename, e);
             return false;
         }
     }
 
-    // ── Вспомогательный класс ─────────────────────────────────────────────────
-
-    public static class MacroInfo {
-        public final String name;
-        public final int    frameCount;
-        public final String filename; // имя файла для load/delete
-
-        public MacroInfo(String name, int frameCount, String filename) {
-            this.name       = name;
-            this.frameCount = frameCount;
-            this.filename   = filename;
-        }
-
-        @Override public String toString() { return name; }
+    /** Защита от "../" в имени файла. */
+    private static Path resolve(String filename) {
+        Path p = MACRO_DIR.resolve(filename).normalize();
+        return p.startsWith(MACRO_DIR) ? p : null;
     }
 
-    // ── Утилиты ───────────────────────────────────────────────────────────────
-
-    private void ensureDir() throws IOException {
-        if (!Files.exists(MACRO_DIR)) Files.createDirectories(MACRO_DIR);
-    }
-
-    private String sanitize(String name) {
+    public static String sanitize(String name) {
         return name.trim()
-                .replaceAll("[\\\\/:*?\"<>|]", "_")
-                .replaceAll("\\s+", "_");
+                .replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_")
+                .replaceAll("\\s+", "_")
+                .replaceAll("^\\.+", "");
     }
 }
