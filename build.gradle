@@ -1,13 +1,12 @@
 plugins {
-	id 'fabric-loom' version '1.13.6'
-	id 'maven-publish'
+	id 'fabric-loom' version "${loom_version}"
 }
 
-version = '1.0.0'
-group = 'com.farmmacro'
+version = project.mod_version
+group = project.maven_group
 
 base {
-	archivesName = 'farmmacro'
+	archivesName = project.archives_base_name
 }
 
 repositories {
@@ -15,17 +14,24 @@ repositories {
 }
 
 dependencies {
-	minecraft 'com.mojang:minecraft:1.21.11'
-	mappings 'net.fabricmc:yarn:1.21.11+build.4:v2'
-	modImplementation 'net.fabricmc:fabric-loader:0.18.1'
-	modImplementation 'net.fabricmc.fabric-api:fabric-api:0.141.3+1.21.11'
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+	def props = [version: project.version, minecraft_version: project.minecraft_version,
+	             loader_version: project.loader_version, fabric_version: project.fabric_version]
+	inputs.properties props
+	filesMatching('fabric.mod.json') { expand props }
 }
 
 java {
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
+	toolchain.languageVersion = JavaLanguageVersion.of(21)
 }
 
 tasks.withType(JavaCompile).configureEach {
 	it.options.encoding = 'UTF-8'
+	it.options.release = 21
 }

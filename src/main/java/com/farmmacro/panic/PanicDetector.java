@@ -1,7 +1,6 @@
 package com.farmmacro.panic;
 
 import com.farmmacro.config.ModConfig;
-import com.farmmacro.macro.MacroFrame;
 import com.farmmacro.macro.MacroManager;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.sound.AbstractSoundInstance;
@@ -12,8 +11,6 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.random.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.List;
 
 public class PanicDetector {
 
@@ -35,7 +32,6 @@ public class PanicDetector {
     private int redScreenTicksLeft = 0;
     private int soundRepeatsLeft = 0;
     private int soundRepeatDelay = 0;
-    private String lastPanicMoveFile = null;
 
     private int debugTickCounter = 0;
     private static final int DEBUG_LOG_INTERVAL = 100;
@@ -278,18 +274,8 @@ public class PanicDetector {
         }
         LOGGER.error("╚═══════════════════════════════════════════════════");
 
-        MacroManager.INSTANCE.stopPlayback(client, "[FarmMacro] Паника: " + reason);
-
-        if (cfg.panicMoveEnabled) {
-            List<MacroFrame> panicFrames = PanicMoveStorage.INSTANCE.loadRandom(lastPanicMoveFile);
-            if (panicFrames != null) {
-                lastPanicMoveFile = PanicMoveStorage.INSTANCE.getLastLoadedFile();
-                LOGGER.info("[Паника] Запускаю panic_move: {} ({} кадров)", lastPanicMoveFile, panicFrames.size());
-                MacroManager.INSTANCE.startPanicMove(client, panicFrames);
-            } else {
-                LOGGER.warn("[Паника] Нет доступных panic_move файлов (last={})", lastPanicMoveFile);
-            }
-        }
+        // Паника = аварийный стоп: отпускаем все клавиши и останавливаем макрос.
+        MacroManager.INSTANCE.stopPlayback(client, "§c[FarmMacro] Паника: " + reason);
 
         if (cfg.panicSoundEnabled) {
             playPanicSound(client, cfg);

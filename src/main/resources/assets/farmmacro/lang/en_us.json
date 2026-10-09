@@ -1,5 +1,5 @@
 {
-  "key.categories.farmmacro": "FarmMacro",
+  "key.category.farmmacro.general": "FarmMacro",
   "key.farmmacro.record": "FarmMacro: Record",
   "key.farmmacro.play":   "FarmMacro: Play/Stop",
   "key.farmmacro.clear":  "FarmMacro: Clear Recording",

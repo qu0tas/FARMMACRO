@@ -34,10 +34,11 @@ public class PanicBlockMixin {
         double dz = pos.getZ() + 0.5 - eyes.z;
         double dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
 
-        LOGGER.debug("[PanicBlockMixin] Твёрдый блок появился: pos={} dist={} (порог 1.5) block={}",
-                pos, String.format("%.2f", dist), updated.getBlock());
+        double radius = com.farmmacro.config.ModConfig.INSTANCE.blockDetectRadius;
+        LOGGER.debug("[PanicBlockMixin] Твёрдый блок появился: pos={} dist={} (порог {}) block={}",
+                pos, String.format("%.2f", dist), radius, updated.getBlock());
 
-        if (dist < 1.5) {
+        if (dist < radius) {
             LOGGER.warn("[PanicBlockMixin] Блок В ЛИЦО! pos={} dist={} block={} | глаза=({},{},{})",
                     pos, String.format("%.2f", dist), updated.getBlock(),
                     String.format("%.2f", eyes.x),

@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,26 +19,13 @@ public class FarmMacroMod implements ClientModInitializer {
 
     public static final Logger LOGGER = LoggerFactory.getLogger("farmmacro");
 
-    private static final String CATEGORY_NAME = "key.categories.farmmacro";
+    /** Своя категория в меню управления (1.21.9+: категория — объект, а не строка). */
+    private static final KeyBinding.Category CATEGORY =
+            KeyBinding.Category.create(Identifier.of("farmmacro", "general"));
 
-    /**
-     * Fabric API через mixin добавляет в KeyBinding строковый конструктор
-     * (String id, InputUtil.Type type, int code, String category) в рантайме.
-     * Yarn-маппинги его не видят — компилятор ругается на String→Category.
-     * Обходим через рефлексию: компилятор доволен, в рантайме всё работает.
-     */
     private static KeyBinding makeKey(String id, int defaultCode) {
-        try {
-            var ctor = KeyBinding.class.getDeclaredConstructor(
-                    String.class, InputUtil.Type.class, int.class, String.class);
-            ctor.setAccessible(true);
-            return KeyBindingHelper.registerKeyBinding(
-                    (KeyBinding) ctor.newInstance(id, InputUtil.Type.KEYSYM, defaultCode, CATEGORY_NAME));
-        } catch (Exception e) {
-            LOGGER.warn("[FarmMacro] Reflection keybind failed, falling back to MISC: " + e.getMessage());
-            return KeyBindingHelper.registerKeyBinding(
-                    new KeyBinding(id, InputUtil.Type.KEYSYM, defaultCode, KeyBinding.Category.MISC));
-        }
+        return KeyBindingHelper.registerKeyBinding(
+                new KeyBinding(id, InputUtil.Type.KEYSYM, defaultCode, CATEGORY));
     }
 
     public static KeyBinding keyRecord;
@@ -68,8 +56,8 @@ public class FarmMacroMod implements ClientModInitializer {
         keyOpenGui = makeKey("key.farmmacro.gui",       cfg.keyOpenGui);
         // O = GLFW_KEY_O = 79
         keyResume  = makeKey("key.farmmacro.resume",    79);
-        // Delete = GLFW_KEY_DELETE = 261
-        keyResetPos = makeKey("key.farmmacro.resetpos", 261);
+        // End = GLFW_KEY_END = 269 (Delete уже занят под «Очистить запись»)
+        keyResetPos = makeKey("key.farmmacro.resetpos", 269);
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
@@ -92,12 +80,10 @@ public class FarmMacroMod implements ClientModInitializer {
             MacroManager.INSTANCE.tickRecord(client);
 
             // Сначала проверяем панику — ДО применения кадра макроса.
-            // Во время panic_move детекторы не работают — только затухание эффектов.
-            if (MacroManager.INSTANCE.isPlaying() && !MacroManager.INSTANCE.isPlayingPanic()) {
+            if (MacroManager.INSTANCE.isPlaying()) {
                 PanicDetector.INSTANCE.tick(client);
             } else {
-                // panic_move или макрос не играет — тикаем только эффекты
-                // (красный экран, плавный поворот после паники)
+                // Макрос не играет — только затухание эффектов (красный экран, звук)
                 PanicDetector.INSTANCE.tickEffectsOnly(client);
             }
 

@@ -1,5 +1,5 @@
 {
-  "key.categories.farmmacro": "FarmMacro",
+  "key.category.farmmacro.general": "FarmMacro",
   "key.farmmacro.record": "FarmMacro: Запись",
   "key.farmmacro.play":   "FarmMacro: Запуск/Стоп",
   "key.farmmacro.clear":  "FarmMacro: Очистить запись",

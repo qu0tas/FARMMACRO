@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "farmmacro",
-  "version": "1.0.0",
+  "version": "${version}",
   "name": "Farm Macro",
-  "description": "Macro recorder with panic function for farm automation",
-  "authors": ["You"],
+  "description": "Macro recorder with an emergency stop (panic) for farm automation",
+  "authors": ["Vadik"],
   "license": "MIT",
   "icon": "assets/farmmacro/icon.png",
   "environment": "client",
@@ -13,8 +13,8 @@
   },
   "mixins": ["farmmacro.mixins.json"],
   "depends": {
-    "fabricloader": ">=0.15.0",
-    "fabric-api": "*",
-    "minecraft": "*"
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": ">=${fabric_version}",
+    "minecraft": "~${minecraft_version}"
   }
 }

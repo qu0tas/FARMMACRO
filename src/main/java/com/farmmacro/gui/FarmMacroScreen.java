@@ -27,7 +27,7 @@ public class FarmMacroScreen extends Screen {
 
     private static final int SIDEBAR_W = 48;
 
-    private static final String[] TAB_LABELS = {"Паника", "Реакция", "Humanize", "Сохранения"};
+    private static final String[] TAB_LABELS = {"Паника", "Реакция", "Сохранения"};
 
     private int activeTab = 0;
 
@@ -92,8 +92,7 @@ public class FarmMacroScreen extends Screen {
         switch (activeTab) {
             case 0 -> initPanic(cX(), cy, cW(), ch);
             case 1 -> initReaction(cX(), cy, cW(), ch);
-            case 2 -> initMacros(cX(), cy, cW(), ch);
-            case 3 -> initSaved(cX(), cy, cW(), ch);
+            case 2 -> initSaved(cX(), cy, cW(), ch);
         }
     }
 
@@ -145,48 +144,6 @@ public class FarmMacroScreen extends Screen {
         int fld2X  = cx + 190;
         int fldW   = 55;
 
-        lbl("ДВИЖЕНИЕ ПОСЛЕ ПАНИКИ", cx, r, TEXT_GRAY); r += 14;
-        tog(c.panicMoveEnabled, cx, r, "Включено",
-                v -> { c.panicMoveEnabled = v; clearAndInit(); }); r += 24;
-
-        var panicFiles = com.farmmacro.panic.PanicMoveStorage.INSTANCE.listFiles();
-        int lineH   = 13;
-        int maxShow = 3;
-        if (panicFiles.isEmpty()) {
-            lbl("Папка пуста. Положи .json в:", cx + 4, r + 4, TEXT_GRAY); r += 14;
-            lbl("config/farmmacro/panic_moves/", cx + 4, r + 4, TEXT_LIGHT); r += lineH;
-        } else {
-            lbl("panic_moves/ (" + panicFiles.size() + " шт.):", cx + 4, r + 4, TEXT_GRAY); r += 14;
-            int shown = Math.min(panicFiles.size(), maxShow);
-            for (int i = 0; i < shown; i++) {
-                String fname   = panicFiles.get(i);
-                String display = fname.endsWith(".json") ? fname.substring(0, fname.length() - 5) : fname;
-                lbl("• " + display, cx + 8, r + 4, TEXT_LIGHT);
-                r += lineH;
-            }
-            if (panicFiles.size() > maxShow) {
-                lbl("... ещё " + (panicFiles.size() - maxShow) + " файлов", cx + 8, r + 4, TEXT_GRAY);
-                r += lineH;
-            }
-        }
-
-        addDrawableChild(ButtonWidget.builder(Text.literal("📁 Открыть папку"),
-                b -> {
-                    try {
-                        java.io.File dir = com.farmmacro.panic.PanicMoveStorage.INSTANCE.getDir().toFile();
-                        dir.mkdirs();
-                        String os = System.getProperty("os.name").toLowerCase();
-                        if (os.contains("win")) {
-                            new ProcessBuilder("explorer.exe", dir.getAbsolutePath()).start();
-                        } else if (os.contains("mac")) {
-                            new ProcessBuilder("open", dir.getAbsolutePath()).start();
-                        } else {
-                            new ProcessBuilder("xdg-open", dir.getAbsolutePath()).start();
-                        }
-                    } catch (Exception ignored) {}
-                }
-        ).dimensions(cx, r + 2, 130, 16).build()); r += 26;
-
         lbl("ЗВУК ПРИ ПАНИКЕ", cx, r, TEXT_GRAY); r += 14;
         tog(c.panicSoundEnabled, cx, r, "Включён",
                 v -> { c.panicSoundEnabled = v; clearAndInit(); }); r += 24;
@@ -215,44 +172,6 @@ public class FarmMacroScreen extends Screen {
         lbl("Длительность (тики)", cx + 4, r + 4, TEXT_LIGHT);
         fieldRedTicks = inp(s(c.panicRedScreenTicks), fld1X, r, fldW);
         lbl("(20 тиков = 1 сек)", fld1X + fldW + 8, r + 4, TEXT_GRAY);
-    }
-
-    private void initMacros(int x, int y, int w, int h) {
-        ModConfig c = ModConfig.INSTANCE;
-        int cx = x + 8, r = y + 6;
-
-        // ── Humanize ──────────────────────────────────────────────────────────
-        lbl("HUMANIZE (рандом при старте)", cx, r, TEXT_GRAY); r += 14;
-
-        tog(c.humanizeEnabled, cx, r, "Включить рандомизацию",
-                v -> { c.humanizeEnabled = v; ModConfig.save(); clearAndInit(); }); r += 22;
-
-        if (c.humanizeEnabled) {
-            // Задержка старта
-            lbl("Старт (сек): " + c.humanizeStartDelayMin + "–" + c.humanizeStartDelayMax,
-                    cx + 4, r + 3, TEXT_LIGHT); r += 18;
-
-            // Паузы на поворотах
-            lbl("Паузы (тики): " + c.humanizeDelayMin + "–" + c.humanizeDelayMax,
-                    cx + 4, r + 3, TEXT_LIGHT); r += 18;
-
-            // Замедление
-            lbl("Замедление: " + c.humanizeSlowdownTicks + " тик" + (c.humanizeSlowdownTicks == 0 ? " (выкл)" : ""),
-                    cx + 4, r + 3, TEXT_LIGHT); r += 18;
-
-            // Чекбоксы
-            int colW = (w - 16) / 2;
-            tog(c.humanizeWallShift, cx, r, "Смена стены",
-                    v -> { c.humanizeWallShift = v; ModConfig.save(); clearAndInit(); });
-            tog(c.humanizeMicroPauses, cx + colW, r, "Микро-паузы",
-                    v -> { c.humanizeMicroPauses = v; ModConfig.save(); clearAndInit(); });
-            r += 20;
-
-            addDrawableChild(ButtonWidget.builder(Text.literal("⚙ Изменить"),
-                    b -> client.setScreen(new HumanizeConfigScreen(this))
-            ).dimensions(cx + colW, r, 90, 16).build());
-            r += 22;
-        }
     }
 
     private void initSaved(int x, int y, int w, int h) {

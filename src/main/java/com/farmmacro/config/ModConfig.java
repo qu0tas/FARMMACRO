@@ -35,8 +35,6 @@ public class ModConfig {
     public boolean detectPotionEffect          = true;
 
     // ── Panic Reaction ────────────────────────────────────────────────────────
-    public boolean panicMoveEnabled       = true;
-
     public boolean panicSoundEnabled           = true;
     public String  panicSoundId                = "minecraft:entity.ghast.scream";
     public float   panicSoundVolume            = 1.0f;
@@ -55,45 +53,6 @@ public class ModConfig {
     /** Сколько тиков без движения считается застреванием */
     public int     stuckThresholdTicks     = 30;
 
-    // ── Humanize ─────────────────────────────────────────────────────────────
-    /** Включить рандомизацию при каждом запуске макроса */
-    public boolean humanizeEnabled        = true;
-
-    /** Задержка старта: мин/макс в секундах */
-    public float   humanizeStartDelayMin  = 0.3f;
-    public float   humanizeStartDelayMax  = 2.5f;
-
-    /** Паузы на поворотах: мин/макс в тиках */
-    public int     humanizeDelayMin       = 5;
-    public int     humanizeDelayMax       = 18;
-
-    /** Тиков плавного замедления перед точкой (0 = выкл) */
-    public int     humanizeSlowdownTicks  = 6;
-
-    /** Смена стены на прямых отрезках */
-    public boolean humanizeWallShift      = true;
-    /** Максимальное смещение к стене в блоках */
-    public float   humanizeWallOffset     = 0.15f;
-
-    /** Редкие микро-паузы — раз в N запусков */
-    public boolean humanizeMicroPauses       = true;
-    /** Минимальная длина микро-паузы в секундах */
-    public float   humanizeMicroPauseDurMin  = 0.5f;
-    /** Максимальная длина микро-паузы в секундах */
-    public float   humanizeMicroPauseDurMax  = 2.0f;
-    /** Микро-пауза срабатывает раз в N запусков (мин) */
-    public int     humanizeMicroPauseEveryMin = 20;
-    /** Микро-пауза срабатывает раз в N запусков (макс) */
-    public int     humanizeMicroPauseEveryMax = 25;
-
-    // ── Crop Macros ───────────────────────────────────────────────────────────
-    /**
-     * Cooldown для рандомного выбора макроса культуры.
-     * Один и тот же файл не может быть выбран повторно пока не сыграют N других.
-     * Диапазон 1–5.
-     */
-    public int cropCooldown = 2;
-
     // ── Playback ──────────────────────────────────────────────────────────────
     /** Зациклить макрос (сохраняется между сессиями) */
     public boolean loopEnabled            = false;
@@ -104,7 +63,7 @@ public class ModConfig {
     public int     keyRecord             = 82;
     public int     keyPlay               = 80;
     public int     keyClear              = 261;
-    public int     keyOpenGui            = 292;
+    public int     keyOpenGui            = 344; // Right Shift (292 = F3 — конфликт с debug-экраном)
 
     // ── Сохранение / загрузка ─────────────────────────────────────────────────
     public static void load() {
@@ -118,6 +77,8 @@ public class ModConfig {
             ModConfig loaded = GSON.fromJson(r, ModConfig.class);
             if (loaded != null) INSTANCE = loaded;
         } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger("FarmMacro/Config")
+                    .error("Не удалось прочитать farmmacro.json, беру настройки по умолчанию", e);
             INSTANCE = new ModConfig();
         }
     }
@@ -126,7 +87,7 @@ public class ModConfig {
         try (Writer w = new FileWriter(CONFIG_PATH.toFile())) {
             GSON.toJson(INSTANCE, w);
         } catch (Exception e) {
-            // ignore
+            org.slf4j.LoggerFactory.getLogger("FarmMacro/Config").error("Не удалось сохранить farmmacro.json", e);
         }
     }
 }

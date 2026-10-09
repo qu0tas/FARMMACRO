@@ -17,13 +17,9 @@ public class MacroManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/MacroManager");
 
     private final List<MacroFrame> frames      = new ArrayList<>();
-    private final List<MacroFrame> panicFrames = new ArrayList<>();
-    /** Рандомизированная копия frames, используемая при текущем воспроизведении */
-    private final List<MacroFrame> activeFrames = new ArrayList<>();
 
     private boolean recording     = false;
     private boolean playing       = false;
-    private boolean playingPanic  = false;
     private int     playbackIndex = 0;
     private boolean loopEnabled   = com.farmmacro.config.ModConfig.INSTANCE.loopEnabled;
 
@@ -65,7 +61,7 @@ public class MacroManager {
         GameOptions opt = client.options;
         MacroFrame frame = new MacroFrame(
                 client.player.getX(), client.player.getY(), client.player.getZ(),
-                0f, 0f,
+                client.player.getYaw(), client.player.getPitch(),
                 opt.forwardKey.isPressed(), opt.backKey.isPressed(),
                 opt.leftKey.isPressed(), opt.rightKey.isPressed(),
                 opt.jumpKey.isPressed(), opt.sneakKey.isPressed(), opt.sprintKey.isPressed(),
@@ -86,10 +82,7 @@ public class MacroManager {
         if (recording) { msg(client, "§cСначала останови запись (R)"); return; }
         if (frames.isEmpty()) { msg(client, "§cНет записи! Сначала запиши макрос (R)"); return; }
         if (!playing) {
-            // Рандомизируем макрос при каждом старте
-            activeFrames.clear();
-            activeFrames.addAll(MacroHumanizer.humanize(frames));
-            macroXZCache = null; // сбросить кеш — перестроится из новых activeFrames
+            macroXZCache = null;
 
             playing = true;
             playbackIndex = 0;
@@ -102,9 +95,7 @@ public class MacroManager {
             if (sessionStartMs == 0) sessionStartMs = System.currentTimeMillis();
             sessionRuns++;
 
-            String humanNote = com.farmmacro.config.ModConfig.INSTANCE.humanizeEnabled
-                    ? " §7[humanize ✓]" : "";
-            msg(client, "§a▶ Воспроизведение началось (P чтобы остановить)" + humanNote);
+            msg(client, "§a▶ Воспроизведение началось (P чтобы остановить)");
         } else {
             stopPlayback(client, "§e■ Воспроизведение остановлено вручную.");
         }
@@ -115,12 +106,12 @@ public class MacroManager {
 
         double curX = client.player.getX();
         double curZ = client.player.getZ();
-        if (!playingPanic) {
+        {
             com.farmmacro.config.ModConfig c = com.farmmacro.config.ModConfig.INSTANCE;
             double moved = Math.sqrt((curX - lastX) * (curX - lastX) + (curZ - lastZ) * (curZ - lastZ));
 
             // Макрос должен сейчас двигаться (есть нажатая клавиша движения)
-            List<MacroFrame> checkFrames = this.activeFrames;
+            List<MacroFrame> checkFrames = this.frames;
             if (c.stuckBlockDetectEnabled) {
                 // Умная проверка: считаем тики только когда макрос хочет идти
                 boolean macroWantsMove = false;
@@ -155,20 +146,13 @@ public class MacroManager {
         lastX = curX;
         lastZ = curZ;
 
-        List<MacroFrame> currentFrames = playingPanic ? panicFrames : this.activeFrames;
+        List<MacroFrame> currentFrames = this.frames;
 
         if (playbackIndex >= currentFrames.size()) {
-            if (playingPanic) {
-                stopPlayback(client, "§e■ Движение после паники завершено. Макрос остановлен.");
-                return;
-            }
             if (!loopEnabled) {
                 stopPlayback(client, "§e■ Макрос завершён (цикл выключен).");
                 return;
             }
-            // Новый круг — перегенерируем humanize
-            this.activeFrames.clear();
-            this.activeFrames.addAll(MacroHumanizer.humanize(frames));
             playbackIndex = 0;
             sessionRuns++;
             PanicDetector.INSTANCE.snapshot(client);
@@ -256,7 +240,7 @@ public class MacroManager {
     private java.util.Set<Long> getMacroXZSet() {
         if (macroXZCache != null) return macroXZCache;
         macroXZCache = new java.util.HashSet<>();
-        for (MacroFrame f : activeFrames) {
+        for (MacroFrame f : frames) {
             int fx = (int) Math.floor(f.x);
             int fz = (int) Math.floor(f.z);
             // +1 блок вокруг — покрывает хитбокс игрока (0.6 шириной)
@@ -268,12 +252,13 @@ public class MacroManager {
     }
 
     private void applyKey(net.minecraft.client.option.KeyBinding key, boolean pressed) {
-        net.minecraft.client.option.KeyBinding.setKeyPressed(key.getDefaultKey(), pressed);
+        // Жмём ту клавишу, на которую игрок реально назначил действие (а не дефолтную)
+        net.minecraft.client.option.KeyBinding.setKeyPressed(
+                net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.getBoundKeyOf(key), pressed);
     }
 
     public void stopPlayback(MinecraftClient client, String reason) {
-        // Сохраняем позицию только если играл обычный макрос (не panic_move)
-        if (playing && !playingPanic && client.player != null && playbackIndex > 0) {
+        if (playing && client.player != null && playbackIndex > 0) {
             savedIndex       = playbackIndex - 1;
             savedX           = client.player.getX();
             savedY           = client.player.getY();
@@ -281,7 +266,6 @@ public class MacroManager {
             hasSavedPosition = true;
         }
         playing      = false;
-        playingPanic = false;
         playbackIndex = 0;
         macroXZCache  = null;
         releaseAll(client);
@@ -295,9 +279,7 @@ public class MacroManager {
         if (frames.isEmpty())  { msg(client, "§cНет загруженного макроса"); return; }
 
         int resumeIndex = Math.max(0, savedIndex - RESUME_ROLLBACK);
-        // При возобновлении НЕ перегенерируем, продолжаем по activeFrames
         playing       = true;
-        playingPanic  = false;
         playbackIndex = resumeIndex;
         stuckTicks    = 0;
         if (client.player != null) {
@@ -334,7 +316,6 @@ public class MacroManager {
 
     public boolean isRecording()    { return recording; }
     public boolean isPlaying()      { return playing; }
-    public boolean isPlayingPanic() { return playingPanic; }
     public boolean isLoopEnabled()  { return loopEnabled; }
 
     public long getSessionStartMs() { return sessionStartMs; }
@@ -346,26 +327,13 @@ public class MacroManager {
         com.farmmacro.config.ModConfig.save();
     }
 
-    public void startPanicMove(MinecraftClient client, java.util.List<MacroFrame> newPanicFrames) {
-        panicFrames.clear();
-        panicFrames.addAll(newPanicFrames);
-        playing       = true;
-        playingPanic  = true;
-        playbackIndex = 0;
-        stuckTicks    = 0;
-        if (client.player != null) {
-            lastX = client.player.getX();
-            lastZ = client.player.getZ();
-        }
-        msg(client, "§e▶ Движение после паники...");
-    }
-
     public void loadMacro(java.util.List<MacroFrame> loadedFrames, MinecraftClient client) {
         if (playing)    { msg(client, "§cСначала останови воспроизведение (P)"); return; }
         if (recording)  { msg(client, "§cСначала останови запись (R)"); return; }
         frames.clear();
         frames.addAll(loadedFrames);
-        activeFrames.clear();
+        hasSavedPosition = false;   // старая позиция относится к другому макросу
+        savedIndex       = -1;
         msg(client, "§aМакрос загружен. Кадров: " + frames.size() + "  Нажми P для запуска.");
     }
 
