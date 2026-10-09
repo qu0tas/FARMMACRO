@@ -1,0 +1,9 @@
+{
+  "key.categories.farmmacro": "FarmMacro",
+  "key.farmmacro.record": "FarmMacro: Record",
+  "key.farmmacro.play":   "FarmMacro: Play/Stop",
+  "key.farmmacro.clear":  "FarmMacro: Clear Recording",
+  "key.farmmacro.gui":    "FarmMacro: Open GUI",
+  "key.farmmacro.resume": "FarmMacro: Resume from saved position",
+  "key.farmmacro.resetpos": "FarmMacro: Reset saved position"
+}

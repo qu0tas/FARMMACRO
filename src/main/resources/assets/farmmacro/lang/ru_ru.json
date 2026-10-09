@@ -1,0 +1,9 @@
+{
+  "key.categories.farmmacro": "FarmMacro",
+  "key.farmmacro.record": "FarmMacro: Запись",
+  "key.farmmacro.play":   "FarmMacro: Запуск/Стоп",
+  "key.farmmacro.clear":  "FarmMacro: Очистить запись",
+  "key.farmmacro.gui":    "FarmMacro: Открыть GUI",
+  "key.farmmacro.resume": "FarmMacro: Возобновить с места остановки",
+  "key.farmmacro.resetpos": "FarmMacro: Сбросить сохранённую позицию"
+}
