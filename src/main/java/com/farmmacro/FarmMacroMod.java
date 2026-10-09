@@ -7,6 +7,8 @@ import com.farmmacro.macro.MacroManager;
 import com.farmmacro.panic.PanicDetector;
 import com.farmmacro.panic.PanicOverlayRenderer;
 import com.farmmacro.panic.PanicSound;
+import com.farmmacro.util.Guard;
+import com.farmmacro.visual.ChinaHatRenderer;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -40,6 +42,7 @@ public class FarmMacroMod implements ClientModInitializer {
 
         FarmHud.register();
         PanicOverlayRenderer.register();
+        ChinaHatRenderer.register();
 
         keyRecord   = makeKey("key.farmmacro.record",   cfg.keyRecord);
         keyPlay     = makeKey("key.farmmacro.play",     cfg.keyPlay);
@@ -54,7 +57,7 @@ public class FarmMacroMod implements ClientModInitializer {
 
     private static void onTick(Minecraft mc) {
         MacroManager macro = MacroManager.INSTANCE;
-        PanicDetector.INSTANCE.tickEffects();
+        Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
             return;
@@ -76,7 +79,10 @@ public class FarmMacroMod implements ClientModInitializer {
 
         macro.tickRecord(mc);
         // Сначала детекторы (по состоянию ДО нового кадра), потом сам кадр.
-        if (macro.isPlaying()) PanicDetector.INSTANCE.tick(mc);
+        if (macro.isPlaying() && !Guard.run("panic/detectors", () -> PanicDetector.INSTANCE.tick(mc))) {
+            // детекторы сломались — безопаснее остановить макрос, чем играть вслепую
+            Guard.run("panic/stop-on-error", () -> macro.stopPlayback(mc, "§c⚠ Ошибка детекторов, макрос остановлен"));
+        }
         macro.tickPlayback(mc);
     }
 }

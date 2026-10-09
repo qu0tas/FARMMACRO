@@ -28,8 +28,8 @@ import java.util.Locale;
  */
 public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
-    private static final String[] TABS = {"Детекторы", "Реакция", "Запуск", "Макросы"};
-    private static final String[] TAB_ICONS = {"⚠", "♪", "▶", "☰"};
+    private static final String[] TABS = {"Детекторы", "Реакция", "Запуск", "Макросы", "Визуал"};
+    private static final String[] TAB_ICONS = {"⚠", "♪", "▶", "☰", "✦"};
     private static int lastTab = 0;   // вкладка запоминается между открытиями
 
     private final Screen parent;
@@ -84,6 +84,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         if (t == tab) return;
         tab = lastTab = t;
         scroll = scrollTarget = 0;
+        Rows.clearWheelFocus();
         buildTab();
     }
 
@@ -99,6 +100,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             case 1 -> buildReaction();
             case 2 -> buildAutomation();
             case 3 -> buildMacros();
+            case 4 -> buildVisual();
         }
     }
 
@@ -135,6 +137,9 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 0.5, 90, 0.5, 5, v -> f1(v) + "°").enabledIf(() -> cfg().panicEnabled && cfg().detectRotation));
         rows.add(number("Порог по вертикали", null, () -> cfg().pitchThreshold, v -> cfg().pitchThreshold = (float) v,
                 0.5, 90, 0.5, 5, v -> f1(v) + "°").enabledIf(() -> cfg().panicEnabled && cfg().detectRotation));
+        rows.add(new Rows.Note(() -> cfg().panicEnabled && cfg().detectRotation
+                && Math.min(cfg().yawThreshold, cfg().pitchThreshold) < 2f
+                ? "Порог меньше 2°: лёгкое касание мыши уже даст панику. По умолчанию 5°." : "", Ui.WARN));
         rows.add(toggle("Смена слота", "Слот хотбара сменил не макрос",
                 () -> cfg().detectSlotChange, v -> cfg().detectSlotChange = v).enabledIf(master));
         rows.add(toggle("Урон", "Здоровье уменьшилось (учти падения на маршруте)",
@@ -174,15 +179,28 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Section("Звук"));
         rows.add(toggle("Звук паники", null, () -> cfg().panicSoundEnabled, v -> cfg().panicSoundEnabled = v));
         rows.add(new Rows.Selector("Сигнал", "Встроенные, свои файлы или звуки Minecraft",
-                () -> soundOptions, () -> cfg().panicSound, v -> { cfg().panicSound = v; save(); }).enabledIf(snd));
+                () -> soundOptions, () -> cfg().panicSound,
+                v -> { cfg().panicSound = v; save(); PanicSound.preload(v); }).enabledIf(snd));
         rows.add(new Rows.Buttons(
                 new Rows.Btn("▶ Прослушать", Rows.Style.PRIMARY, PanicSound::playPanic),
                 new Rows.Btn("Папка звуков", Rows.Style.SECONDARY, () -> openFolder(PanicSound.soundsDir()))
                         .tip("Положи туда .ogg или .wav и нажми «Обновить»"),
                 new Rows.Btn("Обновить", Rows.Style.SECONDARY, () -> { PanicSound.clearCache(); refreshLists(); })
         ).enabledIf(snd));
+        rows.add(toggle("Безопасный звук", "Только через движок игры (рекомендуется, пока системный режим не проверен)",
+                () -> cfg().panicSoundSafe, v -> { cfg().panicSoundSafe = v; if (!v) PanicSound.preloadAll(); })
+                .enabledIf(snd));
         rows.add(toggle("Мимо громкости игры", "Через систему: слышно даже при выключенном звуке MC",
-                () -> cfg().panicSoundSystem, v -> cfg().panicSoundSystem = v).enabledIf(snd));
+                () -> cfg().panicSoundSystem, v -> cfg().panicSoundSystem = v)
+                .enabledIf(() -> cfg().panicSoundEnabled && !cfg().panicSoundSafe));
+        rows.add(new Rows.Note(() -> {
+            if (!cfg().panicSoundEnabled) return "";
+            if (!cfg().panicSoundSafe && PanicSound.systemAudioBroken())
+                return "Системный звук сломался в этой сессии — играет через игру (подробности в логе).";
+            if (cfg().panicSoundSafe && cfg().panicSound.startsWith("file:"))
+                return "Свой файл играется только без «Безопасного звука». Сейчас вместо него — встроенная сирена.";
+            return "";
+        }, Ui.WARN));
         rows.add(number("Громкость", null, () -> cfg().panicSoundVolume * 100, v -> cfg().panicSoundVolume = (float) (v / 100),
                 0, 100, 5, 25, v -> (int) Math.round(v) + "%").enabledIf(snd));
         rows.add(number("Тон", null, () -> cfg().panicSoundPitch, v -> cfg().panicSoundPitch = (float) v,
@@ -235,8 +253,10 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Section("HUD"));
         rows.add(toggle("Панель статуса", "Состояние, прогресс, круги, время сессии",
                 () -> cfg().statsHudEnabled, v -> cfg().statsHudEnabled = v));
-        rows.add(toggle("Навигатор", "Стрелка к точке старта или остановки",
+        rows.add(toggle("Навигатор", "Панель со стрелкой к точке старта или остановки",
                 () -> cfg().navHudEnabled, v -> cfg().navHudEnabled = v));
+        rows.add(toggle("Стрелка у прицела", "Маленькая стрелка к цели вокруг прицела и расстояние",
+                () -> cfg().navCrosshairEnabled, v -> cfg().navCrosshairEnabled = v));
         rows.add(new Rows.Note(() -> {
             MacroManager m = MacroManager.INSTANCE;
             if (m.getSessionRuns() == 0) return "Статистика сессии появится после первого запуска.";
@@ -246,6 +266,50 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         }, Ui.ON));
         rows.add(new Rows.Buttons(new Rows.Btn("Сбросить статистику", Rows.Style.SECONDARY,
                 () -> MacroManager.INSTANCE.resetStats()).enabledIf(() -> MacroManager.INSTANCE.getSessionRuns() > 0)));
+    }
+
+    private static final List<Rows.Choice> HAT_STYLES = com.farmmacro.visual.HatColors.STYLES.stream()
+            .map(a -> new Rows.Choice(a[0], a[1])).toList();
+    private static final List<Rows.Choice> HAT_COLORS = com.farmmacro.visual.HatColors.PRESETS.stream()
+            .map(p -> new Rows.Choice(p.id(), p.label())).toList();
+
+    private void buildVisual() {
+        java.util.function.BooleanSupplier on = () -> cfg().hatEnabled;
+        rows.add(new Rows.Section("China Hat"));
+        rows.add(toggle("Шляпа", "Полупрозрачный конус над головой (видишь только ты)",
+                () -> cfg().hatEnabled, v -> cfg().hatEnabled = v));
+        rows.add(new Rows.Buttons(
+                new Rows.Btn("Фиолет → оранж", Rows.Style.SECONDARY, () -> {
+                    cfg().hatStyle = "gradient"; cfg().hatColor1 = "purple"; cfg().hatColor2 = "orange"; save();
+                }),
+                new Rows.Btn("Голубой", Rows.Style.SECONDARY, () -> {
+                    cfg().hatStyle = "solid"; cfg().hatColor1 = "cyan"; save();
+                })
+        ).enabledIf(on));
+        rows.add(new Rows.Selector("Стиль цвета", "Градиент по кругу, один цвет или перелив радуги",
+                () -> HAT_STYLES, () -> cfg().hatStyle, v -> { cfg().hatStyle = v; save(); }).enabledIf(on));
+        rows.add(new Rows.Selector("Цвет 1", null, () -> HAT_COLORS, () -> cfg().hatColor1,
+                v -> { cfg().hatColor1 = v; save(); })
+                .enabledIf(() -> cfg().hatEnabled && !"rainbow".equals(cfg().hatStyle)));
+        rows.add(new Rows.Selector("Цвет 2", "Второй цвет градиента", () -> HAT_COLORS, () -> cfg().hatColor2,
+                v -> { cfg().hatColor2 = v; save(); })
+                .enabledIf(() -> cfg().hatEnabled && "gradient".equals(cfg().hatStyle)));
+        rows.add(number("Прозрачность", "0 — не видно, 100 — непрозрачная", () -> cfg().hatOpacity,
+                v -> cfg().hatOpacity = (int) v, 0, 100, 5, 25, v -> (int) v + "%").enabledIf(on));
+        rows.add(number("Радиус полей", null, () -> cfg().hatRadius, v -> cfg().hatRadius = v,
+                0.3, 1.5, 0.05, 0.25, v -> f2(v) + " бл").enabledIf(on));
+        rows.add(number("Высота конуса", null, () -> cfg().hatHeight, v -> cfg().hatHeight = v,
+                0.05, 0.8, 0.05, 0.2, v -> f2(v) + " бл").enabledIf(on));
+        rows.add(number("Смещение по высоте", "Насколько поля выше макушки", () -> cfg().hatOffset,
+                v -> cfg().hatOffset = v, -0.3, 0.8, 0.02, 0.1, v -> f2(v) + " бл").enabledIf(on));
+        rows.add(number("Скорость", "Вращение градиента / перелива, 0 — стоит", () -> cfg().hatSpeed,
+                v -> cfg().hatSpeed = v, 0, 5, 0.1, 1, v -> "×" + f1(v)).enabledIf(on));
+        rows.add(number("Сегменты", "Качество круга", () -> cfg().hatSegments,
+                v -> cfg().hatSegments = (int) v, 8, 96, 4, 16, v -> String.valueOf((int) v)).enabledIf(on));
+        rows.add(toggle("От первого лица", "Видно, если посмотреть вверх. В F5 видно всегда",
+                () -> cfg().hatFirstPerson, v -> cfg().hatFirstPerson = v).enabledIf(on));
+        rows.add(toggle("На всех игроках", "Шляпы на других игроках (видишь только ты)",
+                () -> cfg().hatAllPlayers, v -> cfg().hatAllPlayers = v).enabledIf(on));
     }
 
     private void buildMacros() {
@@ -590,6 +654,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
     @Override
     public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
         double mx = e.x(), my = e.y();
+        Rows.clearWheelFocus();          // фокус колёсика снова поставит строка, по полю которой кликнули
         int x = winX(), y = winY(), w = winW();
         // закрыть
         if (Ui.inside(mx, my, x + w - 24, y + 7, 16, 16)) { clickSound(); onClose(); return true; }
@@ -653,6 +718,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                     break;
                 }
             }
+            Rows.clearWheelFocus();      // список поехал — поле под курсором уже другое
             scrollTarget -= sy * 24;
             return true;
         }
@@ -681,6 +747,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     @Override
     public void onClose() {
+        Rows.clearWheelFocus();
         ModConfig.save();
         minecraft.setScreen(parent);
     }

@@ -168,6 +168,7 @@ public class MacroManager {
         runStartMs = System.currentTimeMillis();
         if (sessionStartMs == 0) sessionStartMs = runStartMs;
         startPass(mc, playbackIndex);
+        LOGGER.info("Старт макроса, пороги: {}", ModConfig.INSTANCE.describeThresholds());
         msg(mc, "§a▶ Воспроизведение" + (playbackIndex > 0 ? " с кадра " + playbackIndex : "")
                 + " §7(" + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — стоп)");
     }
@@ -298,6 +299,13 @@ public class MacroManager {
         if (state != State.PLAYING && state != State.COUNTDOWN) return;
         stopInternal(mc, true);
         msg(mc, message);
+    }
+
+    /** Аварийная остановка без сообщений и точки возобновления (если обычная остановка упала). */
+    public void forceStop(Minecraft mc) {
+        state = State.IDLE;
+        playbackIndex = 0;
+        releaseAll(mc);
     }
 
     private void stopInternal(Minecraft mc, boolean keepResume) {

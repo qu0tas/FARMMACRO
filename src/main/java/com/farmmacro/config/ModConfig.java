@@ -65,7 +65,12 @@ public class ModConfig {
     public boolean panicSoundEnabled          = true;
     /** builtin:siren|klaxon|alarm|alert, mc:<id> или file:<имя файла в config/farmmacro/sounds> */
     public String  panicSound                 = "builtin:siren";
-    /** true — играть через звуковую систему ОС (не зависит от громкости Minecraft). */
+    /**
+     * «Безопасный звук»: только через движок игры, без javax.sound и декодирования.
+     * По умолчанию включён, пока системный режим не проверен в игре (v1.2.1).
+     */
+    public boolean panicSoundSafe             = true;
+    /** true — играть через звуковую систему ОС (не зависит от громкости Minecraft). Работает при panicSoundSafe=false. */
     public boolean panicSoundSystem           = true;
     public float   panicSoundVolume           = 1.0f;
     public float   panicSoundPitch            = 1.0f;
@@ -97,6 +102,29 @@ public class ModConfig {
     // ── HUD ──────────────────────────────────────────────────────────────────
     public boolean statsHudEnabled       = true;
     public boolean navHudEnabled         = true;
+    /** Маленькая стрелка к цели вокруг прицела (когда макрос не играет). */
+    public boolean navCrosshairEnabled   = true;
+
+    // ── Визуал: China Hat ────────────────────────────────────────────────────
+    public boolean hatEnabled            = true;
+    /** gradient | solid | rainbow */
+    public String  hatStyle              = "gradient";
+    /** id пресета из visual.HatColors */
+    public String  hatColor1             = "purple";
+    public String  hatColor2             = "orange";
+    /** 0–100 % */
+    public int     hatOpacity            = 45;
+    /** Радиус полей, блоков. */
+    public double  hatRadius             = 0.7;
+    /** Высота конуса от полей до вершины, блоков. */
+    public double  hatHeight             = 0.3;
+    /** Подъём полей над макушкой, блоков. */
+    public double  hatOffset             = 0.08;
+    /** Скорость вращения/перелива (0 — стоит). */
+    public double  hatSpeed              = 1.0;
+    public boolean hatFirstPerson        = false;
+    public int     hatSegments           = 48;
+    public boolean hatAllPlayers         = false;
 
     // ── Клавиши по умолчанию (дальше их хранит меню «Управление» Minecraft) ──
     public int keyRecord  = 82;   // R
@@ -123,6 +151,28 @@ public class ModConfig {
         startCountdownSeconds = clamp(startCountdownSeconds, 0, 30);
         startPointWarnDistance = clamp(startPointWarnDistance, 0.5, 64);
         if (panicSound == null || panicSound.isBlank()) panicSound = "builtin:siren";
+        hatOpacity            = clamp(hatOpacity, 0, 100);
+        hatRadius             = clamp(hatRadius, 0.3, 1.5);
+        hatHeight             = clamp(hatHeight, 0.05, 0.8);
+        hatOffset             = clamp(hatOffset, -0.3, 0.8);
+        hatSpeed              = clamp(hatSpeed, 0, 5);
+        hatSegments           = clamp(hatSegments, 8, 96);
+        if (!"gradient".equals(hatStyle) && !"solid".equals(hatStyle) && !"rainbow".equals(hatStyle)) hatStyle = "gradient";
+        if (!com.farmmacro.visual.HatColors.isPreset(hatColor1)) hatColor1 = "purple";
+        if (!com.farmmacro.visual.HatColors.isPreset(hatColor2)) hatColor2 = "orange";
+    }
+
+    /** Реальные пороги детекторов одной строкой (пишется в лог при загрузке и при старте макроса). */
+    public String describeThresholds() {
+        return String.format(java.util.Locale.ROOT,
+                "паника=%s | поворот=%s yaw>%.2f° pitch>%.2f° | сервер=%s сдвиг>=%.2f бл поворот>=%.2f° | "
+                        + "блок=%s %.2f бл | слот=%s окно=%s урон=%s эффекты=%s | застрял=%s %d т | сход=%s %.1f бл | "
+                        + "повтор камеры=%s | звук=%s безопасный=%s системный=%s",
+                panicEnabled, detectRotation, yawThreshold, pitchThreshold,
+                detectServerMove, serverMoveThreshold, serverRotateThreshold,
+                detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
+                detectStuck, stuckThresholdTicks, detectDrift, driftThreshold,
+                replayCamera, panicSound, panicSoundSafe, panicSoundSystem);
     }
 
     private static int    clamp(int v, int lo, int hi)          { return Math.max(lo, Math.min(hi, v)); }
@@ -143,7 +193,11 @@ public class ModConfig {
             LOGGER.error("Не удалось прочитать farmmacro.json, беру настройки по умолчанию", e);
             INSTANCE = new ModConfig();
         }
+        float yaw0 = INSTANCE.yawThreshold, pitch0 = INSTANCE.pitchThreshold;
         INSTANCE.sanitize();
+        if (yaw0 != INSTANCE.yawThreshold || pitch0 != INSTANCE.pitchThreshold)
+            LOGGER.warn("Пороги поворота в {} были вне диапазона ({} / {}), исправлены", CONFIG_PATH, yaw0, pitch0);
+        LOGGER.info("Конфиг {} загружен: {}", CONFIG_PATH, INSTANCE.describeThresholds());
     }
 
     /** Пишет во временный файл и атомарно подменяет — конфиг не побьётся при вылете игры. */

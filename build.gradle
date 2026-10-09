@@ -30,3 +30,20 @@ tasks.withType(JavaCompile).configureEach {
 	it.options.encoding = 'UTF-8'
 	it.options.release = 25
 }
+
+// Проверка декодера звуков вне игры: ./gradlew soundStress [-Piterations=1000]. В build не входит.
+sourceSets {
+	stress {
+		compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+		runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+	}
+}
+
+tasks.register('soundStress', JavaExec) {
+	group = 'verification'
+	description = 'Декодирует каждый встроенный звук N раз и проверяет длительность и утечки'
+	classpath = sourceSets.stress.runtimeClasspath
+	mainClass = 'com.farmmacro.panic.SoundDecodeStress'
+	args = [project.findProperty('iterations') ?: '1000']
+	jvmArgs = ['-Xmx512m', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
+}

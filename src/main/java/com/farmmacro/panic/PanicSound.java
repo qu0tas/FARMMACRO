@@ -8,24 +8,19 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
-import org.lwjgl.stb.STBVorbis;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sound.sampled.*;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
-import java.nio.ShortBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -37,9 +32,13 @@ import java.util.stream.Stream;
  *   mc:minecraft:block.bell.use — любой звук Minecraft
  *   file:имя.ogg    — свой файл .ogg/.wav из config/farmmacro/sounds/
  *
- * Режим «системный» (panicSoundSystem) играет через javax.sound мимо звукового движка игры,
+ * «Безопасный звук» (panicSoundSafe, по умолчанию) — всё только через движок игры.
+ * Иначе режим «системный» (panicSoundSystem) играет через javax.sound мимо звукового движка игры,
  * поэтому слышен даже при выключенной громкости Minecraft. Звуки mc: всегда идут через игру.
- * Если системный вывод недоступен — автоматически играем через игру.
+ * Если системный вывод сломался — автоматически и до конца сессии играем через игру.
+ *
+ * Потоки: декодирование и файлы — только в фоне (LOADER), вывод — в SystemAudioPlayer,
+ * главный поток в момент паники лишь берёт клип из кеша и ставит в очередь.
  */
 public final class PanicSound {
 
@@ -62,11 +61,15 @@ public final class PanicSound {
             {"minecraft:entity.elder_guardian.curse", "MC: проклятие стража"},
     };
 
-    /** PCM 16 бит, little-endian. */
-    private record Clip(byte[] pcm, int channels, int sampleRate) {}
-
-    private static final Map<String, Clip> CACHE = new ConcurrentHashMap<>();
-    private static volatile boolean systemAudioBroken = false;
+    private static final Map<String, SoundDecoder.Clip> CACHE = new ConcurrentHashMap<>();
+    private static final Set<String> LOADING = ConcurrentHashMap.newKeySet();
+    /** Один фоновый поток для чтения файлов и декодирования. */
+    private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "farmmacro-sound-loader");
+        t.setDaemon(true);
+        t.setPriority(Thread.MIN_PRIORITY);
+        return t;
+    });
 
     private PanicSound() {}
 
@@ -89,7 +92,45 @@ public final class PanicSound {
         } catch (Exception e) {
             LOGGER.warn("Не удалось подготовить папку звуков: {}", e.toString());
         }
+        preloadAll();
     }
+
+    /** Предзагрузка встроенных звуков и текущего сигнала в фоне (при старте и после «Обновить»). */
+    public static void preloadAll() {
+        for (String[] b : BUILTIN) preload("builtin:" + b[0]);
+        preload(ModConfig.INSTANCE.panicSound);
+    }
+
+    /** Поставить звук в очередь на загрузку (в фоне). Повторный вызов для того же id ничего не делает. */
+    public static void preload(String id) {
+        if (id == null || !(id.startsWith("builtin:") || id.startsWith("file:"))) return;
+        if (CACHE.containsKey(id) || !LOADING.add(id)) return;
+        try {
+            LOADER.execute(() -> {
+                try {
+                    SoundDecoder.Clip c = load(id);
+                    if (c != null) {
+                        CACHE.put(id, c);
+                        LOGGER.info("Звук {} готов: {} Гц, {} кан., {} с", id, c.sampleRate(), c.channels(),
+                                String.format(Locale.ROOT, "%.2f", c.seconds()));
+                    }
+                } catch (Throwable t) {
+                    LOGGER.warn("Не удалось загрузить звук {}: {}", id, t.toString());
+                } finally {
+                    LOADING.remove(id);
+                }
+            });
+        } catch (Throwable t) {
+            LOADING.remove(id);
+            LOGGER.warn("Очередь загрузки звуков недоступна: {}", t.toString());
+        }
+    }
+
+    /** true — системный вывод сломался в этой сессии, всё играет через движок игры. */
+    public static boolean systemAudioBroken() { return SystemAudioPlayer.isBroken(); }
+
+    /** Загружен ли звук для системного режима (для подсказки в меню). */
+    public static boolean isReady(String id) { return CACHE.containsKey(id); }
 
     /** Все доступные варианты для переключателя в GUI (свои файлы перечитываются при каждом вызове). */
     public static List<Option> options() {
@@ -120,151 +161,105 @@ public final class PanicSound {
     }
 
     /** Сбросить кеш (например, пользователь заменил файл с тем же именем). */
-    public static void clearCache() { CACHE.clear(); }
+    public static void clearCache() {
+        CACHE.clear();
+        preloadAll();
+    }
 
     // ── Воспроизведение ──────────────────────────────────────────────────────
 
     public static void playPanic() {
         ModConfig c = ModConfig.INSTANCE;
-        play(c.panicSound, c.panicSoundSystem, c.panicSoundVolume, c.panicSoundPitch);
+        play(c.panicSound, !c.panicSoundSafe && c.panicSoundSystem, c.panicSoundVolume, c.panicSoundPitch);
     }
 
     public static void playDone() {
         play("builtin:done", false, 0.8f, 1.0f);
     }
 
+    /**
+     * Запуск звука. Вызывается из главного потока, поэтому здесь НЕТ чтения файлов и декодирования:
+     * системный режим берёт готовый клип из кеша и кладёт его в очередь проигрывателя,
+     * иначе (или если клип ещё не готов) звук идёт через движок игры.
+     */
     public static void play(String id, boolean system, float volume, float pitch) {
         if (id == null) id = "builtin:siren";
         try {
             if (id.startsWith("mc:")) { playGame(Identifier.parse(id.substring(3)), volume, pitch); return; }
-            boolean isFile = id.startsWith("file:");
-            if ((system || isFile) && !systemAudioBroken) {
-                Clip clip = clip(id);
-                if (clip != null) { playSystem(clip, volume, pitch, id); return; }
+            boolean wantSystem = !ModConfig.INSTANCE.panicSoundSafe
+                    && (system || id.startsWith("file:")) && !SystemAudioPlayer.isBroken();
+            if (wantSystem) {
+                SoundDecoder.Clip clip = CACHE.get(id);
+                if (clip != null) {
+                    final String fid = id;
+                    SystemAudioPlayer.Job job = new SystemAudioPlayer.Job(clip, volume, pitch, id,
+                            () -> playGameFallback(fid, volume, pitch));
+                    if (SystemAudioPlayer.submit(job)) return;
+                } else {
+                    preload(id);
+                    LOGGER.info("Звук {} ещё не загружен, этот раз играю через Minecraft", id);
+                }
             }
-            if (id.startsWith("builtin:")) {
-                String key = id.substring(8);
-                String path = key.equals("done") ? "done" : "panic." + key;
-                playGame(Identifier.fromNamespaceAndPath("farmmacro", path), volume, pitch);
-            } else {
-                // своё имя файла, а системный звук недоступен — хоть что-то
-                playGame(Identifier.fromNamespaceAndPath("farmmacro", "panic.siren"), volume, pitch);
-            }
-        } catch (Exception e) {
+            playGameFallback(id, volume, pitch);
+        } catch (Throwable e) {
             LOGGER.error("Не удалось проиграть звук {}: {}", id, e.toString());
         }
     }
 
+    /** builtin:* — тот же звук из sounds.json; свои файлы движок игры не знает — играем сирену. */
+    private static void playGameFallback(String id, float volume, float pitch) {
+        if (id.startsWith("builtin:")) {
+            String key = id.substring(8);
+            String path = key.equals("done") ? "done" : "panic." + key;
+            playGame(Identifier.fromNamespaceAndPath("farmmacro", path), volume, pitch);
+        } else {
+            playGame(Identifier.fromNamespaceAndPath("farmmacro", "panic.siren"), volume, pitch);
+        }
+    }
+
+    /** Потокобезопасно: само воспроизведение всегда в главном потоке через mc.execute. */
     private static void playGame(Identifier id, float volume, float pitch) {
         Minecraft mc = Minecraft.getInstance();
-        SoundEvent ev = BuiltInRegistries.SOUND_EVENT.getValue(id);
-        if (ev == null) ev = SoundEvent.createVariableRangeEvent(id); // события мода (sounds.json) не в реестре
-        final SoundEvent sound = ev;
-        mc.execute(() -> mc.getSoundManager().play(
-                new AbstractSoundInstance(sound, SoundSource.MASTER, RandomSource.create()) {
-                    { this.volume = volume; this.pitch = pitch; this.relative = true; }
-                }));
-    }
-
-    private static void playSystem(Clip clip, float volume, float pitch, String id) {
-        Thread t = new Thread(() -> {
+        mc.execute(() -> {
             try {
-                float rate = clip.sampleRate() * Math.max(0.5f, Math.min(2f, pitch));
-                AudioFormat fmt = new AudioFormat(rate, 16, clip.channels(), true, false);
-                byte[] data = scale(clip.pcm(), Math.max(0f, Math.min(1f, volume)));
-                try (SourceDataLine line = AudioSystem.getSourceDataLine(fmt)) {
-                    line.open(fmt);
-                    line.start();
-                    line.write(data, 0, data.length);
-                    line.drain();
-                }
-            } catch (Throwable e) {
-                LOGGER.warn("Системный звук недоступен ({}), дальше играю через Minecraft", e.toString());
-                systemAudioBroken = true;
-                play(id.startsWith("file:") ? "builtin:siren" : id, false, volume, pitch);
+                SoundEvent ev = BuiltInRegistries.SOUND_EVENT.getValue(id);
+                if (ev == null) ev = SoundEvent.createVariableRangeEvent(id); // события мода (sounds.json) не в реестре
+                final SoundEvent sound = ev;
+                mc.getSoundManager().play(
+                        new AbstractSoundInstance(sound, SoundSource.MASTER, RandomSource.create()) {
+                            { this.volume = volume; this.pitch = pitch; this.relative = true; }
+                        });
+            } catch (Throwable t) {
+                LOGGER.error("Движок игры не проиграл {}: {}", id, t.toString());
             }
-        }, "farmmacro-sound");
-        t.setDaemon(true);
-        t.start();
+        });
     }
 
-    private static byte[] scale(byte[] pcm, float volume) {
-        if (volume >= 0.999f) return pcm;
-        byte[] out = new byte[pcm.length];
-        for (int i = 0; i + 1 < pcm.length; i += 2) {
-            int s = (short) ((pcm[i] & 0xFF) | (pcm[i + 1] << 8));
-            s = Math.round(s * volume);
-            out[i] = (byte) s;
-            out[i + 1] = (byte) (s >> 8);
-        }
-        return out;
-    }
+    // ── Загрузка (только в фоновом потоке LOADER) ────────────────────────────
 
-    // ── Загрузка и декодирование ─────────────────────────────────────────────
-
-    private static Clip clip(String id) {
-        Clip c = CACHE.get(id);
-        if (c != null) return c;
-        try {
-            byte[] raw;
-            String name;
-            if (id.startsWith("builtin:")) {
-                name = id.substring(8) + ".ogg";
-                try (InputStream in = PanicSound.class.getResourceAsStream("/assets/farmmacro/sounds/panic/" + name)) {
-                    if (in == null) { LOGGER.warn("Нет встроенного звука {}", name); return null; }
-                    raw = in.readAllBytes();
-                }
-            } else {
-                name = id.substring(5);
-                Path p = soundsDir().resolve(name).normalize();
-                if (!p.startsWith(soundsDir()) || !Files.isRegularFile(p)) {
-                    LOGGER.warn("Файл звука не найден: {}", p);
-                    return null;
-                }
-                raw = Files.readAllBytes(p);
+    private static SoundDecoder.Clip load(String id) throws Exception {
+        byte[] raw;
+        String name;
+        if (id.startsWith("builtin:")) {
+            name = id.substring(8) + ".ogg";
+            try (InputStream in = PanicSound.class.getResourceAsStream("/assets/farmmacro/sounds/panic/" + name)) {
+                if (in == null) { LOGGER.warn("Нет встроенного звука {}", name); return null; }
+                raw = in.readAllBytes();
             }
-            c = name.toLowerCase(Locale.ROOT).endsWith(".ogg") ? decodeOgg(raw) : decodeWav(raw);
-            if (c != null) CACHE.put(id, c);
-            return c;
-        } catch (Throwable e) {
-            LOGGER.error("Не удалось загрузить звук {}: {}", id, e.toString());
-            return null;
-        }
-    }
-
-    private static Clip decodeOgg(byte[] raw) {
-        ByteBuffer mem = MemoryUtil.memAlloc(raw.length);
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            mem.put(raw).flip();
-            IntBuffer ch = stack.mallocInt(1), sr = stack.mallocInt(1);
-            ShortBuffer pcm = STBVorbis.stb_vorbis_decode_memory(mem, ch, sr);
-            if (pcm == null) { LOGGER.warn("Не удалось декодировать ogg"); return null; }
-            try {
-                byte[] out = new byte[pcm.remaining() * 2];
-                for (int i = 0; pcm.hasRemaining(); i += 2) {
-                    short s = pcm.get();
-                    out[i] = (byte) s;
-                    out[i + 1] = (byte) (s >> 8);
-                }
-                return new Clip(out, ch.get(0), sr.get(0));
-            } finally {
-                MemoryUtil.memFree(pcm);
+        } else {
+            name = id.substring(5);
+            Path dir = soundsDir().toAbsolutePath().normalize();
+            Path p = dir.resolve(name).normalize();
+            if (!p.startsWith(dir) || !Files.isRegularFile(p)) {
+                LOGGER.warn("Файл звука не найден: {}", p);
+                return null;
             }
-        } finally {
-            MemoryUtil.memFree(mem);
-        }
-    }
-
-    private static Clip decodeWav(byte[] raw) throws Exception {
-        try (AudioInputStream src = AudioSystem.getAudioInputStream(new java.io.ByteArrayInputStream(raw))) {
-            AudioFormat f = src.getFormat();
-            AudioFormat target = new AudioFormat(AudioFormat.Encoding.PCM_SIGNED, f.getSampleRate(), 16,
-                    f.getChannels(), f.getChannels() * 2, f.getSampleRate(), false);
-            try (AudioInputStream pcm = AudioSystem.getAudioInputStream(target, src)) {
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                pcm.transferTo(bos);
-                return new Clip(bos.toByteArray(), f.getChannels(), Math.round(f.getSampleRate()));
+            if (Files.size(p) > 32L * 1024 * 1024) {
+                LOGGER.warn("Файл звука слишком большой (>32 МБ): {}", p);
+                return null;
             }
+            raw = Files.readAllBytes(p);
         }
+        return SoundDecoder.decode(raw, name);
     }
 }

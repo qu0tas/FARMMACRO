@@ -4,6 +4,7 @@ import com.farmmacro.config.ModConfig;
 import com.farmmacro.gui.FarmMacroScreen;
 import com.farmmacro.gui.SaveMacroScreen;
 import com.farmmacro.macro.MacroManager;
+import com.farmmacro.util.Guard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -112,15 +113,19 @@ public class PanicDetector {
         moveCaptured = false;
         LocalPlayer p = Minecraft.getInstance().player;
         ModConfig c = ModConfig.INSTANCE;
-        if (p == null || !armed() || !c.detectServerMove) return;
+        if (p == null || !armed()) return;
+        if (!c.detectServerMove) { updatePrev(p); return; }
         double dx = p.getX() - mvX, dy = p.getY() - mvY, dz = p.getZ() - mvZ;
         double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
         float rot = Math.max(angleDiff(p.getYRot(), mvYaw), Math.abs(p.getXRot() - mvPitch));
         if (dist >= c.serverMoveThreshold) {
             flag(String.format(Locale.ROOT, "Сервер телепортировал (%.1f бл)", dist));
         } else if (rot >= c.serverRotateThreshold) {
-            flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.0f°)", rot));
+            flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.1f° ≥ %.1f°)", rot, c.serverRotateThreshold));
         }
+        // Поворот от сервера — не движение мыши: детектор мыши сравнивает с уже повёрнутой камерой,
+        // иначе мелкий серверный поворот (ниже порога сервера) засчитывался бы как «Камера повернулась».
+        updatePrev(p);
     }
 
     /** Блок из пакета сервера. Вызывается ДО применения, поэтому в мире ещё старое состояние. */
@@ -181,8 +186,10 @@ public class PanicDetector {
         if (reason == null && c.detectRotation) {
             float dy = angleDiff(p.getYRot(), prevYaw);
             float dp = Math.abs(p.getXRot() - prevPitch);
-            if (dy > c.yawThreshold)        reason = String.format(Locale.ROOT, "Камера повернулась (yaw %.1f°)", dy);
-            else if (dp > c.pitchThreshold) reason = String.format(Locale.ROOT, "Камера повернулась (pitch %.1f°)", dp);
+            if (dy > c.yawThreshold)
+                reason = String.format(Locale.ROOT, "Камера повернулась (yaw %.1f° > %.1f°)", dy, c.yawThreshold);
+            else if (dp > c.pitchThreshold)
+                reason = String.format(Locale.ROOT, "Камера повернулась (pitch %.1f° > %.1f°)", dp, c.pitchThreshold);
         }
 
         if (reason == null && c.detectSlotChange) {
@@ -206,35 +213,44 @@ public class PanicDetector {
         if (soundRepeatsLeft > 0) {
             if (soundRepeatDelay > 0) soundRepeatDelay--;
             else {
-                PanicSound.playPanic();
                 soundRepeatsLeft--;
+                Guard.run("panic/repeat-sound", PanicSound::playPanic);
                 soundRepeatDelay = ModConfig.INSTANCE.panicSoundRepeatDelayTicks;
             }
         }
     }
 
-    /** Аварийный стоп. Только останавливает макрос и подаёт сигнал. */
+    /**
+     * Аварийный стоп. Только останавливает макрос и подаёт сигнал.
+     * Каждый шаг защищён отдельно: ошибка в логе/звуке/экране не мешает остановке и не роняет игру.
+     */
     public void triggerPanic(Minecraft mc, String reason) {
         ModConfig c = ModConfig.INSTANCE;
-        LocalPlayer p = mc.player;
-        LOGGER.error("[ПАНИКА] {} | pos={} yaw={} pitch={} hp={}", reason,
-                p != null ? String.format(Locale.ROOT, "%.2f %.2f %.2f", p.getX(), p.getY(), p.getZ()) : "?",
-                p != null ? String.format(Locale.ROOT, "%.1f", p.getYRot()) : "?",
-                p != null ? String.format(Locale.ROOT, "%.1f", p.getXRot()) : "?",
-                p != null ? String.format(Locale.ROOT, "%.1f", p.getHealth()) : "?");
+        Guard.run("panic/log", () -> {
+            LocalPlayer p = mc.player;
+            LOGGER.error("[ПАНИКА] {} | pos={} yaw={} pitch={} hp={}", reason,
+                    p != null ? String.format(Locale.ROOT, "%.2f %.2f %.2f", p.getX(), p.getY(), p.getZ()) : "?",
+                    p != null ? String.format(Locale.ROOT, "%.1f", p.getYRot()) : "?",
+                    p != null ? String.format(Locale.ROOT, "%.1f", p.getXRot()) : "?",
+                    p != null ? String.format(Locale.ROOT, "%.1f", p.getHealth()) : "?");
+        });
 
         lastReason  = reason;
         overlayText = reason;
         lastPanicMs = System.currentTimeMillis();
         pendingReason = null;
 
-        MacroManager.INSTANCE.stopPlayback(mc, "§c⚠ Паника: " + reason);
+        // 1. Остановка — главное. Если обычная остановка упала, отпускаем клавиши аварийно.
+        if (!Guard.run("panic/stop", () -> MacroManager.INSTANCE.stopPlayback(mc, "§c⚠ Паника: " + reason)))
+            Guard.run("panic/force-stop", () -> MacroManager.INSTANCE.forceStop(mc));
 
+        // 2. Звук: только постановка в очередь, без декодирования и файлов.
         if (c.panicSoundEnabled) {
-            PanicSound.playPanic();
             soundRepeatsLeft = Math.max(0, c.panicSoundRepeats - 1);
             soundRepeatDelay = c.panicSoundRepeatDelayTicks;
+            Guard.run("panic/sound", PanicSound::playPanic);
         }
+        // 3. Красный экран.
         if (c.panicRedScreenEnabled) redScreenTicksLeft = c.panicRedScreenTicks;
     }
 
@@ -243,9 +259,9 @@ public class PanicDetector {
         ModConfig c = ModConfig.INSTANCE;
         overlayText = "Проверка — так выглядит паника";
         if (c.panicSoundEnabled) {
-            PanicSound.playPanic();
             soundRepeatsLeft = Math.max(0, c.panicSoundRepeats - 1);
             soundRepeatDelay = c.panicSoundRepeatDelayTicks;
+            Guard.run("panic/sound", PanicSound::playPanic);
         }
         redScreenTicksLeft = c.panicRedScreenEnabled ? c.panicRedScreenTicks : 0;
     }

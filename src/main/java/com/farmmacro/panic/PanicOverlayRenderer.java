@@ -2,6 +2,7 @@ package com.farmmacro.panic;
 
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.gui.Ui;
+import com.farmmacro.util.Guard;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
@@ -14,7 +15,7 @@ import org.joml.Matrix3x2fStack;
 public class PanicOverlayRenderer {
 
     public static void register() {
-        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "panic_overlay"), (g, delta) -> {
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "panic_overlay"), Guard.hud("panic_overlay", (g, delta) -> {
             ModConfig cfg = ModConfig.INSTANCE;
             int left = PanicDetector.INSTANCE.getRedScreenTicks();
             int max = cfg.panicRedScreenTicks;
@@ -36,11 +37,14 @@ public class PanicOverlayRenderer {
             if (textA < 0.05f) return;
             Matrix3x2fStack pose = g.pose();
             pose.pushMatrix();
-            pose.translate(w / 2f, h / 2f - 26);
-            pose.scale(3f, 3f);
-            String title = "ПАНИКА";
-            g.text(mc.font, title, -mc.font.width(title) / 2, -4, Ui.alpha(0xFFFFFFFF, textA), true);
-            pose.popMatrix();
+            try {
+                pose.translate(w / 2f, h / 2f - 26);
+                pose.scale(3f, 3f);
+                String title = "ПАНИКА";
+                g.text(mc.font, title, -mc.font.width(title) / 2, -4, Ui.alpha(0xFFFFFFFF, textA), true);
+            } finally {
+                pose.popMatrix();     // стек матриц не должен «протечь» даже при исключении
+            }
 
             String reason = PanicDetector.INSTANCE.getOverlayText();
             if (reason != null) {
@@ -49,6 +53,6 @@ public class PanicOverlayRenderer {
                 Ui.pill(g, w / 2 - rw / 2, h / 2 - 6, rw, 16, Ui.alpha(0xFF000000, 0.55f * textA));
                 g.text(mc.font, r, w / 2 - mc.font.width(r) / 2, h / 2 - 2, Ui.alpha(0xFFFFFFFF, textA), false);
             }
-        });
+        }));
     }
 }

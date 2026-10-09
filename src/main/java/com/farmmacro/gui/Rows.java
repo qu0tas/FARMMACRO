@@ -27,6 +27,15 @@ public final class Rows {
         boolean shift();
     }
 
+    /**
+     * Строка, которой разрешено менять значение колёсиком. Колёсико действует только после клика
+     * по полю: иначе прокрутка списка, проходя курсором над числом, незаметно меняла пороги (v1.2.1).
+     */
+    static Row wheelFocus;
+
+    /** Сбросить фокус колёсика (клик мимо поля, смена вкладки, закрытие меню). */
+    public static void clearWheelFocus() { wheelFocus = null; }
+
     public abstract static class Row {
         /** Позиция с последней отрисовки (для кликов). */
         int lastX, lastY, lastW, lastH;
@@ -150,7 +159,8 @@ public final class Rows {
             int cx = x + w - cw - 6, cy = y + (h - 3 - 14) / 2;
             boolean en = on();
             double v = get.getAsDouble();
-            // поле
+            // поле (рамка — колёсико сейчас меняет это значение)
+            if (en && wheelFocus == this) Ui.round(g, cx - 1, cy - 1, cw + 2, 16, 5, Ui.ACCENT);
             Ui.round(g, cx, cy, cw, 14, 4, Ui.FIELD);
             boolean hm = en && Ui.inside(mx, my, cx, cy, 16, 14) && v > min;
             boolean hp = en && Ui.inside(mx, my, cx + cw - 16, cy, 16, 14) && v < max;
@@ -163,7 +173,8 @@ public final class Rows {
             Ui.textCentered(g, c.font(), s, cx + cw / 2, cy + 3, en ? Ui.TEXT : Ui.DIM);
             if (hm || hp) c.hand();
             if (hover && en && Ui.inside(mx, my, cx + 16, cy, cw - 32, 14))
-                c.tooltip("Колёсико — изменить, Shift — шаг ×" + trim(bigStep / step));
+                c.tooltip(wheelFocus == this ? "Колёсико — изменить, Shift — шаг ×" + trim(bigStep / step)
+                        : "Кликни по полю, чтобы менять колёсиком");
         }
 
         private static String trim(double d) {
@@ -182,13 +193,15 @@ public final class Rows {
             if (!on() || button != 0) return false;
             int h = height(c, lastW), cw = controlWidth(c);
             int cx = lastX + lastW - cw - 6, cy = lastY + (h - 3 - 14) / 2;
+            if (!Ui.inside(mx, my, cx, cy, cw, 14)) return false;
+            wheelFocus = this;
             if (Ui.inside(mx, my, cx, cy, 16, 14)) { change(c, -1); c.clickSound(); return true; }
             if (Ui.inside(mx, my, cx + cw - 16, cy, 16, 14)) { change(c, +1); c.clickSound(); return true; }
-            return false;
+            return true;   // клик по середине — только фокус для колёсика
         }
 
         boolean scroll(Ctx c, double mx, double my, double amount) {
-            if (!on()) return false;
+            if (!on() || wheelFocus != this) return false;
             int h = height(c, lastW), cw = controlWidth(c);
             int cx = lastX + lastW - cw - 6, cy = lastY + (h - 3 - 14) / 2;
             if (!Ui.inside(mx, my, cx, cy, cw, 14)) return false;
@@ -226,6 +239,7 @@ public final class Rows {
             boolean en = on();
             boolean hl = en && Ui.inside(mx, my, cx, cy, cw / 2, 14);
             boolean hr = en && Ui.inside(mx, my, cx + cw / 2, cy, cw - cw / 2, 14);
+            if (en && wheelFocus == this) Ui.round(g, cx - 1, cy - 1, cw + 2, 16, 5, Ui.ACCENT);
             Ui.round(g, cx, cy, cw, 14, 4, (hl || hr) ? Ui.CARD_HOVER : Ui.FIELD);
             Ui.text(g, c.font(), "‹", cx + 5, cy + 3, hl ? Ui.ACCENT_HI : Ui.SUB);
             Ui.textRight(g, c.font(), "›", cx + cw - 5, cy + 3, hr ? Ui.ACCENT_HI : Ui.SUB);
@@ -248,6 +262,7 @@ public final class Rows {
             int h = height(c, lastW), cw = controlWidth(c);
             int cx = lastX + lastW - cw - 6, cy = lastY + (h - 3 - 14) / 2;
             if (!Ui.inside(mx, my, cx, cy, cw, 14)) return false;
+            wheelFocus = this;
             int dir = button == 1 ? -1 : (mx < cx + cw / 2.0 ? -1 : 1);
             cycle(dir);
             c.clickSound();
@@ -255,7 +270,7 @@ public final class Rows {
         }
 
         boolean scroll(Ctx c, double mx, double my, double amount) {
-            if (!on()) return false;
+            if (!on() || wheelFocus != this) return false;
             int h = height(c, lastW), cw = controlWidth(c);
             int cx = lastX + lastW - cw - 6, cy = lastY + (h - 3 - 14) / 2;
             if (!Ui.inside(mx, my, cx, cy, cw, 14)) return false;
