@@ -9,6 +9,7 @@ import com.farmmacro.panic.PanicOverlayRenderer;
 import com.farmmacro.panic.PanicSound;
 import com.farmmacro.util.Guard;
 import com.farmmacro.visual.ChinaHatRenderer;
+import com.farmmacro.visual.RouteRenderer;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -43,6 +44,7 @@ public class FarmMacroMod implements ClientModInitializer {
         FarmHud.register();
         PanicOverlayRenderer.register();
         ChinaHatRenderer.register();
+        RouteRenderer.register();
 
         keyRecord   = makeKey("key.farmmacro.record",   cfg.keyRecord);
         keyPlay     = makeKey("key.farmmacro.play",     cfg.keyPlay);

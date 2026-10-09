@@ -273,7 +273,32 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
     private static final List<Rows.Choice> HAT_COLORS = com.farmmacro.visual.HatColors.PRESETS.stream()
             .map(p -> new Rows.Choice(p.id(), p.label())).toList();
 
+    private static final List<Rows.Choice> ROUTE_MODES = List.of(
+            new Rows.Choice("always", "Всегда"), new Rows.Choice("playing", "Только при игре"));
+    private static final List<Rows.Choice> ROUTE_XRAY = List.of(
+            new Rows.Choice("off", "Нет"), new Rows.Choice("dim", "Слегка"), new Rows.Choice("full", "Ярко"));
+
     private void buildVisual() {
+        java.util.function.BooleanSupplier ro = () -> cfg().routeEnabled;
+        rows.add(new Rows.Section("Маршрут"));
+        rows.add(toggle("Показывать маршрут", "Лента по кадрам макроса: впереди ярко, пройдено тускло, запись — красным",
+                () -> cfg().routeEnabled, v -> cfg().routeEnabled = v));
+        rows.add(new Rows.Selector("Когда", null, () -> ROUTE_MODES, () -> cfg().routeMode,
+                v -> { cfg().routeMode = v; save(); }).enabledIf(ro));
+        rows.add(new Rows.Selector("Сквозь стены", "Слегка — видно за блоками, ярко там, где не перекрыто",
+                () -> ROUTE_XRAY, () -> cfg().routeSeeThrough, v -> { cfg().routeSeeThrough = v; save(); }).enabledIf(ro));
+        rows.add(number("Толщина", null, () -> cfg().routeWidth, v -> cfg().routeWidth = v,
+                0.02, 0.4, 0.02, 0.1, v -> f2(v) + " бл").enabledIf(ro));
+        rows.add(number("Радиус отрисовки", "Дальше от игрока маршрут не рисуется", () -> cfg().routeRadius,
+                v -> cfg().routeRadius = (int) v, 8, 256, 8, 32, v -> (int) v + " бл").enabledIf(ro));
+        rows.add(toggle("Стрелки направления", null, () -> cfg().routeArrows, v -> cfg().routeArrows = v).enabledIf(ro));
+        rows.add(number("Шаг стрелок", null, () -> cfg().routeArrowSpacing, v -> cfg().routeArrowSpacing = v,
+                1, 32, 1, 4, v -> (int) v + " бл").enabledIf(() -> cfg().routeEnabled && cfg().routeArrows));
+        rows.add(toggle("ЛКМ / ПКМ, прыжки", "Ломание — оранжевым, ПКМ — фиолетовым; точки прыжка и приседания",
+                () -> cfg().routeShowActions, v -> cfg().routeShowActions = v).enabledIf(ro));
+        rows.add(toggle("От точки запуска", "Во время игры сдвигать маршрут туда, откуда реально запущен макрос",
+                () -> cfg().routeRelative, v -> cfg().routeRelative = v).enabledIf(ro));
+
         java.util.function.BooleanSupplier on = () -> cfg().hatEnabled;
         rows.add(new Rows.Section("China Hat"));
         rows.add(toggle("Шляпа", "Полупрозрачный конус над головой (видишь только ты)",

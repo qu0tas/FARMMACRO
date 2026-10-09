@@ -47,3 +47,12 @@ tasks.register('soundStress', JavaExec) {
 	args = [project.findProperty('iterations') ?: '1000']
 	jvmArgs = ['-Xmx512m', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
 }
+
+// Оценка упрощения маршрута на 70 000 кадров: ./gradlew routeStress. В build не входит.
+tasks.register('routeStress', JavaExec) {
+	group = 'verification'
+	description = 'Упрощение маршрута макроса на 70 000 кадров: точки, вершины, время'
+	classpath = sourceSets.stress.runtimeClasspath
+	mainClass = 'com.farmmacro.visual.RouteStress'
+	jvmArgs = ['-Xmx512m', '-Dstdout.encoding=UTF-8']
+}

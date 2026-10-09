@@ -126,6 +126,24 @@ public class ModConfig {
     public int     hatSegments           = 48;
     public boolean hatAllPlayers         = false;
 
+    // ── Визуал: маршрут макроса ──────────────────────────────────────────────
+    public boolean routeEnabled          = true;
+    /** always | playing */
+    public String  routeMode             = "always";
+    /** off | dim | full — видно ли сквозь блоки */
+    public String  routeSeeThrough       = "dim";
+    /** Толщина ленты, блоков. */
+    public double  routeWidth            = 0.08;
+    /** Радиус отрисовки вокруг игрока, блоков. */
+    public int     routeRadius           = 48;
+    public boolean routeArrows           = true;
+    /** Шаг стрелок, блоков. */
+    public double  routeArrowSpacing     = 4.0;
+    /** Участки ЛКМ/ПКМ другим цветом, отметки прыжка и приседания. */
+    public boolean routeShowActions      = true;
+    /** Сдвигать маршрут на смещение точки запуска (как детектор «сход с маршрута»). */
+    public boolean routeRelative         = true;
+
     // ── Клавиши по умолчанию (дальше их хранит меню «Управление» Minecraft) ──
     public int keyRecord  = 82;   // R
     public int keyPlay    = 80;   // P
@@ -151,6 +169,11 @@ public class ModConfig {
         startCountdownSeconds = clamp(startCountdownSeconds, 0, 30);
         startPointWarnDistance = clamp(startPointWarnDistance, 0.5, 64);
         if (panicSound == null || panicSound.isBlank()) panicSound = "builtin:siren";
+        routeWidth            = clamp(routeWidth, 0.02, 0.4);
+        routeRadius           = clamp(routeRadius, 8, 256);
+        routeArrowSpacing     = clamp(routeArrowSpacing, 1, 32);
+        if (!"always".equals(routeMode) && !"playing".equals(routeMode)) routeMode = "always";
+        if (!"off".equals(routeSeeThrough) && !"dim".equals(routeSeeThrough) && !"full".equals(routeSeeThrough)) routeSeeThrough = "dim";
         hatOpacity            = clamp(hatOpacity, 0, 100);
         hatRadius             = clamp(hatRadius, 0.3, 1.5);
         hatHeight             = clamp(hatHeight, 0.05, 0.8);

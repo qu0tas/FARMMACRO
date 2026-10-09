@@ -350,6 +350,11 @@ public class MacroManager {
     public String  getLoadedName()     { return loadedName; }
     public List<MacroFrame> getFrames() { return Collections.unmodifiableList(frames); }
 
+    /** Сдвиг «реальная позиция − запись» на начало текущего круга (для рисования маршрута от точки запуска). */
+    public double getOffsetX() { return offX; }
+    public double getOffsetY() { return offY; }
+    public double getOffsetZ() { return offZ; }
+
     public long getSessionStartMs() { return sessionStartMs; }
     public int  getSessionRuns()    { return sessionRuns; }
     public void resetStats()        { sessionStartMs = 0; sessionRuns = 0; }
