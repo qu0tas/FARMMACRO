@@ -158,6 +158,36 @@ public final class RoutePath {
         }
 
         // 4. стрелки по длине ломаной
+        Arrows ar = arrows(px, py, pz, pf, m, arrowSpacing);
+        float[] ax = ar.x, ay = ar.y, az = ar.z, adx = ar.dx, adz = ar.dz;
+        int[] aF = ar.frame;
+        int an = ar.n;
+
+        // 5. отметки прыжка / приседания (передний фронт)
+        int mcap = 32, mn = 0;
+        float[] mx = new float[mcap], my = new float[mcap], mz = new float[mcap];
+        byte[] mt = new byte[mcap]; int[] mF = new int[mcap];
+        boolean pj = false, ps = false;
+        for (int i = 0; i < n; i++) {
+            MacroFrame f = frames.get(i);
+            int type = -1;
+            if (f.jump && !pj) type = 0;
+            else if (f.sneak && !ps) type = 1;
+            pj = f.jump; ps = f.sneak;
+            if (type < 0) continue;
+            if (mn == mcap) { mcap *= 2; mx = Arrays.copyOf(mx, mcap); my = Arrays.copyOf(my, mcap);
+                mz = Arrays.copyOf(mz, mcap); mt = Arrays.copyOf(mt, mcap); mF = Arrays.copyOf(mF, mcap); }
+            mx[mn] = (float) f.x; my[mn] = (float) f.y; mz[mn] = (float) f.z; mt[mn] = (byte) type; mF[mn] = i;
+            mn++;
+        }
+
+        return new RoutePath(px, py, pz, pf, pfl, m, ax, ay, az, adx, adz, aF, an, mx, my, mz, mt, mF, mn, n);
+    }
+
+    private record Arrows(float[] x, float[] y, float[] z, float[] dx, float[] dz, int[] frame, int n) {}
+
+    /** Стрелки каждые {@code arrowSpacing} по длине ломаной (первая — на половине шага). */
+    private static Arrows arrows(float[] px, float[] py, float[] pz, int[] pf, int m, double arrowSpacing) {
         int acap = 64, an = 0;
         float[] ax = new float[acap], ay = new float[acap], az = new float[acap], adx = new float[acap], adz = new float[acap];
         int[] aF = new int[acap];
@@ -185,25 +215,55 @@ public final class RoutePath {
             }
         }
 
-        // 5. отметки прыжка / приседания (передний фронт)
-        int mcap = 32, mn = 0;
-        float[] mx = new float[mcap], my = new float[mcap], mz = new float[mcap];
-        byte[] mt = new byte[mcap]; int[] mF = new int[mcap];
-        boolean pj = false, ps = false;
-        for (int i = 0; i < n; i++) {
-            MacroFrame f = frames.get(i);
-            int type = -1;
-            if (f.jump && !pj) type = 0;
-            else if (f.sneak && !ps) type = 1;
-            pj = f.jump; ps = f.sneak;
-            if (type < 0) continue;
-            if (mn == mcap) { mcap *= 2; mx = Arrays.copyOf(mx, mcap); my = Arrays.copyOf(my, mcap);
-                mz = Arrays.copyOf(mz, mcap); mt = Arrays.copyOf(mt, mcap); mF = Arrays.copyOf(mF, mcap); }
-            mx[mn] = (float) f.x; my[mn] = (float) f.y; mz[mn] = (float) f.z; mt[mn] = (byte) type; mF[mn] = i;
-            mn++;
-        }
+        return new Arrows(ax, ay, az, adx, adz, aF, an);
+    }
 
-        return new RoutePath(px, py, pz, pf, pfl, m, ax, ay, az, adx, adz, aF, an, mx, my, mz, mt, mF, mn, n);
+    /** Масштаб «кадров» у маршрута по точкам: точка i — кадр i·FRAME_SCALE (для дробного прогресса на отрезке). */
+    public static final int FRAME_SCALE = 1000;
+
+    /**
+     * Геометрия маршрута по точкам: без упрощения, отрезки ≤ maxSeg, флаги отрезка i-1 → i — действие точки i-1,
+     * отметки прыжка/приседания — в точках, где они включены. frame = индекс точки × {@link #FRAME_SCALE}.
+     */
+    public static RoutePath fromPoints(List<com.farmmacro.route.RoutePoint> pts, double maxSeg, double arrowSpacing) {
+        int n = pts.size();
+        if (n == 0) return empty();
+        int cap = n * 2 + 16, m = 0;
+        float[] px = new float[cap], py = new float[cap], pz = new float[cap];
+        int[] pf = new int[cap]; byte[] pfl = new byte[cap];
+        for (int i = 0; i < n; i++) {
+            var p = pts.get(i);
+            byte fl = 0;
+            if (i > 0) {
+                var prev = pts.get(i - 1);
+                fl = (byte) ((prev.attack() ? F_ATTACK : 0) | (prev.use() ? F_USE : 0));
+                double dx = p.x - px[m - 1], dy = p.y - py[m - 1], dz = p.z - pz[m - 1];
+                int parts = (int) Math.ceil(Math.sqrt(dx * dx + dy * dy + dz * dz) / maxSeg);
+                int base = m - 1;
+                for (int s = 1; s < parts; s++) {
+                    double t = (double) s / parts;
+                    if (m + 2 >= cap) { cap *= 2; px = Arrays.copyOf(px, cap); py = Arrays.copyOf(py, cap);
+                        pz = Arrays.copyOf(pz, cap); pf = Arrays.copyOf(pf, cap); pfl = Arrays.copyOf(pfl, cap); }
+                    px[m] = (float) (px[base] + dx * t); py[m] = (float) (py[base] + dy * t); pz[m] = (float) (pz[base] + dz * t);
+                    pf[m] = (int) Math.round((i - 1 + t) * FRAME_SCALE); pfl[m] = fl;
+                    m++;
+                }
+            }
+            if (m + 1 >= cap) { cap *= 2; px = Arrays.copyOf(px, cap); py = Arrays.copyOf(py, cap);
+                pz = Arrays.copyOf(pz, cap); pf = Arrays.copyOf(pf, cap); pfl = Arrays.copyOf(pfl, cap); }
+            px[m] = (float) p.x; py[m] = (float) p.y; pz[m] = (float) p.z; pf[m] = i * FRAME_SCALE; pfl[m] = fl;
+            m++;
+        }
+        Arrows ar = arrows(px, py, pz, pf, m, arrowSpacing);
+        int mn = 0;
+        float[] mx = new float[n * 2 + 1], my = new float[n * 2 + 1], mz = new float[n * 2 + 1];
+        byte[] mt = new byte[n * 2 + 1]; int[] mF = new int[n * 2 + 1];
+        for (int i = 0; i < n; i++) {
+            var p = pts.get(i);
+            if (p.jump)  { mx[mn] = (float) p.x; my[mn] = (float) p.y; mz[mn] = (float) p.z; mt[mn] = 0; mF[mn] = i * FRAME_SCALE; mn++; }
+            if (p.sneak) { mx[mn] = (float) p.x; my[mn] = (float) p.y + 0.12f; mz[mn] = (float) p.z; mt[mn] = 1; mF[mn] = i * FRAME_SCALE; mn++; }
+        }
+        return new RoutePath(px, py, pz, pf, pfl, m, ar.x, ar.y, ar.z, ar.dx, ar.dz, ar.frame, ar.n, mx, my, mz, mt, mF, mn, n);
     }
 
     private static RoutePath empty() {

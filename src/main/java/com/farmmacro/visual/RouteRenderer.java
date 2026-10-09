@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
+import com.farmmacro.route.RouteBuffer;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -79,68 +80,132 @@ public final class RouteRenderer {
                 n, path.size, path.arrows, path.marks, (System.nanoTime() - t0) / 1_000_000);
     }
 
+    // ── маршрут по точкам: кеш и состояние редактора ──
+    private static RoutePath pointPath;
+    private static int pointKeyRev = -1;
+    private static double pointKeySpacing = -1;
+
+    /** Что показывает редактор (ставит route.RouteEditor каждый тик). */
+    public static int editorHover = -1;
+    public static boolean editorActive;
+    /** Углы выделения «змейки» (мир) и превью точек; null — нет. */
+    public static double[] editorCornerA, editorCornerB;
+    public static List<com.farmmacro.route.RoutePoint> editorPreview;
+
+    private static RoutePath pointPath(ModConfig c) {
+        RouteBuffer rb = RouteBuffer.INSTANCE;
+        if (rb.revision() != pointKeyRev || c.routeArrowSpacing != pointKeySpacing) {
+            pointPath = RoutePath.fromPoints(rb.points(), 4.0, c.routeArrowSpacing);
+            pointKeyRev = rb.revision();
+            pointKeySpacing = c.routeArrowSpacing;
+        }
+        return pointPath;
+    }
+
     private static void collect(LevelRenderContext ctx) {
         ModConfig c = ModConfig.INSTANCE;
-        if (!c.routeEnabled) return;
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer player = mc.player;
         if (player == null || mc.level == null) return;
         MacroManager m = MacroManager.INSTANCE;
         boolean playing = m.isPlaying() || m.isCountingDown();
-        if ("playing".equals(c.routeMode) && !playing) return;
+        boolean points = editorActive || (m.getSourceKind() == MacroManager.SourceKind.ROUTE && !RouteBuffer.INSTANCE.isEmpty());
+        if (!editorActive) {
+            if (!c.routeEnabled) return;
+            if ("playing".equals(c.routeMode) && !playing) return;
+        }
 
-        updateCache(m, mc, c);
-        RoutePath p = path;
-        if (p == null || p.size == 0) return;
-        if (routeDim != null && !routeDim.equals(mc.level.dimension())) return;
+        RoutePath p;
+        if (points) {
+            p = pointPath(c);
+            String dim = RouteBuffer.INSTANCE.route().dimension;
+            if (dim != null && !RouteBuffer.INSTANCE.isEmpty() && !dim.equals(RouteBuffer.dimensionId(mc))) return;
+        } else {
+            updateCache(m, mc, c);
+            p = path;
+            if (p == null || p.size == 0) return;
+            if (routeDim != null && !routeDim.equals(mc.level.dimension())) return;
+        }
 
         Vec3 cam = ctx.levelState().cameraRenderState.pos;
         float pt = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
         Vec3 me = player.getPosition(pt);
 
-        // сдвиг «относительно точки запуска» (как у детектора схода с маршрута)
+        // сдвиг «относительно точки запуска» (как у детектора схода с маршрута); у точек — всегда мир
         double ox = 0, oy = 0, oz = 0;
-        if (c.routeRelative && m.isPlaying()) { ox = m.getOffsetX(); oy = m.getOffsetY(); oz = m.getOffsetZ(); }
+        if (!points && c.routeRelative && m.isPlaying()) { ox = m.getOffsetX(); oy = m.getOffsetY(); oz = m.getOffsetZ(); }
         final float sx = (float) (ox - cam.x), sy = (float) (oy - cam.y) + LIFT, sz = (float) (oz - cam.z);
         final float px0 = (float) (me.x - ox), pz0 = (float) (me.z - oz), py0 = (float) (me.y - oy);
         final float r2 = (float) (c.routeRadius * c.routeRadius);
         // камера в координатах маршрута (для поворота ленты к камере)
         final float cx = (float) (cam.x - ox), cy = (float) (cam.y - oy) - LIFT, cz = (float) (cam.z - oz);
 
-        final boolean recording = m.isRecording();
-        final int cur = playing ? m.getPlaybackIndex() : -1;
+        final boolean recording = !points && m.isRecording();
+        final int cur = !playing ? -1 : points ? m.getRouteProgressFrame() : m.getPlaybackIndex();
         final float w = (float) c.routeWidth * 0.5f;
         final boolean actions = c.routeShowActions;
-        final String xray = c.routeSeeThrough;
+        final String xray = editorActive && "off".equals(c.routeSeeThrough) ? "dim" : c.routeSeeThrough;
+        aheadRgb = HatColors.rgb(c.routeColor);
+        opacity = c.routeOpacity / 100f;
+        glow = c.routeGlow;
         long ms = System.currentTimeMillis();
         final float pulse = (float) (0.65 + 0.35 * Math.sin(ms / 220.0));
+        final boolean pts = points;
 
         PoseStack ps = ctx.poseStack();
         ps.pushPose();
         try {
             ps.translate(sx, sy, sz);
             Builder normal = new Builder(false, 1f);
-            ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.debugQuads(), (pose, vc) ->
-                    emitAll(normal.with(pose, vc), p, c, px0, py0, pz0, r2, cx, cy, cz, cur, recording, w, actions, pulse, m));
+            ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.debugQuads(), (pose, vc) -> Guard.runOrDisable(GUARD, () ->
+                    emitAll(normal.with(pose, vc), p, c, px0, py0, pz0, r2, cx, cy, cz, cur, recording, w, actions, pulse, m, pts)));
             if (!"off".equals(xray)) {
-                Builder see = new Builder(true, "full".equals(xray) ? 0.85f : 0.32f);
-                ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.textBackgroundSeeThrough(), (pose, vc) ->
-                        emitAll(see.with(pose, vc), p, c, px0, py0, pz0, r2, cx, cy, cz, cur, recording, w, actions, pulse, m));
+                Builder see = new Builder(true, "full".equals(xray) ? 0.9f : 0.42f);
+                ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.textBackgroundSeeThrough(), (pose, vc) -> Guard.runOrDisable(GUARD, () ->
+                        emitAll(see.with(pose, vc), p, c, px0, py0, pz0, r2, cx, cy, cz, cur, recording, w, actions, pulse, m, pts)));
             }
         } finally {
             ps.popPose();
         }
+        if (points) labels(ctx, mc, cam, me, c);
+    }
+
+    /** Номера точек над ними (как таблички имён: видно и сквозь блоки). */
+    private static void labels(LevelRenderContext ctx, Minecraft mc, Vec3 cam, Vec3 me, ModConfig c) {
+        List<com.farmmacro.route.RoutePoint> pts = RouteBuffer.INSTANCE.points();
+        double r = Math.min(c.routeRadius, 48);
+        double r2 = r * r;
+        int sel = RouteBuffer.INSTANCE.selected(), shown = 0;
+        var camState = ctx.levelState().cameraRenderState;
+        for (int i = 0; i < pts.size() && shown < 160; i++) {
+            var q = pts.get(i);
+            double dx = q.x - me.x, dz = q.z - me.z;
+            if (dx * dx + dz * dz > r2) continue;
+            shown++;
+            StringBuilder t = new StringBuilder();
+            t.append(i == sel ? "§e" : i == editorHover ? "§f" : "§7").append(i + 1);
+            if (q.pauseTicks > 0) t.append(" §6⏸").append(q.pauseTicks);
+            if (q.slot > 0) t.append(" §b[").append(q.slot).append(']');
+            Vec3 rel = new Vec3(q.x - cam.x, q.y + 0.25 - cam.y, q.z - cam.z);
+            ctx.submitNodeCollector().submitNameTag(ctx.poseStack(), rel, 0,
+                    net.minecraft.network.chat.Component.literal(t.toString()), true,
+                    net.minecraft.util.LightCoordsUtil.FULL_BRIGHT, rel.lengthSqr(), camState);
+        }
     }
 
     // ── цвета ──
-    private static final int C_AHEAD = 0x6DD3FF, C_PASSED = 0x8A8F99, C_REC = 0xFF4545;
+    private static final int C_REC = 0xFF4545;
+    /** Цвет и непрозрачность «впереди» из настроек (ставятся в начале кадра, рисование — в том же потоке). */
+    private static int aheadRgb = 0x38D6FF;
+    private static float opacity = 0.9f;
+    private static boolean glow = true;
     private static final int C_ATTACK = 0xFFA23A, C_USE = 0xC77DFF;
     private static final int C_START = 0x4DFF88, C_STOP = 0xFF4D4D, C_CUR = 0xFFF6B0;
     private static final int C_JUMP = 0xFFE14D, C_SNEAK = 0xFF6FCF;
 
     private static void emitAll(Builder b, RoutePath p, ModConfig c, float px, float py, float pz, float r2,
                                 float cx, float cy, float cz, int cur, boolean rec, float w, boolean actions,
-                                float pulse, MacroManager m) {
+                                float pulse, MacroManager m, boolean pts) {
         // лента (не больше MAX_SEGMENTS за кадр — защита от огромных хаотичных маршрутов)
         int drawn = 0;
         for (int i = 1; i < p.size && drawn < MAX_SEGMENTS; i++) {
@@ -151,17 +216,17 @@ public final class RouteRenderer {
             int base = segColor(p.flags[i], rec, actions);
             if (cur < 0 || f1 <= cur) {
                 boolean passed = cur >= 0 && !rec;
-                ribbon(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], p.x[i], p.y[i], p.z[i], cx, cy, cz, w,
-                        passed ? dim(base) : base, passed ? 0.40f : 0.90f);
+                seg(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], p.x[i], p.y[i], p.z[i], cx, cy, cz, w,
+                        passed ? dim(base) : base, passed ? 0.40f : opacity);
             } else if (f0 >= cur) {
-                ribbon(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], p.x[i], p.y[i], p.z[i], cx, cy, cz, w, base, 0.90f);
+                seg(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], p.x[i], p.y[i], p.z[i], cx, cy, cz, w, base, opacity);
             } else {
                 // отрезок, на котором сейчас воспроизведение: делим
                 float t = (float) (cur - f0) / Math.max(1, f1 - f0);
                 float qx = p.x[i - 1] + (p.x[i] - p.x[i - 1]) * t, qy = p.y[i - 1] + (p.y[i] - p.y[i - 1]) * t,
                         qz = p.z[i - 1] + (p.z[i] - p.z[i - 1]) * t;
-                ribbon(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], qx, qy, qz, cx, cy, cz, w, dim(base), 0.40f);
-                ribbon(b, qx, qy, qz, p.x[i], p.y[i], p.z[i], cx, cy, cz, w, base, 0.90f);
+                seg(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], qx, qy, qz, cx, cy, cz, w, dim(base), 0.40f);
+                seg(b, qx, qy, qz, p.x[i], p.y[i], p.z[i], cx, cy, cz, w, base, opacity);
             }
         }
         // стрелки
@@ -172,7 +237,7 @@ public final class RouteRenderer {
                 if (dx * dx + dz * dz > r2) continue;
                 boolean passed = cur >= 0 && p.aFrame[i] <= cur;
                 chevron(b, p.ax[i], p.ay[i] + 0.01f, p.az[i], p.adx[i], p.adz[i], s,
-                        passed ? dim(C_AHEAD) : 0xFFFFFF, passed ? 0.35f : 0.85f);
+                        passed ? dim(aheadRgb) : 0xFFFFFF, passed ? 0.35f : Math.max(0.5f, opacity));
             }
         }
         // прыжок / приседание
@@ -186,20 +251,69 @@ public final class RouteRenderer {
             }
         }
         // маркеры: старт, точка остановки, текущая позиция
-        if (!rec) {
+        if (!rec && p.size > 0) {
             beacon(b, p.x[0], p.y[0], p.z[0], cx, cy, cz, C_START, 0.9f);
         }
-        if (m.hasSavedPosition() && !rec) {
+        if (m.savedMatchesSource() && !rec) {
             // точка остановки хранится в мировых координатах — вернуть в координаты маршрута
-            float ox = (float) (c.routeRelative && m.isPlaying() ? m.getOffsetX() : 0);
-            float oy = (float) (c.routeRelative && m.isPlaying() ? m.getOffsetY() : 0);
-            float oz = (float) (c.routeRelative && m.isPlaying() ? m.getOffsetZ() : 0);
+            boolean rel = !pts && c.routeRelative && m.isPlaying();
+            float ox = (float) (rel ? m.getOffsetX() : 0);
+            float oy = (float) (rel ? m.getOffsetY() : 0);
+            float oz = (float) (rel ? m.getOffsetZ() : 0);
             beacon(b, (float) m.getSavedX() - ox, (float) m.getSavedY() - oy, (float) m.getSavedZ() - oz,
                     cx, cy, cz, C_STOP, 0.9f);
         }
-        if (cur >= 0 && cur < m.getFrameCount()) {
+        if (!pts && cur >= 0 && cur < m.getFrameCount()) {
             MacroFrame f = m.getFrames().get(cur);
             billboard(b, (float) f.x, (float) f.y + 0.15f, (float) f.z, cx, cy, cz, 0.14f + 0.04f * pulse, C_CUR, 0.95f);
+        }
+        if (pts) emitPoints(b, c, px, pz, r2, cx, cy, cz, cur, pulse);
+    }
+
+    private static final int C_POINT = 0xD8F4FF, C_SEL = 0xFFE14D, C_HOVER = 0xFFFFFF, C_TARGET = 0xFFF6B0;
+    private static final int C_CORNER = 0xFFB547, C_PREVIEW = 0xB98CFF;
+
+    /** Точки маршрута, выбранная/наведённая, цель автохода, углы выделения и превью «змейки». */
+    private static void emitPoints(Builder b, ModConfig c, float px, float pz, float r2,
+                                   float cx, float cy, float cz, int cur, float pulse) {
+        List<com.farmmacro.route.RoutePoint> pts = RouteBuffer.INSTANCE.points();
+        int sel = RouteBuffer.INSTANCE.selected();
+        int target = cur >= 0 ? (cur + RoutePath.FRAME_SCALE - 1) / RoutePath.FRAME_SCALE : -1;
+        for (int i = 0; i < pts.size(); i++) {
+            var q = pts.get(i);
+            float x = (float) q.x, y = (float) q.y, z = (float) q.z;
+            float dx = x - px, dz = z - pz;
+            if (dx * dx + dz * dz > r2) continue;
+            if (i == sel) {
+                billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.2f + 0.04f * pulse, C_SEL, 0.95f);
+                ribbon(b, x, y, z, x, y + 1.1f, z, cx, cy, cz, 0.035f, C_SEL, 0.8f);
+            } else if (i == editorHover) {
+                billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.17f, C_HOVER, 0.95f);
+            } else if (i == target) {
+                billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.15f + 0.05f * pulse, C_TARGET, 0.95f);
+            } else {
+                billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.1f, q.pauseTicks > 0 ? C_ATTACK : C_POINT, 0.85f);
+            }
+        }
+        double[] a = editorCornerA, bb = editorCornerB;
+        if (a != null) beacon(b, (float) a[0], (float) a[1], (float) a[2], cx, cy, cz, C_CORNER, 0.9f);
+        if (bb != null) beacon(b, (float) bb[0], (float) bb[1], (float) bb[2], cx, cy, cz, C_CORNER, 0.9f);
+        if (a != null && bb != null) {
+            float x0 = (float) Math.min(a[0], bb[0]) - 0.5f, x1 = (float) Math.max(a[0], bb[0]) + 0.5f;
+            float z0 = (float) Math.min(a[2], bb[2]) - 0.5f, z1 = (float) Math.max(a[2], bb[2]) + 0.5f;
+            float y = (float) Math.max(a[1], bb[1]) + 0.02f;
+            ribbon(b, x0, y, z0, x1, y, z0, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
+            ribbon(b, x1, y, z0, x1, y, z1, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
+            ribbon(b, x1, y, z1, x0, y, z1, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
+            ribbon(b, x0, y, z1, x0, y, z0, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
+        }
+        List<com.farmmacro.route.RoutePoint> pv = editorPreview;
+        if (pv != null) {
+            for (int i = 1; i < pv.size(); i++) {
+                var p0 = pv.get(i - 1); var p1 = pv.get(i);
+                ribbon(b, (float) p0.x, (float) p0.y + 0.03f, (float) p0.z, (float) p1.x, (float) p1.y + 0.03f, (float) p1.z,
+                        cx, cy, cz, 0.04f, C_PREVIEW, 0.75f);
+            }
         }
     }
 
@@ -207,7 +321,7 @@ public final class RouteRenderer {
         if (rec) return C_REC;
         if (actions && (flags & RoutePath.F_ATTACK) != 0) return C_ATTACK;
         if (actions && (flags & RoutePath.F_USE) != 0) return C_USE;
-        return C_AHEAD;
+        return aheadRgb;
     }
 
     private static int dim(int rgb) {
@@ -217,6 +331,18 @@ public final class RouteRenderer {
     }
 
     // ── примитивы ──
+
+    /** Отрезок ленты; со «свечением» — под ним вторая лента в 2.6 раза шире и прозрачнее, и светлая середина. */
+    private static void seg(Builder b, float x0, float y0, float z0, float x1, float y1, float z1,
+                            float cx, float cy, float cz, float w, int rgb, float a) {
+        if (glow) {
+            ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w * 2.6f, rgb, a * 0.22f);
+            ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w, rgb, a);
+            ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w * 0.35f, HatColors.lighten(rgb, 0.6f), Math.min(1f, a + 0.1f));
+        } else {
+            ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w, rgb, a);
+        }
+    }
 
     /** Лента из одного квада, повёрнутого к камере. */
     private static void ribbon(Builder b, float x0, float y0, float z0, float x1, float y1, float z1,

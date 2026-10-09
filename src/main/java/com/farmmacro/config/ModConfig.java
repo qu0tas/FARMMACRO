@@ -143,6 +143,45 @@ public class ModConfig {
     public boolean routeShowActions      = true;
     /** Сдвигать маршрут на смещение точки запуска (как детектор «сход с маршрута»). */
     public boolean routeRelative         = true;
+    /** Цвет ленты впереди (id пресета из visual.HatColors). */
+    public String  routeColor            = "cyan";
+    /** Непрозрачность ленты, 10–100 %. */
+    public int     routeOpacity          = 90;
+    /** Мягкое свечение вокруг ленты (вторая, широкая и прозрачная). */
+    public boolean routeGlow             = true;
+
+    // ── Маршрут по точкам: редактор ──────────────────────────────────────────
+    /** Как далеко редактор ставит/выбирает точки, блоков. */
+    public double  routeEditReach        = 32;
+    /** «Змейка»: шаг между рядами, блоков. */
+    public int     snakeStep             = 3;
+    /** auto | x | z — вдоль какой оси ряды. */
+    public String  snakeAxis             = "auto";
+    /** Действие на ряду и на переходе между рядами: none | attack | use. */
+    public String  snakeRowAction        = "attack";
+    public String  snakeTurnAction       = "none";
+    /** Добавлять «змейку» в конец маршрута (иначе заменить). */
+    public boolean snakeAppend           = false;
+    /** Автоход: скорость поворота камеры к следующей точке, °/с. */
+    public double  routeTurnSpeed        = 180;
+    /** Автоход: точка достигнута в этом радиусе по XZ, блоков. */
+    public double  routeReachRadius      = 0.3;
+
+    // ── Камера: пресеты yaw/pitch ────────────────────────────────────────────
+    public static class CamPreset {
+        /** id культуры из camera.CameraPresets.CROPS (только подпись). */
+        public String crop  = "other";
+        public float  yaw   = 0f;
+        public float  pitch = 0f;
+        public CamPreset() {}
+        public CamPreset(String crop, float yaw, float pitch) { this.crop = crop; this.yaw = yaw; this.pitch = pitch; }
+    }
+    public java.util.List<CamPreset> camPresets = new java.util.ArrayList<>();
+    public int     camSelected           = 0;
+    /** Плавный поворот к пресету (выкл — мгновенно). */
+    public boolean camSmooth             = true;
+    /** Скорость плавного поворота, градусов в секунду. */
+    public double  camTurnSpeed          = 120;
 
     // ── Клавиши по умолчанию (дальше их хранит меню «Управление» Minecraft) ──
     public int keyRecord  = 82;   // R
@@ -174,6 +213,25 @@ public class ModConfig {
         routeArrowSpacing     = clamp(routeArrowSpacing, 1, 32);
         if (!"always".equals(routeMode) && !"playing".equals(routeMode)) routeMode = "always";
         if (!"off".equals(routeSeeThrough) && !"dim".equals(routeSeeThrough) && !"full".equals(routeSeeThrough)) routeSeeThrough = "dim";
+        if (!com.farmmacro.visual.HatColors.isPreset(routeColor)) routeColor = "cyan";
+        routeOpacity          = clamp(routeOpacity, 10, 100);
+        if (camPresets == null) camPresets = new java.util.ArrayList<>();
+        camPresets.removeIf(java.util.Objects::isNull);
+        while (camPresets.size() > 16) camPresets.remove(camPresets.size() - 1);
+        for (CamPreset p : camPresets) {
+            p.yaw = net.minecraft.util.Mth.wrapDegrees(Float.isFinite(p.yaw) ? p.yaw : 0f);
+            p.pitch = clamp(Float.isFinite(p.pitch) ? p.pitch : 0f, -90f, 90f);
+            if (p.crop == null) p.crop = "other";
+        }
+        camSelected           = camPresets.isEmpty() ? 0 : clamp(camSelected, 0, camPresets.size() - 1);
+        camTurnSpeed          = clamp(camTurnSpeed, 20, 1080);
+        routeEditReach        = clamp(routeEditReach, 4, 96);
+        snakeStep             = clamp(snakeStep, 1, 16);
+        routeTurnSpeed        = clamp(routeTurnSpeed, 30, 1080);
+        routeReachRadius      = clamp(routeReachRadius, 0.1, 1.0);
+        if (!"auto".equals(snakeAxis) && !"x".equals(snakeAxis) && !"z".equals(snakeAxis)) snakeAxis = "auto";
+        if (!java.util.List.of("none", "attack", "use").contains(snakeRowAction)) snakeRowAction = "attack";
+        if (!java.util.List.of("none", "attack", "use").contains(snakeTurnAction)) snakeTurnAction = "none";
         hatOpacity            = clamp(hatOpacity, 0, 100);
         hatRadius             = clamp(hatRadius, 0.3, 1.5);
         hatHeight             = clamp(hatHeight, 0.05, 0.8);

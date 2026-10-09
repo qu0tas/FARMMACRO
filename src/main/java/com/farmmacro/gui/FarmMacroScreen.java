@@ -44,6 +44,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private List<Rows.Choice> soundOptions = List.of();
     private List<MacroStorage.MacroInfo> macros = List.of();
+    private List<com.farmmacro.route.RouteStorage.RouteInfo> routes = List.of();
+    private long confirmClearRouteUntil;
     private String confirmDelete;      // имя файла, ожидающего подтверждения удаления
     private long confirmUntil;
 
@@ -78,6 +80,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         if (opts.stream().noneMatch(o -> o.id().equals(cur))) opts.add(new Rows.Choice(cur, PanicSound.label(cur)));
         soundOptions = opts;
         macros = MacroStorage.INSTANCE.listMacros();
+        routes = com.farmmacro.route.RouteStorage.INSTANCE.list();
     }
 
     private void switchTab(int t) {
@@ -250,6 +253,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(toggle("Повторять камеру", "Повороты камеры из записи (выкл — камера как есть)",
                 () -> cfg().replayCamera, v -> cfg().replayCamera = v));
 
+        buildCamera();
+
         rows.add(new Rows.Section("HUD"));
         rows.add(toggle("Панель статуса", "Состояние, прогресс, круги, время сессии",
                 () -> cfg().statsHudEnabled, v -> cfg().statsHudEnabled = v));
@@ -266,6 +271,98 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         }, Ui.ON));
         rows.add(new Rows.Buttons(new Rows.Btn("Сбросить статистику", Rows.Style.SECONDARY,
                 () -> MacroManager.INSTANCE.resetStats()).enabledIf(() -> MacroManager.INSTANCE.getSessionRuns() > 0)));
+    }
+
+    private static final List<Rows.Choice> CROPS = com.farmmacro.camera.CameraPresets.CROPS.stream()
+            .map(c -> new Rows.Choice(c.id(), c.label())).toList();
+
+    private static ModConfig.CamPreset selPreset() { return com.farmmacro.camera.CameraPresets.selected(); }
+
+    /** Пресеты камеры: список, правка выбранного, плавность. */
+    private void buildCamera() {
+        rows.add(new Rows.Section("Камера"));
+        rows.add(new Rows.Note("Пресет — сохранённые yaw и pitch (у каждой культуры свои). "
+                + MacroManager.keyName(FarmMacroMod.keyCamSave) + " — запомнить текущий взгляд в выбранный, "
+                + MacroManager.keyName(FarmMacroMod.keyCamApply) + " — повернуться к нему, "
+                + MacroManager.keyName(FarmMacroMod.keyCamNext) + " — следующий пресет.", Ui.SUB));
+        rows.add(toggle("Плавный поворот", "Камера доворачивается с постоянной скоростью, выкл — мгновенно",
+                () -> cfg().camSmooth, v -> cfg().camSmooth = v));
+        rows.add(number("Скорость поворота", "Градусов в секунду; в конце плавно тормозит", () -> cfg().camTurnSpeed,
+                v -> cfg().camTurnSpeed = v, 20, 1080, 10, 60, v -> (int) v + "°/с").enabledIf(() -> cfg().camSmooth));
+        List<ModConfig.CamPreset> list = cfg().camPresets;
+        for (int i = 0; i < list.size(); i++) rows.add(new CamCard(i));
+        java.util.function.BooleanSupplier has = () -> selPreset() != null;
+        if (!list.isEmpty()) {
+            rows.add(new Rows.Selector("Культура", "Подпись выбранного пресета", () -> CROPS,
+                    () -> selPreset() != null ? selPreset().crop : "other",
+                    v -> { if (selPreset() != null) { selPreset().crop = v; save(); } }).enabledIf(has));
+            rows.add(number("Yaw", "По горизонтали, −180…180 (как в F3)", () -> selPreset() != null ? selPreset().yaw : 0,
+                    v -> { if (selPreset() != null) selPreset().yaw = (float) v; }, -180, 180, 0.5, 15, v -> f1(v) + "°").enabledIf(has));
+            rows.add(number("Pitch", "По вертикали: −90 вверх, 90 вниз", () -> selPreset() != null ? selPreset().pitch : 0,
+                    v -> { if (selPreset() != null) selPreset().pitch = (float) v; }, -90, 90, 0.5, 5, v -> f1(v) + "°").enabledIf(has));
+            rows.add(new Rows.Buttons(
+                    new Rows.Btn("Взять текущий взгляд", Rows.Style.SECONDARY, () -> {
+                        var p = selPreset();
+                        if (p != null && minecraft.player != null) {
+                            p.yaw = net.minecraft.util.Mth.wrapDegrees(minecraft.player.getYRot());
+                            p.pitch = minecraft.player.getXRot();
+                            save();
+                        }
+                    }).enabledIf(has).tip("Записать в выбранный пресет, куда ты сейчас смотришь"),
+                    new Rows.Btn("Yaw ровно по оси", Rows.Style.SECONDARY, () -> {
+                        var p = selPreset();
+                        if (p != null) { p.yaw = net.minecraft.util.Mth.wrapDegrees(Math.round(p.yaw / 45f) * 45f); save(); }
+                    }).enabledIf(has).tip("Округлить yaw до ближайших 45° — чтобы идти ровно вдоль ряда")));
+        }
+        rows.add(new Rows.Buttons(
+                new Rows.Btn("+ Новый из текущего взгляда", Rows.Style.PRIMARY, () -> {
+                    com.farmmacro.camera.CameraPresets.addFromCurrent(minecraft);
+                    buildTab();
+                }).enabledIf(() -> cfg().camPresets.size() < com.farmmacro.camera.CameraPresets.MAX)));
+    }
+
+    /** Карточка пресета камеры: выбрать, повернуться, удалить. */
+    private final class CamCard extends Rows.Row {
+        private final int index;
+        CamCard(int index) { this.index = index; }
+
+        int height(Rows.Ctx c, int w) { return 22; }
+
+        private int[] bx() { int right = lastX + lastW - 6; int del = right - 18, go = del - 4 - 22; return new int[]{go, del}; }
+
+        void render(Rows.Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            if (index >= cfg().camPresets.size()) return;
+            var p = cfg().camPresets.get(index);
+            boolean sel = index == cfg().camSelected;
+            lastX = x; lastW = w;
+            Ui.round(g, x, y, w, 19, 4, sel ? Ui.alpha(Ui.ACCENT, 0.22f) : hover ? Ui.CARD_HOVER : Ui.CARD);
+            if (sel) g.fill(x, y + 3, x + 2, y + 16, Ui.ACCENT);
+            int[] b = bx();
+            Ui.text(g, font, Ui.ellipsize(font, (index + 1) + ". " + com.farmmacro.camera.CameraPresets.describe(p), b[0] - x - 12),
+                    x + 8, y + 6, sel ? Ui.TEXT : Ui.SUB);
+            if (Rows.drawButton(c, g, b[0], y + 2, 22, 15, "◎", Rows.Style.SUCCESS, minecraft.player != null, mx, my))
+                c.tooltip("Повернуть камеру к пресету");
+            if (Rows.drawButton(c, g, b[1], y + 2, 18, 15, "✕", Rows.Style.SECONDARY, true, mx, my)) c.tooltip("Удалить пресет");
+            if (hover && mx >= 0 && mx < b[0]) c.hand();
+        }
+
+        boolean click(Rows.Ctx c, double mx, double my, int button) {
+            if (button != 0 || index >= cfg().camPresets.size()) return false;
+            int[] b = bx();
+            if (Ui.inside(mx, my, b[1], lastY + 2, 18, 15)) {
+                c.clickSound();
+                cfg().camPresets.remove(index);
+                cfg().camSelected = Math.max(0, Math.min(cfg().camSelected, cfg().camPresets.size() - 1));
+                save();
+                buildTab();
+                return true;
+            }
+            c.clickSound();
+            cfg().camSelected = index;
+            save();
+            if (Ui.inside(mx, my, b[0], lastY + 2, 22, 15)) com.farmmacro.camera.CameraPresets.apply(minecraft, index);
+            return true;
+        }
     }
 
     private static final List<Rows.Choice> HAT_STYLES = com.farmmacro.visual.HatColors.STYLES.stream()
@@ -285,6 +382,12 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().routeEnabled, v -> cfg().routeEnabled = v));
         rows.add(new Rows.Selector("Когда", null, () -> ROUTE_MODES, () -> cfg().routeMode,
                 v -> { cfg().routeMode = v; save(); }).enabledIf(ro));
+        rows.add(new Rows.Selector("Цвет ленты", "Цвет участка впереди", () -> HAT_COLORS, () -> cfg().routeColor,
+                v -> { cfg().routeColor = v; save(); }).enabledIf(ro));
+        rows.add(number("Непрозрачность", null, () -> cfg().routeOpacity, v -> cfg().routeOpacity = (int) v,
+                10, 100, 5, 25, v -> (int) v + "%").enabledIf(ro));
+        rows.add(toggle("Свечение", "Светлая середина и мягкий ореол — лента ярче на любом фоне",
+                () -> cfg().routeGlow, v -> cfg().routeGlow = v).enabledIf(ro));
         rows.add(new Rows.Selector("Сквозь стены", "Слегка — видно за блоками, ярко там, где не перекрыто",
                 () -> ROUTE_XRAY, () -> cfg().routeSeeThrough, v -> { cfg().routeSeeThrough = v; save(); }).enabledIf(ro));
         rows.add(number("Толщина", null, () -> cfg().routeWidth, v -> cfg().routeWidth = v,
@@ -337,7 +440,20 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().hatAllPlayers, v -> cfg().hatAllPlayers = v).enabledIf(on));
     }
 
+    private static final List<Rows.Choice> SOURCES = List.of(
+            new Rows.Choice("RECORDING", "Запись"), new Rows.Choice("ROUTE", "Маршрут по точкам"));
+    private static final List<Rows.Choice> AXES = List.of(
+            new Rows.Choice("auto", "Вдоль длинной стороны"), new Rows.Choice("x", "Вдоль X"), new Rows.Choice("z", "Вдоль Z"));
+    private static final List<Rows.Choice> SEG_ACTIONS = List.of(
+            new Rows.Choice("none", "Ничего"), new Rows.Choice("attack", "Держать ЛКМ"), new Rows.Choice("use", "Держать ПКМ"));
+
     private void buildMacros() {
+        MacroManager mm = MacroManager.INSTANCE;
+        rows.add(new Rows.Selector("Клавиша запуска играет", MacroManager.keyName(FarmMacroMod.keyPlay)
+                + " — запись по кадрам или маршрут по точкам", () -> SOURCES, () -> mm.getSourceKind().name(),
+                v -> { if ("ROUTE".equals(v)) mm.useRouteSource(); else mm.useRecordingSource(); })
+                .enabledIf(() -> mm.getState() == MacroManager.State.IDLE));
+
         rows.add(new Rows.Section("Текущий макрос"));
         rows.add(new BufferCard());
         rows.add(new Rows.Section("Сохранённые"));
@@ -350,6 +466,226 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Spacer(2));
         rows.add(new Rows.Buttons(new Rows.Btn("Открыть папку макросов", Rows.Style.SECONDARY,
                 () -> openFolder(MacroStorage.MACRO_DIR))));
+
+        buildRoutes();
+    }
+
+    /** Раздел «Маршруты»: текущий маршрут, настройки редактора/«змейки»/автохода, сохранённые. */
+    private void buildRoutes() {
+        var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+        rows.add(new Rows.Section("Маршрут по точкам"));
+        rows.add(new RouteBufferCard());
+        rows.add(new Rows.Note("Редактор (" + MacroManager.keyName(FarmMacroMod.keyEditor) + "): ЛКМ — точка, зажать — двигать, "
+                + "Shift+ЛКМ — вставить, ПКМ — удалить, Shift+ПКМ — параметры точки, Ctrl+ЛКМ по двум углам — «змейка», Ctrl+Z — отменить.", Ui.SUB));
+        rows.add(number("Pitch маршрута", "Для точек без своего pitch: −90 вверх, 90 вниз", () -> rb.route().pitch,
+                v -> rb.setPitch((float) v), -90, 90, 0.5, 5, v -> f1(v) + "°"));
+        rows.add(new Rows.Buttons(new Rows.Btn("Pitch = текущий взгляд", Rows.Style.SECONDARY, () -> {
+            if (minecraft.player != null) rb.setPitch(minecraft.player.getXRot());
+        })));
+        rows.add(number("Скорость поворота", "Автоход доворачивает к следующей точке не быстрее", () -> cfg().routeTurnSpeed,
+                v -> cfg().routeTurnSpeed = v, 30, 1080, 10, 60, v -> (int) v + "°/с"));
+        rows.add(number("Точка достигнута", "Радиус по горизонтали", () -> cfg().routeReachRadius,
+                v -> cfg().routeReachRadius = v, 0.1, 1.0, 0.05, 0.2, v -> f2(v) + " бл"));
+        rows.add(number("Досягаемость редактора", "Как далеко ставить и выбирать точки", () -> cfg().routeEditReach,
+                v -> cfg().routeEditReach = v, 4, 96, 4, 16, v -> (int) v + " бл"));
+        rows.add(new Rows.Section("«Змейка»"));
+        rows.add(number("Шаг рядов", "Расстояние между соседними рядами", () -> cfg().snakeStep,
+                v -> cfg().snakeStep = (int) v, 1, 16, 1, 4, v -> (int) v + " бл"));
+        rows.add(new Rows.Selector("Направление рядов", null, () -> AXES, () -> cfg().snakeAxis,
+                v -> { cfg().snakeAxis = v; save(); }));
+        rows.add(new Rows.Selector("На ряду", "Что держать, пока идём по ряду", () -> SEG_ACTIONS, () -> cfg().snakeRowAction,
+                v -> { cfg().snakeRowAction = v; save(); }));
+        rows.add(new Rows.Selector("На переходе", "Между рядами", () -> SEG_ACTIONS, () -> cfg().snakeTurnAction,
+                v -> { cfg().snakeTurnAction = v; save(); }));
+        rows.add(toggle("Добавлять в конец", "Выкл — «змейка» заменяет маршрут (Ctrl+Z вернёт)",
+                () -> cfg().snakeAppend, v -> cfg().snakeAppend = v));
+
+        rows.add(new Rows.Section("Сохранённые маршруты"));
+        if (routes.isEmpty()) {
+            rows.add(new Rows.Note("Пока пусто. Построй маршрут в редакторе и нажми «Сохранить».", Ui.SUB));
+        } else {
+            for (var info : routes) rows.add(new RouteCard(info));
+        }
+        rows.add(new Rows.Spacer(2));
+        rows.add(new Rows.Buttons(new Rows.Btn("Открыть папку маршрутов", Rows.Style.SECONDARY,
+                () -> openFolder(com.farmmacro.route.RouteStorage.DIR))));
+    }
+
+    private void saveRoute() {
+        var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+        var store = com.farmmacro.route.RouteStorage.INSTANCE;
+        minecraft.setScreen(new SaveMacroScreen(this, new SaveMacroScreen.Target() {
+            public String title() { return "Сохранить маршрут"; }
+            public String subtitle() { return rb.size() + " точек"; }
+            public String placeholder() { return "Название, например «Морковь, ферма у дома»"; }
+            public boolean exists(String name) { return store.exists(name); }
+            public boolean save(String name) { return store.save(name, rb.route()); }
+            public void saved(String name) { rb.markSaved(name); }
+        }, rb.loadedName()));
+    }
+
+    /** Карточка текущего маршрута. */
+    private final class RouteBufferCard extends Rows.Row {
+        int height(Rows.Ctx c, int w) { return 52; }
+
+        private int bw() { return (lastW - 16 - 12) / 4; }
+
+        void render(Rows.Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+            MacroManager m = MacroManager.INSTANCE;
+            boolean has = !rb.isEmpty();
+            boolean selected = m.getSourceKind() == MacroManager.SourceKind.ROUTE;
+            Ui.round(g, x, y, w, 49, 5, Ui.CARD);
+            g.fill(x, y + 3, x + 2, y + 46, has ? (selected ? Ui.ON : Ui.ACCENT) : Ui.BORDER);
+            String title = !has ? "Пусто" : rb.loadedName() != null ? rb.loadedName() + (rb.isDirty() ? " · изменён" : "")
+                    : "Новый маршрут · не сохранён";
+            String sub;
+            if (!has) sub = "Открой редактор и поставь точки или «змейку»";
+            else {
+                var p0 = rb.get(0);
+                sub = rb.size() + " точек";
+                if (rb.route().dimension != null) sub += " · " + rb.route().dimension.replace("minecraft:", "");
+                if (minecraft.player != null) sub += String.format(Locale.ROOT, " · до точки 1 %.1f бл",
+                        Math.sqrt(minecraft.player.distanceToSqr(p0.x, p0.y, p0.z)));
+                if (selected) sub += " · играет по " + MacroManager.keyName(FarmMacroMod.keyPlay);
+            }
+            Ui.text(g, font, Ui.ellipsize(font, title, w - 16), x + 8, y + 5, Ui.TEXT);
+            Ui.text(g, font, Ui.ellipsize(font, sub, w - 16), x + 8, y + 16, Ui.SUB);
+            int bw = bw(), by = y + 28;
+            boolean idle = m.getState() == MacroManager.State.IDLE;
+            boolean active = m.isRoutePlaying();
+            boolean confirm = System.currentTimeMillis() < confirmClearRouteUntil;
+            Rows.drawButton(c, g, x + 8, by, bw, 16, com.farmmacro.route.RouteEditor.isActive() ? "✎ Закрыть" : "✎ Редактор",
+                    Rows.Style.PRIMARY, idle, mx, my);
+            Rows.drawButton(c, g, x + 12 + bw, by, bw, 16, active ? "■ Стоп" : "▶ Запустить",
+                    active ? Rows.Style.DANGER : Rows.Style.SUCCESS, has && (idle || active), mx, my);
+            Rows.drawButton(c, g, x + 16 + bw * 2, by, bw, 16, "Сохранить", Rows.Style.SECONDARY, has, mx, my);
+            Rows.drawButton(c, g, x + 20 + bw * 3, by, bw, 16, confirm ? "Точно?" : "Очистить",
+                    confirm ? Rows.Style.DANGER : Rows.Style.SECONDARY, has && idle, mx, my);
+        }
+
+        boolean click(Rows.Ctx c, double mx, double my, int button) {
+            if (button != 0) return false;
+            var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+            MacroManager m = MacroManager.INSTANCE;
+            int bw = bw(), by = lastY + 28;
+            boolean has = !rb.isEmpty(), idle = m.getState() == MacroManager.State.IDLE;
+            if (idle && Ui.inside(mx, my, lastX + 8, by, bw, 16)) {
+                c.clickSound();
+                boolean open = !com.farmmacro.route.RouteEditor.isActive();
+                minecraft.setScreen(null);
+                com.farmmacro.route.RouteEditor.setActive(minecraft, open);
+                return true;
+            }
+            if (has && Ui.inside(mx, my, lastX + 12 + bw, by, bw, 16)) {
+                c.clickSound();
+                if (m.isRoutePlaying()) { m.stopPlayback(minecraft, "§e■ Остановлено из меню"); return true; }
+                if (!idle) return true;
+                m.useRouteSource();
+                startMacroAndClose();
+                return true;
+            }
+            if (has && Ui.inside(mx, my, lastX + 16 + bw * 2, by, bw, 16)) {
+                c.clickSound();
+                saveRoute();
+                return true;
+            }
+            if (has && idle && Ui.inside(mx, my, lastX + 20 + bw * 3, by, bw, 16)) {
+                c.clickSound();
+                if (System.currentTimeMillis() < confirmClearRouteUntil) {
+                    rb.clear();
+                    m.useRecordingSource();
+                    confirmClearRouteUntil = 0;
+                } else {
+                    confirmClearRouteUntil = System.currentTimeMillis() + 3000;
+                }
+                return true;
+            }
+            return false;
+        }
+    }
+
+    /** Карточка сохранённого маршрута: ▶, загрузить, удалить с подтверждением. */
+    private final class RouteCard extends Rows.Row {
+        private final com.farmmacro.route.RouteStorage.RouteInfo info;
+        RouteCard(com.farmmacro.route.RouteStorage.RouteInfo info) { this.info = info; }
+
+        int height(Rows.Ctx c, int w) { return 30; }
+
+        private int[] buttonsX() {
+            int right = lastX + lastW - 6;
+            int del = right - 18, load = del - 4 - 62, play = load - 4 - 22;
+            return new int[]{play, load, del};
+        }
+
+        private String key() { return "route:" + info.filename(); }
+
+        void render(Rows.Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+            boolean current = info.name().equals(rb.loadedName());
+            Ui.round(g, x, y, w, 27, 4, hover ? Ui.CARD_HOVER : Ui.CARD);
+            if (current) g.fill(x, y + 3, x + 2, y + 24, Ui.ON);
+            lastX = x; lastW = w;
+            int[] bx = buttonsX();
+            int textW = bx[0] - x - 14;
+            Ui.text(g, font, Ui.ellipsize(font, "⌁ " + info.name(), textW), x + 8, y + 4, current ? Ui.ON : Ui.TEXT);
+            String sub = info.points() + " точек" + (info.dimension() != null ? " · " + info.dimension().replace("minecraft:", "") : "")
+                    + (info.world() != null ? " · " + info.world().replace("singleplayer:", "") : "");
+            Ui.text(g, font, Ui.ellipsize(font, sub, textW), x + 8, y + 15, Ui.SUB);
+            boolean idle = MacroManager.INSTANCE.getState() == MacroManager.State.IDLE;
+            boolean confirming = key().equals(confirmDelete) && System.currentTimeMillis() < confirmUntil;
+            int by = y + 5;
+            if (Rows.drawButton(c, g, bx[0], by, 22, 16, "▶", Rows.Style.SUCCESS, idle, mx, my))
+                c.tooltip("Загрузить и запустить");
+            if (confirming) {
+                Rows.drawButton(c, g, bx[1], by, bx[2] + 18 - bx[1], 16, "Точно удалить?", Rows.Style.DANGER, true, mx, my);
+            } else {
+                Rows.drawButton(c, g, bx[1], by, 62, 16, current ? "Загружен" : "Загрузить", Rows.Style.SECONDARY, idle, mx, my);
+                if (Rows.drawButton(c, g, bx[2], by, 18, 16, "✕", Rows.Style.SECONDARY, true, mx, my))
+                    c.tooltip("Удалить «" + info.name() + "»");
+            }
+        }
+
+        boolean click(Rows.Ctx c, double mx, double my, int button) {
+            if (button != 0) return false;
+            int[] bx = buttonsX();
+            int by = lastY + 5;
+            boolean idle = MacroManager.INSTANCE.getState() == MacroManager.State.IDLE;
+            boolean confirming = key().equals(confirmDelete) && System.currentTimeMillis() < confirmUntil;
+            if (confirming && Ui.inside(mx, my, bx[1], by, bx[2] + 18 - bx[1], 16)) {
+                c.clickSound();
+                com.farmmacro.route.RouteStorage.INSTANCE.delete(info.filename());
+                confirmDelete = null;
+                refreshLists();
+                buildTab();
+                return true;
+            }
+            if (!confirming && Ui.inside(mx, my, bx[2], by, 18, 16)) {
+                c.clickSound();
+                confirmDelete = key();
+                confirmUntil = System.currentTimeMillis() + 3000;
+                return true;
+            }
+            if (idle && (Ui.inside(mx, my, bx[0], by, 22, 16) || (!confirming && Ui.inside(mx, my, bx[1], by, 62, 16)))) {
+                c.clickSound();
+                var r = com.farmmacro.route.RouteStorage.INSTANCE.load(info.filename());
+                if (r == null) {
+                    if (minecraft.player != null)
+                        minecraft.player.sendOverlayMessage(Component.literal("§c[FM] Не удалось прочитать маршрут (подробности в логе)"));
+                    return true;
+                }
+                var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+                if (rb.isDirty() && !rb.isEmpty() && minecraft.player != null)
+                    minecraft.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §6Несохранённый маршрут заменён"));
+                rb.load(info.name(), r);
+                if (minecraft.player != null)
+                    minecraft.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §aЗагружен маршрут «" + info.name() + "»: "
+                            + r.points.size() + " точек"));
+                if (mx < bx[1]) startMacroAndClose();
+                return true;
+            }
+            return false;
+        }
     }
 
     private void openFolder(java.nio.file.Path dir) {
@@ -580,11 +916,13 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         switch (m.getState()) {
             case RECORDING -> { status = "● ЗАПИСЬ " + MacroManager.formatTicks(m.getFrameCount()); col = Ui.DANGER; }
             case COUNTDOWN -> { status = "◷ СТАРТ ЧЕРЕЗ " + ((m.getCountdownTicks() + 19) / 20); col = Ui.WARN; }
-            case PLAYING -> { status = "▶ " + m.getPlaybackIndex() + "/" + m.getFrameCount()
+            case PLAYING -> { status = (m.isRoutePlaying() ? "▶ точка " + (m.getProgress() + 1) : "▶ " + m.getProgress()) + "/" + m.getProgressTotal()
                     + (cfg().loopEnabled ? " · круг " + (m.getLoopsDone() + 1) : ""); col = Ui.ON; }
             default -> {
-                status = m.getFrameCount() > 0 ? "■ ГОТОВ" : "■ НЕТ МАКРОСА";
-                col = m.getFrameCount() > 0 ? Ui.SUB : Ui.DIM;
+                boolean ready = m.getStartPosition() != null;
+                status = ready ? (m.getSourceKind() == MacroManager.SourceKind.ROUTE ? "■ ГОТОВ · МАРШРУТ" : "■ ГОТОВ")
+                        : "■ НЕТ МАКРОСА";
+                col = ready ? Ui.SUB : Ui.DIM;
             }
         }
         // кнопка закрытия

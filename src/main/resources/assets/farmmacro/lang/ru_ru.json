@@ -7,5 +7,9 @@
   "key.farmmacro.resume": "FarmMacro: Возобновить с места остановки",
   "key.farmmacro.resetpos": "FarmMacro: Сбросить сохранённую позицию",
   "subtitles.farmmacro.panic": "FarmMacro: паника",
-  "subtitles.farmmacro.done": "FarmMacro: макрос завершён"
+  "subtitles.farmmacro.done": "FarmMacro: макрос завершён",
+  "key.farmmacro.cam_apply": "FarmMacro: Камера — повернуть к пресету",
+  "key.farmmacro.cam_next": "FarmMacro: Камера — следующий пресет",
+  "key.farmmacro.cam_save": "FarmMacro: Камера — запомнить текущий взгляд",
+  "key.farmmacro.editor": "FarmMacro: Редактор маршрута"
 }

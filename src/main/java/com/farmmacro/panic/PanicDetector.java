@@ -90,12 +90,19 @@ public class PanicDetector {
     /** Макрос сам повернул камеру (replayCamera) — это не «чужой» поворот. */
     public void expectRotation(float yaw, float pitch) { prevYaw = yaw; prevPitch = pitch; }
 
+    /**
+     * Макрос сам довернул камеру на (dYaw, dPitch) — плавный поворот (пресет, автоход).
+     * Учитывается как приращение, а не абсолютное значение: мышь, сдвинутая в тот же кадр, всё равно заметна.
+     */
+    public void expectTurn(float dYaw, float dPitch) { prevYaw += dYaw; prevPitch += dPitch; }
+
     // ── Хуки из миксинов (главный поток) ─────────────────────────────────────
 
     public void onScreenOpening(Screen screen) {
         if (!armed() || !ModConfig.INSTANCE.detectGuiOpen || screen == null) return;
         if (screen instanceof PauseScreen || screen instanceof ChatScreen
-                || screen instanceof FarmMacroScreen || screen instanceof SaveMacroScreen) return;
+                || screen instanceof FarmMacroScreen || screen instanceof SaveMacroScreen
+                || screen instanceof com.farmmacro.gui.PointEditScreen) return;
         flag("Открылось окно: " + screen.getTitle().getString()
                 + " (" + screen.getClass().getSimpleName() + ")");
     }

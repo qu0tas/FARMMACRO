@@ -25,7 +25,17 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
     private static final int MAX_LEN = 48;
 
     private final Screen parent;
-    private final List<MacroFrame> frames;
+    /** Что сохраняем: макрос (кадры) или маршрут по точкам. */
+    public interface Target {
+        String title();
+        String subtitle();
+        String placeholder();
+        boolean exists(String name);
+        boolean save(String name);
+        void saved(String name);
+    }
+
+    private final Target target;
     private String text;
     private int cursor;
     private String status = "";
@@ -36,9 +46,20 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
     public SaveMacroScreen(Screen parent, List<MacroFrame> frames) { this(parent, frames, null); }
 
     public SaveMacroScreen(Screen parent, List<MacroFrame> frames, String defaultName) {
-        super(Component.literal("Сохранить макрос"));
+        this(parent, new Target() {
+            public String title() { return "Сохранить макрос"; }
+            public String subtitle() { return MacroManager.formatTicks(frames.size()) + " · " + frames.size() + " кадров"; }
+            public String placeholder() { return "Название, например «Пшеница 3 этажа»"; }
+            public boolean exists(String name) { return MacroStorage.INSTANCE.exists(name); }
+            public boolean save(String name) { return MacroStorage.INSTANCE.save(name, frames); }
+            public void saved(String name) { MacroManager.INSTANCE.markSaved(name); }
+        }, defaultName);
+    }
+
+    public SaveMacroScreen(Screen parent, Target target, String defaultName) {
+        super(Component.literal(target.title()));
         this.parent = parent;
-        this.frames = frames;
+        this.target = target;
         this.text = defaultName != null ? defaultName : "";
         this.cursor = text.length();
     }
@@ -54,13 +75,13 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
     private void trySave() {
         String name = text.trim();
         if (MacroStorage.sanitize(name).isEmpty()) { setStatus("Введи название", Ui.DANGER); return; }
-        if (MacroStorage.INSTANCE.exists(name) && !name.equals(confirmOverwrite)) {
+        if (target.exists(name) && !name.equals(confirmOverwrite)) {
             confirmOverwrite = name;
             setStatus("Такой уже есть — нажми «Сохранить» ещё раз, чтобы заменить", Ui.WARN);
             return;
         }
-        if (MacroStorage.INSTANCE.save(name, frames)) {
-            MacroManager.INSTANCE.markSaved(name);
+        if (target.save(name)) {
+            target.saved(name);
             if (minecraft.player != null)
                 minecraft.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §aСохранено: «" + name + "»"));
             minecraft.setScreen(parent);
@@ -170,8 +191,8 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
         Ui.shadow(g, x, y, w, h, 8);
         Ui.round(g, x, y, w, h, 8, Ui.WINDOW);
         Ui.circle(g, x + 14, y + 14, 3, Ui.ACCENT);
-        Ui.text(g, font, "Сохранить макрос", x + 22, y + 10, Ui.TEXT);
-        Ui.text(g, font, MacroManager.formatTicks(frames.size()) + " · " + frames.size() + " кадров",
+        Ui.text(g, font, target.title(), x + 22, y + 10, Ui.TEXT);
+        Ui.text(g, font, target.subtitle(),
                 x + 12, y + 24, Ui.SUB);
 
         // поле ввода
@@ -180,7 +201,7 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
         if (Ui.inside(mx, my, x + 10, fy, fw, 18)) wantBeam = true;
         int tx = x + 16;
         if (text.isEmpty()) {
-            Ui.text(g, font, "Название, например «Пшеница 3 этажа»", tx, fy + 5, Ui.DIM);
+            Ui.text(g, font, target.placeholder(), tx, fy + 5, Ui.DIM);
         }
         // если текст длиннее поля — показываем хвост
         String visible = text;

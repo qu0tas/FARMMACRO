@@ -3,6 +3,8 @@
   "package": "com.farmmacro.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "CameraTurnMixin",
+    "EditorInputMixin",
     "PanicGuiMixin",
     "PanicPacketMixin"
   ],

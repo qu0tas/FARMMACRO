@@ -1,6 +1,8 @@
 package com.farmmacro;
 
+import com.farmmacro.camera.CameraPresets;
 import com.farmmacro.config.ModConfig;
+import com.farmmacro.route.RouteEditor;
 import com.farmmacro.gui.FarmMacroScreen;
 import com.farmmacro.hud.FarmHud;
 import com.farmmacro.macro.MacroManager;
@@ -29,7 +31,8 @@ public class FarmMacroMod implements ClientModInitializer {
     private static final KeyMapping.Category CATEGORY =
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("farmmacro", "general"));
 
-    public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos;
+    public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
+            keyCamApply, keyCamNext, keyCamSave, keyEditor;
 
     private static KeyMapping makeKey(String id, int defaultCode) {
         return KeyMappingHelper.registerKeyMapping(new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
@@ -52,6 +55,10 @@ public class FarmMacroMod implements ClientModInitializer {
         keyOpenGui  = makeKey("key.farmmacro.gui",      cfg.keyOpenGui);
         keyResume   = makeKey("key.farmmacro.resume",   79);   // O
         keyResetPos = makeKey("key.farmmacro.resetpos", 269);  // End
+        keyCamApply = makeKey("key.farmmacro.cam_apply", 75);  // K
+        keyCamNext  = makeKey("key.farmmacro.cam_next",  74);  // J
+        keyCamSave  = makeKey("key.farmmacro.cam_save",  72);  // H
+        keyEditor   = makeKey("key.farmmacro.editor",    66);  // B
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
         LOGGER.info("FarmMacro загружен");
@@ -62,6 +69,7 @@ public class FarmMacroMod implements ClientModInitializer {
         Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
+            RouteEditor.tick(mc);            // сам выключится без игрока
             return;
         }
 
@@ -73,6 +81,11 @@ public class FarmMacroMod implements ClientModInitializer {
             macro.clearSavedPosition();
             mc.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §7Точка остановки сброшена"));
         }
+        while (keyEditor.consumeClick())   RouteEditor.toggle(mc);
+        Guard.run("editor/tick", () -> RouteEditor.tick(mc));
+        while (keyCamApply.consumeClick()) CameraPresets.applySelected(mc);
+        while (keyCamNext.consumeClick())  CameraPresets.next(mc);
+        while (keyCamSave.consumeClick())  CameraPresets.saveCurrent(mc);
         while (keyOpenGui.consumeClick()) {
             // меню во время игры макроса — штатная остановка, а не паника
             if (macro.isActive()) macro.stopPlayback(mc, "§e■ Остановлено: открыто меню");

@@ -3,7 +3,6 @@ package com.farmmacro.hud;
 import com.farmmacro.FarmMacroMod;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.gui.Ui;
-import com.farmmacro.macro.MacroFrame;
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.util.Guard;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
@@ -35,6 +34,7 @@ public final class FarmHud {
                 float pt = delta.getGameTimeDeltaPartialTick(true);
                 Target t = target(mc, pt);
                 y = drawStatus(g, mc, y);
+                y = drawEditor(g, mc, y);
                 drawNavigator(g, mc, y, t);
                 drawCrosshairArrow(g, mc, t);
             }
@@ -82,8 +82,14 @@ public final class FarmHud {
         Ui.circle(g, x + 9, y + 8, 2, blink || st != MacroManager.State.RECORDING ? col : Ui.alpha(col, 0.3f));
         Ui.text(g, f, Ui.ellipsize(f, head, PANEL_W - 20), x + 15, y + 4, col);
 
-        String name = m.getLoadedName() != null ? m.getLoadedName()
-                : m.getFrameCount() > 0 ? "несохранённая запись" : "нет макроса";
+        String name;
+        if (m.getSourceKind() == MacroManager.SourceKind.ROUTE && st != MacroManager.State.RECORDING) {
+            var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+            name = "⌁ " + (rb.loadedName() != null ? rb.loadedName() : rb.isEmpty() ? "пустой маршрут" : "маршрут не сохранён");
+        } else {
+            name = m.getLoadedName() != null ? m.getLoadedName()
+                    : m.getFrameCount() > 0 ? "несохранённая запись" : "нет макроса";
+        }
         Ui.text(g, f, Ui.ellipsize(f, name, PANEL_W - 14), x + 8, y + 15, Ui.TEXT);
 
         String line;
@@ -94,7 +100,8 @@ public final class FarmHud {
             Ui.pill(g, bx, by, Math.max(4, bw * pct / 100), 4, Ui.ON);
             long sec = (System.currentTimeMillis() - m.getRunStartMs()) / 1000;
             String loops = c.loopEnabled ? "круг " + (m.getLoopsDone() + 1) + (c.loopLimit > 0 ? "/" + c.loopLimit : "") + " · " : "";
-            line = loops + pct + "% · " + clock(sec);
+            String prog = m.isRoutePlaying() ? "точка " + (m.getProgress() + 1) + "/" + m.getProgressTotal() : pct + "%";
+            line = loops + prog + " · " + clock(sec);
             Ui.text(g, f, Ui.ellipsize(f, line, PANEL_W - 14), x + 8, y + 35, Ui.SUB);
         } else {
             long sec = m.getSessionStartMs() > 0 ? (System.currentTimeMillis() - m.getSessionStartMs()) / 1000 : 0;
@@ -107,12 +114,41 @@ public final class FarmHud {
     }
 
     private static int percent(MacroManager m) {
-        return m.getFrameCount() == 0 ? 0 : Math.min(100, m.getPlaybackIndex() * 100 / m.getFrameCount());
+        int total = m.getProgressTotal();
+        return total == 0 ? 0 : Math.min(100, m.getProgress() * 100 / total);
     }
 
     private static String clock(long sec) {
         return sec >= 3600 ? String.format(Locale.ROOT, "%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60)
                 : String.format(Locale.ROOT, "%d:%02d", sec / 60, sec % 60);
+    }
+
+    // ── Редактор маршрута ────────────────────────────────────────────────────
+
+    private static final String[] EDITOR_HINTS = {
+            "ЛКМ — точка · зажать — двигать", "Shift+ЛКМ — вставить", "ПКМ — удалить",
+            "Shift+ПКМ — параметры", "Ctrl+ЛКМ — углы «змейки»", "Ctrl+Z — отменить"};
+
+    private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        if (!com.farmmacro.route.RouteEditor.isActive()) return y;
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN;
+        var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+        String snake = com.farmmacro.route.SnakeTool.status();
+        int h = 26 + EDITOR_HINTS.length * 10 + (snake != null ? 10 : 0);
+        int col = 0xFFD08CFF;
+        Ui.round(g, x, y, w, h, 5, 0xC8101420);
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        Ui.text(g, f, "РЕДАКТОР · " + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход", x + 8, y + 4, col);
+        int sel = rb.selected();
+        String line = rb.size() + " точек" + (sel >= 0 ? " · выбрана " + (sel + 1) : "")
+                + (rb.isDirty() ? " · не сохранён" : "");
+        Ui.text(g, f, Ui.ellipsize(f, line, w - 14), x + 8, y + 15, Ui.TEXT);
+        int ly = y + 26;
+        if (snake != null) { Ui.text(g, f, Ui.ellipsize(f, snake, w - 14), x + 8, ly, Ui.WARN); ly += 10; }
+        for (String hint : EDITOR_HINTS) { Ui.text(g, f, Ui.ellipsize(f, hint, w - 14), x + 8, ly, Ui.SUB); ly += 10; }
+        return y + h + 4;
     }
 
     // ── Навигатор ────────────────────────────────────────────────────────────
@@ -126,14 +162,14 @@ public final class FarmHud {
         LocalPlayer p = mc.player;
         if (p == null || m.getState() != MacroManager.State.IDLE) return null;
         double tx, ty, tz; String title, hint;
-        if (m.hasSavedPosition()) {
+        if (m.savedMatchesSource()) {
             tx = m.getSavedX(); ty = m.getSavedY(); tz = m.getSavedZ();
             title = "Точка остановки";
             hint = MacroManager.keyName(FarmMacroMod.keyResume) + " — продолжить";
         } else {
-            MacroFrame start = m.getStartFrame();
+            double[] start = m.getStartPosition();
             if (start == null) return null;
-            tx = start.x; ty = start.y; tz = start.z;
+            tx = start[0]; ty = start[1]; tz = start[2];
             title = "Точка старта";
             hint = MacroManager.keyName(FarmMacroMod.keyPlay) + " — запуск";
         }
