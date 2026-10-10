@@ -21,7 +21,8 @@ import java.util.stream.Stream;
 
 /**
  * Именованные макросы: один файл .json на макрос в config/farmmacro_macros/.
- * Формат: {"name":"...","version":4,"createdAt":ms,"frameCount":N,"settings":{...},"frames":[...]}.
+ * Формат: {"name":"...","version":5,"createdAt":ms,"frameCount":N,"settings":{...},"frames":[...]}.
+ * Версия 5 (1.9.0): + {@code settings.human} — «Случайность» (в старых файлах нет — выключено).
  * Версия 4 (1.7.0): все настройки макроса в {@code settings} ({@link MacroSettings}).
  * Версия 3 (1.6.0) хранила привязку камеры в {@code camera} — при чтении переносится в settings.camera.
  * Файлы версий 1 (только name + frames) и 2 (без camera) читаются как раньше, настройки — по умолчанию.
@@ -34,7 +35,7 @@ public class MacroStorage {
     private static final Gson GSON = new GsonBuilder().create();
     public static final Path MACRO_DIR = FabricLoader.getInstance().getConfigDir().resolve("farmmacro_macros");
 
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
 
     public static class SavedMacro {
         public String name;

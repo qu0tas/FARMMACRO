@@ -25,7 +25,8 @@ import java.util.List;
  *
  *  ЛКМ по блоку — точка в центре верхней грани; ЛКМ по точке — выбрать, зажать и вести — передвинуть;
  *  Shift+ЛКМ — вставить в ближайший отрезок; ПКМ по точке — удалить; Shift+ПКМ по точке — параметры;
- *  Ctrl+ЛКМ — угол выделения «змейки» (два угла → маршрут по рядам); Ctrl+Z — отменить.
+ *  Ctrl+ЛКМ — угол выделения «змейки» (два угла → маршрут по рядам); Ctrl+Z — отменить;
+ *  Ctrl+D — «Спуск» у выбранной/наведённой точки (если следующая ниже и по линии есть обрыв — вставить спуск на краю).
  */
 public final class RouteEditor {
     private RouteEditor() {}
@@ -34,7 +35,7 @@ public final class RouteEditor {
     private static int hover = -1;
     private static int dragIndex = -1;
     private static boolean dragMoved;
-    private static boolean undoWasDown, selAllWasDown;
+    private static boolean undoWasDown, selAllWasDown, dropWasDown;
     /** Стрелки: какая была нажата в прошлом тике, сколько тиков держится, когда был последний сдвиг (для Ctrl+Z одним шагом). */
     private static int arrowHeld = -1, arrowTicks;
     private static long lastNudgeMs;
@@ -59,7 +60,7 @@ public final class RouteEditor {
         RouteRenderer.editorHover = -1;
         if (on) {
             MacroManager.INSTANCE.useRouteSource();
-            msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+ЛКМ — «змейка», "
+            msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+ЛКМ — «змейка», Ctrl+D — спуск, "
                     + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход");
         } else {
             RouteBuffer.INSTANCE.select(-1);         // подсветка выбранной точки — только в редакторе
@@ -169,11 +170,66 @@ public final class RouteEditor {
         }
         selAllWasDown = selAll;
 
+        // Ctrl+D — спуск
+        boolean dk = mc.screen == null && mc.hasControlDown()
+                && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_D);
+        if (dk && !dropWasDown) toggleDrop(mc);
+        dropWasDown = dk;
+
         tickArrows(mc);
 
         hover = dragIndex >= 0 ? dragIndex : pickPoint(mc);
         RouteRenderer.editorHover = hover;
         SnakeTool.tick(mc);
+    }
+
+    // ── Спуск ────────────────────────────────────────────────────────────────
+
+    /**
+     * Ctrl+D по выбранной (или наведённой) точке i:
+     *  • уже спуск — снять;
+     *  • следующая точка ниже, а по линии отрезка есть обрыв — вставить точку-спуск на последнем блоке перед краем;
+     *  • иначе — сделать точку i спуском «по ходу» и посчитать глубину по миру.
+     */
+    private static void toggleDrop(Minecraft mc) {
+        RouteBuffer rb = RouteBuffer.INSTANCE;
+        int i = rb.selected() >= 0 ? rb.selected() : hover;
+        RoutePoint p = rb.get(i);
+        if (p == null) { msg(mc, "§7Ctrl+D — по выбранной точке (ЛКМ по точке)"); return; }
+        if (p.drop) {
+            rb.snapshot();
+            p.drop = false; p.dropDepth = 0;
+            rb.changed();
+            msg(mc, "§7Точка " + (i + 1) + ": спуск снят · Ctrl+Z — вернуть");
+            return;
+        }
+        if (mc.level == null) return;
+        TerrainLevel w = new TerrainLevel(mc.level);
+        RoutePoint next = rb.get(i + 1);
+        if (next != null && p.y - next.y > Terrain.FLOOR_GAP) {
+            double[] e = Terrain.edgeOnSegment(w, rb.points(), i);
+            if (e != null && Math.hypot(e[0] - p.centerX(), e[2] - p.centerZ()) > 0.3) {
+                RoutePoint q = p.withPos(e[0], e[1], e[2]);
+                q.pauseTicks = 0; q.jump = false;
+                q.drop = true; q.dropDir = RoutePoint.DIR_AUTO;
+                int idx = rb.insertAt(i + 1, q);
+                if (idx < 0) { msg(mc, "§cНе больше " + RouteBuffer.MAX_POINTS + " точек"); return; }
+                double depth = Terrain.fillDepth(w, rb.points(), idx);
+                rb.changed();
+                msg(mc, "§b↓ Вставлен спуск: точка " + (idx + 1) + depthText(depth) + " §7· Ctrl+Z — отменить");
+                return;
+            }
+        }
+        rb.snapshot();
+        p.drop = true;
+        double depth = Terrain.fillDepth(w, rb.points(), i);
+        rb.changed();
+        msg(mc, "§b↓ Точка " + (i + 1) + ": спуск" + depthText(depth)
+                + (Double.isNaN(depth) ? " §e· по ходу обрыва не видно — Shift+ПКМ → направление спуска" : "") + " §7· Ctrl+Z — отменить");
+    }
+
+    static String depthText(double depth) {
+        return Double.isNaN(depth) ? "" : String.format(java.util.Locale.ROOT, ", вниз %.1f бл%s", depth, depth > 3.01 ? " §c(урон!)§b" : "");
     }
 
     // ── Смещение в блоке стрелками ───────────────────────────────────────────

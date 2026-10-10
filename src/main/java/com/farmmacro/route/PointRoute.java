@@ -9,10 +9,11 @@ import java.util.List;
  * Маршрут по точкам — содержимое файла config/farmmacro_routes/&lt;имя&gt;.json.
  * Версии: 1 — до 1.6.0 (было поле pitch, теперь игнорируется), 2 — привязка камеры {@code camera},
  * 3 (1.7.0) — все настройки в {@code settings} ({@link MacroSettings}); старое {@code camera} переносится при чтении,
- * 4 (1.8.0) — смещение точки в блоке {@code ox/oz} (x/z уже со смещением; в старых файлах 0 — центр).
+ * 4 (1.8.0) — смещение точки в блоке {@code ox/oz} (x/z уже со смещением; в старых файлах 0 — центр),
+ * 5 (1.9.0) — точка-«спуск» ({@code drop, dropDir, landPauseTicks, airHold, dropDepth}; в старых файлах — обычные точки).
  */
 public class PointRoute {
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
 
     public int    version = VERSION;
     public String name;

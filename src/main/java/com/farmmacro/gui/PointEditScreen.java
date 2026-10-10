@@ -28,6 +28,11 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
             new Rows.Choice(RoutePoint.ATTACK, "Держать ЛКМ"),
             new Rows.Choice(RoutePoint.USE, "Держать ПКМ"));
 
+    private static final List<Rows.Choice> DROP_DIRS = List.of(
+            new Rows.Choice(RoutePoint.DIR_AUTO, "По ходу"),
+            new Rows.Choice("+x", "+X (восток)"), new Rows.Choice("-x", "−X (запад)"),
+            new Rows.Choice("+z", "+Z (юг)"), new Rows.Choice("-z", "−Z (север)"));
+
     private final Screen parent;
     private final int index;
     private final List<Rows.Row> rows = new ArrayList<>();
@@ -62,6 +67,16 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
     }
 
     private void changed() { modified = true; RouteBuffer.INSTANCE.changed(); }
+
+    /** Пересчитать глубину спуска по миру (после смены флага/направления/смещения). */
+    private void dropChanged() {
+        RoutePoint p = pt();
+        if (p == null) return;
+        if (p.drop && minecraft != null && minecraft.level != null)
+            com.farmmacro.route.Terrain.fillDepth(new com.farmmacro.route.TerrainLevel(minecraft.level), RouteBuffer.INSTANCE.points(), index);
+        else if (!p.drop) p.dropDepth = 0;
+        changed();
+    }
 
     /** Сколько выделенных точек, кроме этой. */
     private int others(List<Integer> sel) { int n = 0; for (int i : sel) if (i != index) n++; return n; }
@@ -107,6 +122,25 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
                     if (pt() != null) applyOffset(RouteBuffer.INSTANCE.all());
                 }).tip("Это же смещение — всем точкам маршрута")));
         rows.add(new Rows.Note("В редакторе: выбрать точку → стрелки сдвигают в блоке (Shift — мелкий шаг), Alt+ЛКМ — выделить ещё, Ctrl+A — все.", Ui.SUB));
+        rows.add(new Rows.Section("Спуск на этаж ниже"));
+        rows.add(new Rows.Toggle("Спуск", "Дойти до точки, шагнуть за край по направлению спуска, упасть, потом к следующей",
+                () -> pt() != null && pt().drop, v -> { if (pt() != null) { pt().drop = v; dropChanged(); } }));
+        rows.add(new Rows.Selector("Направление", "Куда шагнуть с точки, чтобы упасть", () -> DROP_DIRS,
+                () -> pt() != null ? pt().dropDir : RoutePoint.DIR_AUTO,
+                v -> { if (pt() != null) { pt().dropDir = v; dropChanged(); } }).enabledIf(() -> pt() != null && pt().drop));
+        rows.add(new Rows.Number("Пауза после приземления", null, () -> pt() != null ? pt().landPauseTicks : 0,
+                v -> { if (pt() != null) { pt().landPauseTicks = (int) v; changed(); } }, 0, 1200, 1, 5,
+                v -> v == 0 ? "нет" : (int) v + " т · " + String.format(Locale.ROOT, "%.2f", v / 20) + " с").integer()
+                .enabledIf(() -> pt() != null && pt().drop));
+        rows.add(new Rows.Toggle("В полёте держать клавишу", "Выкл — отпустить, как только оторвался от края (падать почти вертикально)",
+                () -> pt() != null && pt().airHold, v -> { if (pt() != null) { pt().airHold = v; changed(); } })
+                .enabledIf(() -> pt() != null && pt().drop));
+        rows.add(new Rows.Note(() -> {
+            RoutePoint p = pt();
+            if (p == null || !p.drop) return "Ctrl+D в редакторе — сделать точку спуском (или вставить спуск на краю).";
+            return p.dropDepth > 0 ? String.format(Locale.ROOT, "Падение по миру: %.1f бл%s", p.dropDepth, p.dropDepth > 3.01 ? " — будет урон" : "")
+                    : "Обрыв по направлению не найден — выбери направление или сдвинь точку к краю.";
+        }, Ui.SUB));
         rows.add(new Rows.Section("В точке"));
         rows.add(new Rows.Number("Пауза", "Стоять перед следующим отрезком (действие и слот уже включены)",
                 () -> pt() != null ? pt().pauseTicks : 0, v -> { if (pt() != null) { pt().pauseTicks = (int) v; changed(); } },

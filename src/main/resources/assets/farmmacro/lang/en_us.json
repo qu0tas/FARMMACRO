@@ -12,5 +12,6 @@
   "key.farmmacro.cam_next": "FarmMacro: Camera — next preset",
   "key.farmmacro.cam_save": "FarmMacro: Camera — save current view",
   "key.farmmacro.editor": "FarmMacro: Route editor",
-  "key.farmmacro.hold": "FarmMacro: Hold LMB on/off"
+  "key.farmmacro.hold": "FarmMacro: Hold LMB on/off",
+  "key.farmmacro.mouselock": "FarmMacro: Mouse lock on/off"
 }

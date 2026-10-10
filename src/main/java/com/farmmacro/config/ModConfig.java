@@ -47,6 +47,35 @@ public class ModConfig {
     /** На сколько блоков расширяется хитбокс игрока при проверке. */
     public double  blockDetectRadius   = 0.75;
 
+    /**
+     * Любой пакет телепорта/поворота от сервера, даже без сдвига (/tp @s ~ ~ ~, «проверка на реакцию»).
+     * Откат античита («moved too quickly») тоже считается.
+     */
+    public boolean serverMoveAny       = true;
+    /** Сервер толкнул: пакет скорости игрока (отдача, удочка, плагины) или отдача взрыва. */
+    public boolean detectKnockback     = true;
+    /** Минимальная скорость толчка, блоков за тик. */
+    public double  knockbackThreshold  = 0.05;
+    /** Чат: сообщение с твоим ником или словом из списка (свои сообщения не считаются). */
+    public boolean detectChat          = true;
+    public boolean chatMentionName     = true;
+    /** Слова через запятую, без учёта регистра. */
+    public String  chatKeywords        = DEFAULT_KEYWORDS;
+    public static final String DEFAULT_KEYWORDS = "макро, macro, бот, bot, афк, afk, ты тут, ответь, проверка, check, админ";
+    /** Титр/подзаголовок на экране (/title); actionbar — только с ником или словом из списка. */
+    public boolean detectTitle         = true;
+    /** Режим игры, полёт, респавн / смена мира, посадили на сущность. */
+    public boolean detectGameMode      = true;
+    /** Другой игрок подошёл ближе радиуса (невидимый тоже — сущность приходит). */
+    public boolean detectPlayerNear    = true;
+    public double  playerNearRadius    = 12;
+    /** Игрок в списке (Tab) стал наблюдателем: его самого не видно, а смену режима — видно. */
+    public boolean detectSpectator     = true;
+    /** Игрок зашёл / вышел (выход из Tab = часто «ваниш»). */
+    public boolean detectPlayerJoin    = true;
+    /** Предмет в руке сменился или пропал сам (слот тот же; кончились семена/блоки — не считается). */
+    public boolean detectHeldItem      = true;
+
     public boolean detectSlotChange    = true;
     public boolean detectGuiOpen       = true;
     public boolean detectDamage        = true;
@@ -59,6 +88,8 @@ public class ModConfig {
 
     /** Сход с маршрута: траектория отклонилась от записанной больше чем на N блоков. */
     public boolean detectDrift         = false;
+    /** Маршрут по точкам: «Не тот этаж» после спуска, «Нет пути» к точке на другом этаже. */
+    public boolean detectFloor         = true;
     public double  driftThreshold      = 4.0;
 
     // ── Реакция на панику ────────────────────────────────────────────────────
@@ -96,6 +127,18 @@ public class ModConfig {
     public boolean requireStartPoint     = false;
     /** Повторять повороты камеры из записи (иначе камера остаётся как есть). */
     public boolean replayCamera          = false;
+    /** Общий выключатель «Случайности» (у каждого макроса/маршрута своя, в ⚙). */
+    public boolean humanMaster           = true;
+    /** Брать «Случайность» из общих настроек (вкладка «Конфиги»), а не из ⚙ макроса/маршрута. */
+    public boolean humanUseGlobal        = false;
+    /** Общая «Случайность» (вкладка «Конфиги»), сохраняется в профилях. */
+    public com.farmmacro.macro.HumanSettings humanGlobal = new com.farmmacro.macro.HumanSettings();
+    /** Плавный поворот пресета (K): скорость ± N % каждый раз (0 — всегда одинаково). */
+    public int     smoothTurnJitterPct   = 0;
+    /** Включать блокировку мыши при старте макроса (после отсчёта). */
+    public boolean mouseLockOnStart      = false;
+    /** Снимать блокировку мыши и при обычном стопе (паника, End, выход из мира снимают всегда). */
+    public boolean mouseUnlockOnStop     = false;
     /** Мягкий звук, когда макрос закончился сам (лимит/конец записи). */
     public boolean finishSoundEnabled    = true;
 
@@ -177,6 +220,9 @@ public class ModConfig {
     public String  snakeTurnAction       = "none";
     /** Добавлять «змейку» в конец маршрута (иначе заменить). */
     public boolean snakeAppend           = false;
+    /** «Змейка» по этажам: сколько этажей (1 — обычная) и на сколько блоков ниже каждый следующий. */
+    public int     snakeFloors           = 1;
+    public int     snakeFloorStep        = 3;
     /** Автоход: точка достигнута в этом радиусе по XZ, блоков. */
     public double  routeReachRadius      = 0.3;
 
@@ -226,6 +272,11 @@ public class ModConfig {
         blockDetectRadius     = clamp(blockDetectRadius, 0, 8);
         stuckThresholdTicks   = clamp(stuckThresholdTicks, 1, 12000);
         driftThreshold        = clamp(driftThreshold, 0.01, 1024);
+        knockbackThreshold    = clamp(knockbackThreshold, 0.001, 10);
+        playerNearRadius      = clamp(playerNearRadius, 1, 128);
+        if (chatKeywords == null) chatKeywords = "";
+        if (chatKeywords.length() > 1000) chatKeywords = chatKeywords.substring(0, 1000);
+        humanGlobal           = com.farmmacro.macro.HumanSettings.sanitize(humanGlobal);
         panicSoundVolume      = clamp(panicSoundVolume, 0f, 1f);
         panicSoundPitch       = clamp(panicSoundPitch, 0.5f, 2f);
         panicSoundRepeats     = clamp(panicSoundRepeats, 1, 100);
@@ -234,6 +285,7 @@ public class ModConfig {
         loopLimit             = clamp(loopLimit, 0, 1000000);
         timeLimitMinutes      = clamp(timeLimitMinutes, 0, 7 * 24 * 60);
         startCountdownSeconds = clamp(startCountdownSeconds, 0, 600);
+        smoothTurnJitterPct   = clamp(smoothTurnJitterPct, 0, 90);
         startPointWarnDistance = clamp(startPointWarnDistance, 0.01, 1024);
         if (panicSound == null || panicSound.isBlank()) panicSound = "builtin:siren";
         routeWidth            = clamp(routeWidth, 0.005, 1);
@@ -275,6 +327,8 @@ public class ModConfig {
         snakeOffsetX          = clamp(snakeOffsetX, -0.5, 0.5);
         snakeOffsetZ          = clamp(snakeOffsetZ, -0.5, 0.5);
         snakeStep             = clamp(snakeStep, 1, 64);
+        snakeFloors           = clamp(snakeFloors, 1, 64);
+        snakeFloorStep        = clamp(snakeFloorStep, 1, 64);
         routeReachRadius      = clamp(routeReachRadius, 0.01, 2);
         if (!"auto".equals(snakeAxis) && !"x".equals(snakeAxis) && !"z".equals(snakeAxis)) snakeAxis = "auto";
         if (!java.util.List.of("none", "attack", "use").contains(snakeRowAction)) snakeRowAction = "attack";
@@ -295,12 +349,15 @@ public class ModConfig {
         return String.format(java.util.Locale.ROOT,
                 "паника=%s | поворот=%s yaw>%.2f° pitch>%.2f° | сервер=%s сдвиг>=%.2f бл поворот>=%.2f° | "
                         + "блок=%s %.2f бл | слот=%s окно=%s урон=%s эффекты=%s | застрял=%s %d т | сход=%s %.1f бл | "
-                        + "повтор камеры=%s | звук=%s безопасный=%s системный=%s",
+                        + "повтор камеры=%s | звук=%s безопасный=%s системный=%s | любой телепорт=%s толчок=%s %.3f | "
+                        + "чат=%s ник=%s титр=%s режим=%s игрок рядом=%s %.0f бл наблюдатель=%s вход/выход=%s предмет=%s",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
                 detectStuck, stuckThresholdTicks, detectDrift, driftThreshold,
-                replayCamera, panicSound, panicSoundSafe, panicSoundSystem);
+                replayCamera, panicSound, panicSoundSafe, panicSoundSystem, serverMoveAny, detectKnockback, knockbackThreshold,
+                detectChat, chatMentionName, detectTitle, detectGameMode, detectPlayerNear, playerNearRadius,
+                detectSpectator, detectPlayerJoin, detectHeldItem);
     }
 
     private static String colorOrDefault(String id) {

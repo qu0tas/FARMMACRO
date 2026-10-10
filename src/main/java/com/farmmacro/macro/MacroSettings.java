@@ -12,11 +12,14 @@ public class MacroSettings {
     public CameraBinding camera = new CameraBinding();
     /** Зажим мыши: ЛКМ/ПКМ весь проход или по участкам/точкам, задержка старта. */
     public HoldSettings hold = new HoldSettings();
+    /** «Случайность» (v5): каждый проход немного другой. В старых файлах нет — выключено. */
+    public HumanSettings human = new HumanSettings();
 
     public MacroSettings copy() {
         MacroSettings s = new MacroSettings();
         s.camera = camera == null ? new CameraBinding() : camera.copy();
         s.hold = hold == null ? new HoldSettings() : hold.copy();
+        s.human = human == null ? new HumanSettings() : human.copy();
         return s;
     }
 
@@ -26,6 +29,7 @@ public class MacroSettings {
         camera.refresh();
         if (hold == null) hold = new HoldSettings();
         hold.sort();
+        human = HumanSettings.sanitize(human);
     }
 
     /**
@@ -38,6 +42,7 @@ public class MacroSettings {
                 && (s.camera.changes == null || s.camera.changes.isEmpty()))) s.camera = legacyCamera;
         s.camera = CameraBinding.sanitize(s.camera);
         s.hold = HoldSettings.sanitize(s.hold);
+        s.human = HumanSettings.sanitize(s.human);
         return s;
     }
 
@@ -51,6 +56,7 @@ public class MacroSettings {
         if (!hold.active()) sb.append("нет");
         else sb.append(hold.buttonName()).append(HoldSettings.WHOLE.equals(hold.mode) ? " весь проход"
                 : route ? " по точкам" : " на " + hold.ranges.size() + " участк.");
+        if (human != null && human.enabled) sb.append(" · Случайность: вкл");
         return sb.toString();
     }
 }

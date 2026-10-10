@@ -246,18 +246,30 @@ public class MacroManager {
         loopsDone = 0;
         runStartMs = System.currentTimeMillis();
         if (sessionStartMs == 0) sessionStartMs = runStartMs;
-        MouseHold.INSTANCE.begin(source == recordingSource ? settings.hold
-                : com.farmmacro.route.RouteBuffer.INSTANCE.settings().hold, source != recordingSource);
+        MacroSettings ms = source == recordingSource ? settings : com.farmmacro.route.RouteBuffer.INSTANCE.settings();
+        Humanizer human = ModConfig.INSTANCE.humanMaster ? Humanizer.create(ModConfig.INSTANCE.humanUseGlobal ? ModConfig.INSTANCE.humanGlobal : ms.human, runStartMs ^ System.nanoTime()) : null;
+        Humanizer.ACTIVE = human;
+        MouseHold.INSTANCE.begin(human != null ? human.shapeHold(ms.hold) : ms.hold, source != recordingSource);
+        if (human != null) LOGGER.info("Случайность: сид {}", human.seed);
+        PanicDetector.INSTANCE.beginRun();
         startPass(mc, pendingStartIndex);
+        if (ModConfig.INSTANCE.mouseLockOnStart) com.farmmacro.camera.MouseLock.lock(mc, "старт макроса");
         LOGGER.info("Старт ({}), пороги: {}", source == recordingSource ? "запись" : "маршрут",
                 ModConfig.INSTANCE.describeThresholds());
         String what = source == recordingSource ? (pendingStartIndex > 0 ? " с кадра " + pendingStartIndex : "")
                 : " маршрута" + (pendingStartIndex > 0 ? " с точки " + (pendingStartIndex + 1) : "");
-        msg(mc, "§a▶ Воспроизведение" + what + " §7(" + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — стоп)");
+        msg(mc, "§a▶ Воспроизведение" + what + (human != null ? " §d· случайность" : "")
+                + " §7(" + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — стоп)");
     }
 
     private void startPass(Minecraft mc, int index) {
         sessionRuns++;
+        Humanizer human = Humanizer.ACTIVE;
+        if (human != null) {
+            boolean perfect = human.beginLap();
+            LOGGER.debug("Круг {}: {}", human.laps, perfect ? "идеальный" : "со случайностью");
+        }
+        MouseHold.INSTANCE.suspend(false);
         source.startPass(mc, index);
         PanicDetector.INSTANCE.snapshot(mc);
     }
@@ -267,6 +279,7 @@ public class MacroManager {
         if (state != State.PLAYING) return;
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) {          // вышли из мира — без следов
+            Humanizer.ACTIVE = null;
             state = State.IDLE;
             if (source != null) source.stop(mc);
             source = null;
@@ -310,7 +323,12 @@ public class MacroManager {
             return new double[]{f.x, f.y, f.z};
         }
 
+        /** «Случайность» прохода записи (null — выкл). */
+        private Humanizer.RecShaper rs;
+
         public void startPass(Minecraft mc, int index) {
+            Humanizer h = Humanizer.lap();                    // null — выкл или идеальный круг (точно как запись)
+            rs = h != null ? h.recShaper(frames.size()) : null;
             playbackIndex = index;
             passStartIndex = index;
             camTracker.reset();
@@ -347,10 +365,21 @@ public class MacroManager {
             if (settings.camera.active()) {
                 camTracker.update(mc, settings.camera, playbackIndex, "кадр " + (playbackIndex + 1));
             } else if (c.replayCamera) {
-                p.setYRot(f.yaw);
-                p.setXRot(f.pitch);
-                PanicDetector.INSTANCE.expectRotation(f.yaw, f.pitch);
+                float[] nz = rs != null ? rs.camNoise() : new float[]{0, 0};
+                float yaw = f.yaw + nz[0], pitch = Math.max(-90f, Math.min(90f, f.pitch + nz[1]));
+                p.setYRot(yaw);
+                p.setXRot(pitch);
+                PanicDetector.INSTANCE.expectRotation(yaw, pitch);
             }
+            boolean stop = rs != null && rs.stopping();
+            Humanizer hh = Humanizer.ACTIVE;
+            if (hh != null) {
+                hh.stopLeftTicks = stop ? rs.stopLeft() : 0;
+                // «оглядеться»/шум pitch — только если камеру не крутит сама запись
+                if (!(c.replayCamera && !settings.camera.active()))
+                    com.farmmacro.camera.SmoothTurn.look(hh, p, stop ? rs.stopLeft() : 0);
+            }
+            MouseHold.INSTANCE.suspend(stop);
             MouseHold.INSTANCE.position(playbackIndex, false);
             Options o = mc.options;
             press(o.keyUp, f.forward);
@@ -360,11 +389,25 @@ public class MacroManager {
             press(o.keyJump, f.jump);
             press(o.keyShift, f.sneak);
             press(o.keySprint, f.sprint);
-            press(o.keyAttack, f.attackPressed);
-            press(o.keyUse, f.usePressed);
+            press(o.keyAttack, rs != null ? rs.attack(f.attackPressed && !stop) : f.attackPressed);
+            press(o.keyUse, rs != null ? rs.use(f.usePressed && !stop) : f.usePressed);
 
-            playbackIndex++;
+            if (rs == null) { playbackIndex++; return false; }
+            int step = rs.advance(idle(playbackIndex), idle(playbackIndex + 1), playbackIndex);
+            if (step == 2 && playbackIndex + 1 < frames.size()) {   // пропущенный кадр — та же позиция для «застрял»
+                actualX[playbackIndex + 1] = p.getX();
+                actualZ[playbackIndex + 1] = p.getZ();
+            }
+            playbackIndex = Math.min(frames.size(), playbackIndex + step);
             return false;
+        }
+
+        /** Стоячий кадр: позиция как у предыдущего (до 0.005 бл), клавиш движения и прыжка нет. */
+        private boolean idle(int i) {
+            if (i <= 0 || i >= frames.size()) return false;
+            MacroFrame f = frames.get(i), q = frames.get(i - 1);
+            return !f.forward && !f.back && !f.left && !f.right && !f.jump
+                    && Math.abs(f.x - q.x) < 0.005 && Math.abs(f.y - q.y) < 0.005 && Math.abs(f.z - q.z) < 0.005;
         }
     }
 
@@ -424,6 +467,7 @@ public class MacroManager {
 
     /** Аварийная остановка без сообщений и точки возобновления (если обычная остановка упала). */
     public void forceStop(Minecraft mc) {
+        Humanizer.ACTIVE = null;
         state = State.IDLE;
         playbackIndex = 0;
         source = null;
@@ -448,12 +492,14 @@ public class MacroManager {
         boolean wasActive = isActive();
         if (wasActive) stopInternal(mc, false);
         boolean held = MouseHold.INSTANCE.isManual() || MouseHold.INSTANCE.running() != null;
+        boolean wasLocked = com.farmmacro.camera.MouseLock.isLocked();
+        if (wasLocked) com.farmmacro.util.Guard.run("reset/unlock-mouse", () -> com.farmmacro.camera.MouseLock.unlock(mc, "End"));
         clearSavedPosition();
         MouseHold.INSTANCE.stopAll(mc);
         clearTransient();
         navDismissed = true;
         msg(mc, (wasActive ? "§e■ Стоп и сброс" : "§7Сброшено") + "§7: точка остановки, указатели"
-                + (held ? ", зажим мыши" : "") + " · навигатор вернётся при запуске или загрузке");
+                + (held ? ", зажим мыши" : "") + (wasLocked ? ", блокировка мыши" : "") + " · навигатор вернётся при запуске или загрузке");
     }
 
     /** Навигатор (HUD) скрыт клавишей End до следующего запуска/загрузки/записи. */
@@ -480,10 +526,13 @@ public class MacroManager {
         }
         if (source != null) source.stop(mc);
         source = null;
+        Humanizer.ACTIVE = null;
         state = State.IDLE;
         playbackIndex = 0;
         releaseAll(mc);
         clearTransient();
+        if (ModConfig.INSTANCE.mouseUnlockOnStop)
+            com.farmmacro.util.Guard.run("stop/unlock-mouse", () -> com.farmmacro.camera.MouseLock.unlock(mc, "стоп макроса"));
     }
 
     // ── Клавиши ──────────────────────────────────────────────────────────────

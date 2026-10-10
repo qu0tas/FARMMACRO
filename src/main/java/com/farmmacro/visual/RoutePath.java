@@ -16,7 +16,9 @@ import java.util.List;
  */
 public final class RoutePath {
 
-    public static final int F_ATTACK = 1, F_USE = 2;
+    public static final int F_ATTACK = 1, F_USE = 2, F_ISSUE = 4;
+    /** Тип отметки: 0 — прыжок, 1 — приседание, 2 — спуск. */
+    public static final byte M_JUMP = 0, M_SNEAK = 1, M_DROP = 2;
 
     /** Точки ломаной. frame[i] — индекс кадра, flags[i] — ЛКМ/ПКМ на отрезке (i-1 → i). */
     public final float[] x, y, z;
@@ -226,9 +228,18 @@ public final class RoutePath {
      * отметки прыжка/приседания — в точках, где они включены. frame = индекс точки × {@link #FRAME_SCALE}.
      */
     public static RoutePath fromPoints(List<com.farmmacro.route.RoutePoint> pts, double maxSeg, double arrowSpacing) {
+        return fromPoints(pts, maxSeg, arrowSpacing, null);
+    }
+
+    /**
+     * @param issues issues[i] != 0 — с отрезком i → i+1 что-то не так (препятствие, обрыв, нужен спуск): флаг F_ISSUE.
+     * После точки-спуска лента идёт по верхнему этажу за край (0.6 бл по направлению спуска), вниз на высоту падения
+     * и дальше к следующей точке — не сквозь блоки.
+     */
+    public static RoutePath fromPoints(List<com.farmmacro.route.RoutePoint> pts, double maxSeg, double arrowSpacing, byte[] issues) {
         int n = pts.size();
         if (n == 0) return empty();
-        int cap = n * 2 + 16, m = 0;
+        int cap = n * 4 + 16, m = 0;
         float[] px = new float[cap], py = new float[cap], pz = new float[cap];
         int[] pf = new int[cap]; byte[] pfl = new byte[cap];
         for (int i = 0; i < n; i++) {
@@ -236,7 +247,19 @@ public final class RoutePath {
             byte fl = 0;
             if (i > 0) {
                 var prev = pts.get(i - 1);
-                fl = (byte) ((prev.attack() ? F_ATTACK : 0) | (prev.use() ? F_USE : 0));
+                fl = (byte) ((prev.attack() ? F_ATTACK : 0) | (prev.use() ? F_USE : 0)
+                        | (issues != null && i - 1 < issues.length && issues[i - 1] != 0 ? F_ISSUE : 0));
+                if (prev.drop) {
+                    double[] d = com.farmmacro.route.Terrain.dropDir(pts, i - 1);
+                    double depth = prev.dropDepth > 0 ? prev.dropDepth : Math.max(0, prev.y - p.y);
+                    float ex = (float) (prev.x + d[0] * 0.6), ez = (float) (prev.z + d[1] * 0.6);
+                    if (m + 3 >= cap) { cap *= 2; px = Arrays.copyOf(px, cap); py = Arrays.copyOf(py, cap);
+                        pz = Arrays.copyOf(pz, cap); pf = Arrays.copyOf(pf, cap); pfl = Arrays.copyOf(pfl, cap); }
+                    px[m] = ex; py[m] = (float) prev.y; pz[m] = ez; pf[m] = (int) Math.round((i - 1 + 0.02) * FRAME_SCALE); pfl[m] = fl; m++;
+                    if (depth > 0.05) {
+                        px[m] = ex; py[m] = (float) (prev.y - depth); pz[m] = ez; pf[m] = (int) Math.round((i - 1 + 0.05) * FRAME_SCALE); pfl[m] = fl; m++;
+                    }
+                }
                 double dx = p.x - px[m - 1], dy = p.y - py[m - 1], dz = p.z - pz[m - 1];
                 int parts = (int) Math.ceil(Math.sqrt(dx * dx + dy * dy + dz * dz) / maxSeg);
                 int base = m - 1;
@@ -256,12 +279,13 @@ public final class RoutePath {
         }
         Arrows ar = arrows(px, py, pz, pf, m, arrowSpacing);
         int mn = 0;
-        float[] mx = new float[n * 2 + 1], my = new float[n * 2 + 1], mz = new float[n * 2 + 1];
-        byte[] mt = new byte[n * 2 + 1]; int[] mF = new int[n * 2 + 1];
+        float[] mx = new float[n * 3 + 1], my = new float[n * 3 + 1], mz = new float[n * 3 + 1];
+        byte[] mt = new byte[n * 3 + 1]; int[] mF = new int[n * 3 + 1];
         for (int i = 0; i < n; i++) {
             var p = pts.get(i);
             if (p.jump)  { mx[mn] = (float) p.x; my[mn] = (float) p.y; mz[mn] = (float) p.z; mt[mn] = 0; mF[mn] = i * FRAME_SCALE; mn++; }
             if (p.sneak) { mx[mn] = (float) p.x; my[mn] = (float) p.y + 0.12f; mz[mn] = (float) p.z; mt[mn] = 1; mF[mn] = i * FRAME_SCALE; mn++; }
+            if (p.drop)  { mx[mn] = (float) p.x; my[mn] = (float) p.y + 0.24f; mz[mn] = (float) p.z; mt[mn] = M_DROP; mF[mn] = i * FRAME_SCALE; mn++; }
         }
         return new RoutePath(px, py, pz, pf, pfl, m, ar.x, ar.y, ar.z, ar.dx, ar.dz, ar.frame, ar.n, mx, my, mz, mt, mF, mn, n);
     }

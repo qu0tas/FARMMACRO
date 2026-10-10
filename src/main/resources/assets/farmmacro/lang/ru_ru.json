@@ -12,5 +12,6 @@
   "key.farmmacro.cam_next": "FarmMacro: Камера — следующий пресет",
   "key.farmmacro.cam_save": "FarmMacro: Камера — запомнить текущий взгляд",
   "key.farmmacro.editor": "FarmMacro: Редактор маршрута",
-  "key.farmmacro.hold": "FarmMacro: Зажим ЛКМ вкл/выкл"
+  "key.farmmacro.hold": "FarmMacro: Зажим ЛКМ вкл/выкл",
+  "key.farmmacro.mouselock": "FarmMacro: Блокировка мыши вкл/выкл"
 }

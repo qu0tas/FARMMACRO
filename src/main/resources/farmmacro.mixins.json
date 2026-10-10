@@ -5,6 +5,7 @@
   "client": [
     "CameraTurnMixin",
     "EditorInputMixin",
+    "MouseLockMixin",
     "PanicGuiMixin",
     "PanicPacketMixin"
   ],

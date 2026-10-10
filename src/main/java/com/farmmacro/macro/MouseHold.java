@@ -49,7 +49,12 @@ public final class MouseHold {
     // ── от макроса ───────────────────────────────────────────────────────────
 
     /** Начало воспроизведения (после отсчёта). */
+    /** «Случайность»: стоим посреди пути — зажим макроса на это время отпущен. */
+    private boolean suspended;
+    public void suspend(boolean s) { suspended = s; }
+
     public void begin(HoldSettings s, boolean route) {
+        suspended = false;
         run = s == null || !s.active() ? null : s.copy();
         runRoute = route;
         runTicks = 0;
@@ -68,7 +73,7 @@ public final class MouseHold {
 
     private boolean runWants(boolean attack) {
         HoldSettings s = run;
-        return s != null && s.wants(attack, runTicks, runRoute, frame, pointHold);
+        return s != null && !suspended && s.wants(attack, runTicks, runRoute, frame, pointHold);
     }
 
     /** Нужно ли держать эту клавишу (keyAttack / keyUse) сейчас. */

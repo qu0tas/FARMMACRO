@@ -33,7 +33,7 @@ public class FarmMacroMod implements ClientModInitializer {
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("farmmacro", "general"));
 
     public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
-            keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold;
+            keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold, keyMouseLock;
 
     private static KeyMapping makeKey(String id, int defaultCode) {
         return KeyMappingHelper.registerKeyMapping(new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
@@ -61,6 +61,7 @@ public class FarmMacroMod implements ClientModInitializer {
         keyCamSave  = makeKey("key.farmmacro.cam_save",  72);  // H
         keyEditor   = makeKey("key.farmmacro.editor",    66);  // B
         keyHold     = makeKey("key.farmmacro.hold",      76);  // L
+        keyMouseLock = makeKey("key.farmmacro.mouselock", 77); // M
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
         LOGGER.info("FarmMacro загружен");
@@ -72,6 +73,7 @@ public class FarmMacroMod implements ClientModInitializer {
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
             MouseHold.INSTANCE.tick(mc);     // без игрока — выключить зажим
+            com.farmmacro.camera.MouseLock.tick(mc); // без игрока — снять блокировку мыши
             if (macro.getState() == MacroManager.State.IDLE) MacroManager.clearTransient();
             RouteEditor.tick(mc);            // сам выключится без игрока
             return;
@@ -84,6 +86,7 @@ public class FarmMacroMod implements ClientModInitializer {
         while (keyResetPos.consumeClick()) macro.resetAll(mc);   // End — стоп и сброс всего временного
         while (keyEditor.consumeClick())   RouteEditor.toggle(mc);
         while (keyHold.consumeClick())     MouseHold.INSTANCE.toggleManual(mc);
+        while (keyMouseLock.consumeClick()) com.farmmacro.camera.MouseLock.toggle(mc);
         Guard.run("editor/tick", () -> RouteEditor.tick(mc));
         while (keyCamApply.consumeClick()) CameraPresets.applySelected(mc);
         while (keyCamNext.consumeClick())  CameraPresets.next(mc);

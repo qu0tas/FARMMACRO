@@ -24,6 +24,20 @@ public class RoutePoint {
     /** «Зажим мыши: по точкам» в настройках маршрута — держать выбранную кнопку на отрезке от этой точки. */
     public boolean hold;
 
+    // ── «Спуск» (v5): из этой точки упасть на этаж ниже ──
+    public static final String DIR_AUTO = "auto";
+    public static final java.util.List<String> DROP_DIRS = java.util.List.of(DIR_AUTO, "+x", "-x", "+z", "-z");
+    /** Точка-спуск: дойти, шагнуть дальше по {@link #dropDir} до обрыва, упасть, приземлиться, потом к следующей. */
+    public boolean drop;
+    /** auto — по ходу (от предыдущей точки к этой), иначе +x / −x / +z / −z. */
+    public String  dropDir = DIR_AUTO;
+    /** Пауза после приземления, тиков. */
+    public int     landPauseTicks;
+    /** В полёте держать клавишу направления (иначе отпустить — падать почти вертикально). */
+    public boolean airHold;
+    /** Ожидаемая высота падения, блоков (считает редактор по миру; 0 — неизвестно, не проверяется). */
+    public double  dropDepth;
+
     public RoutePoint() {}
 
     public RoutePoint(double x, double y, double z) { this.x = x; this.y = y; this.z = z; }
@@ -33,6 +47,7 @@ public class RoutePoint {
         p.action = action; p.sneak = sneak; p.sprint = sprint; p.jump = jump;
         p.slot = slot; p.pauseTicks = pauseTicks; p.hold = hold;
         p.ox = ox; p.oz = oz;
+        p.drop = drop; p.dropDir = dropDir; p.landPauseTicks = landPauseTicks; p.airHold = airHold; p.dropDepth = dropDepth;
         return p;
     }
 
@@ -81,11 +96,32 @@ public class RoutePoint {
     public boolean attack() { return ATTACK.equals(action); }
     public boolean use()    { return USE.equals(action); }
 
+    /**
+     * Направление спуска (единичный вектор X/Z): ручное или «по ходу» — от prev к этой точке,
+     * если prev нет или совпадает — от этой к next. {0, 0} — не определить.
+     */
+    public double[] dropVector(double prevX, double prevZ, boolean hasPrev, RoutePoint next) {
+        switch (dropDir == null ? DIR_AUTO : dropDir) {
+            case "+x": return new double[]{1, 0};
+            case "-x": return new double[]{-1, 0};
+            case "+z": return new double[]{0, 1};
+            case "-z": return new double[]{0, -1};
+            default: break;
+        }
+        double dx = hasPrev ? x - prevX : 0, dz = hasPrev ? z - prevZ : 0, n = Math.hypot(dx, dz);
+        if (n < 1e-6 && next != null) { dx = next.x - x; dz = next.z - z; n = Math.hypot(dx, dz); }
+        return n < 1e-6 ? new double[]{0, 0} : new double[]{dx / n, dz / n};
+    }
+
     /** Приводит значения к допустимым (ручная правка файла). */
     public void sanitize() {
         if (!NONE.equals(action) && !ATTACK.equals(action) && !USE.equals(action)) action = NONE;
         slot = Math.max(0, Math.min(9, slot));
         pauseTicks = Math.max(0, Math.min(20 * 60, pauseTicks));
+        landPauseTicks = Math.max(0, Math.min(20 * 60, landPauseTicks));
+        if (dropDir == null || !DROP_DIRS.contains(dropDir)) dropDir = DIR_AUTO;
+        if (!Double.isFinite(dropDepth) || dropDepth < 0) dropDepth = 0;
+        dropDepth = Math.min(dropDepth, 384);
         if (!Double.isFinite(ox) || !Double.isFinite(oz) || Math.abs(ox) > OFFSET_MAX || Math.abs(oz) > OFFSET_MAX) {
             double cx = Double.isFinite(ox) ? x - ox : x, cz = Double.isFinite(oz) ? z - oz : z;
             ox = clampOffset(ox); oz = clampOffset(oz);

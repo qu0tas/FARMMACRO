@@ -4,6 +4,7 @@ import com.farmmacro.camera.CameraBinding;
 import com.farmmacro.camera.CameraPresets;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.HoldSettings;
+import com.farmmacro.macro.HumanSettings;
 import com.farmmacro.macro.MacroFrame;
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.macro.MacroSettings;
@@ -94,6 +95,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
         rows.clear();
         buildCamera();
         buildHold();
+        buildHuman();
         rows.add(new Rows.Note(() -> {
             String n = t.note();
             return n == null ? "" : n;
@@ -213,6 +215,26 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
     }
 
     private static String ticks(int t) { return t + " т · " + f1(t / 20.0) + " с"; }
+
+    // ── Случайность ──────────────────────────────────────────────────────────
+
+    private void buildHuman() {
+        HumanSettings h = t.settings().human;
+        rows.add(new Rows.Section("Случайность"));
+        rows.add(new Rows.Note("Каждый проход немного другой: смазанные повороты на углах, разные паузы и задержки, иногда "
+                + "остановки и идеальные круги. Общий выключатель — «Запуск → Случайность». Выкл — проход точно как раньше.", Ui.SUB));
+        rows.add(new Rows.Note(() -> cfg().humanUseGlobal ? "Сейчас включена общая случайность (вкладка «Конфиги») — эти настройки не используются." : "", Ui.WARN));
+        HumanRows.build(rows, h, t.route(), !t.route(), t::editable, this::edit, this::build);
+        rows.add(new Rows.Buttons(
+                new Rows.Btn("Взять общие", Rows.Style.SECONDARY, () -> {
+                    edit(() -> t.settings().human = cfg().humanGlobal.copy());
+                    build();
+                }).enabledIf(t::editable).tip("Скопировать общую случайность из вкладки «Конфиги» сюда"),
+                new Rows.Btn("Сделать общими", Rows.Style.SECONDARY, () -> {
+                    cfg().humanGlobal = t.settings().human.copy();
+                    ModConfig.save();
+                }).tip("Скопировать эти настройки в общую случайность (вкладка «Конфиги»)")));
+    }
 
     private void buildHold() {
         HoldSettings h = t.settings().hold;

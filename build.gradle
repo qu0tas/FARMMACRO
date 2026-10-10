@@ -56,3 +56,16 @@ tasks.register('routeStress', JavaExec) {
 	mainClass = 'com.farmmacro.visual.RouteStress'
 	jvmArgs = ['-Xmx512m', '-Dstdout.encoding=UTF-8']
 }
+
+// Подбор «Случайности» вне игры: ./gradlew configSweep [-Pcandidates=3000 -Plaps=40]. В build не входит.
+tasks.register('configSweep', JavaExec) {
+	group = 'verification'
+	description = 'Случайный поиск настроек «Случайности» на симуляции автохода'
+	classpath = sourceSets.stress.runtimeClasspath
+	mainClass = 'com.farmmacro.macro.ConfigSweep'
+	jvmArgs = ['-Xmx2g', '-Dstdout.encoding=UTF-8',
+	           '-Dcandidates=' + (project.findProperty('candidates') ?: '3000'),
+	           '-Dlaps=' + (project.findProperty('laps') ?: '40'),
+	           '-Drefine=' + (project.findProperty('refine') ?: '40'),
+	           '-Dvlaps=' + (project.findProperty('vlaps') ?: '300')]
+}

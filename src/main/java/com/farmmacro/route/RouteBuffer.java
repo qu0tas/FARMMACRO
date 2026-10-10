@@ -140,7 +140,7 @@ public final class RouteBuffer {
         stamp(mc);
         RoutePoint last = get(size() - 1);
         RoutePoint p = last != null ? last.withPos(x, y, z) : new RoutePoint(x, y, z);
-        if (last != null) { p.pauseTicks = 0; p.jump = false; }
+        if (last != null) { p.pauseTicks = 0; p.jump = false; p.drop = false; p.dropDepth = 0; }
         route.points.add(p);
         marked.clear();
         selected = size() - 1;
@@ -161,12 +161,23 @@ public final class RouteBuffer {
         snapshot();
         RoutePoint a = route.points.get(best);
         RoutePoint p = a.withPos(x, y, z);
-        p.pauseTicks = 0; p.jump = false;
+        p.pauseTicks = 0; p.jump = false; p.drop = false; p.dropDepth = 0;
         route.points.add(best + 1, p);
         marked.clear();
         selected = best + 1;
         changed();
         return selected;
+    }
+
+    /** Вставить готовую точку на место idx (со снимком для Ctrl+Z). @return индекс или -1 */
+    public int insertAt(int idx, RoutePoint p) {
+        if (size() >= MAX_POINTS || idx < 0 || idx > size()) return -1;
+        marked.clear();
+        snapshot();
+        route.points.add(idx, p);
+        selected = idx;
+        changed();
+        return idx;
     }
 
     public void remove(int i) {

@@ -92,14 +92,55 @@ public final class RouteRenderer {
     public static double[] editorCornerA, editorCornerB;
     public static List<com.farmmacro.route.RoutePoint> editorPreview;
 
+    /** Проблемы отрезков (Terrain) — только в редакторе; пересчёт при правке маршрута и раз в секунду (мир меняется). */
+    private static byte[] issues;
+    private static boolean issuesFor;
+    private static long issuesMs;
+    /** Первая проблема маршрута для HUD редактора («Отрезок 3→4: препятствие») или null. */
+    public static String editorIssue;
+    /** Индекс точки, с которой начинается первая проблема (−1 — нет). */
+    public static int editorIssueIndex = -1;
+    /** Сколько отрезков с проблемами. */
+    public static int editorIssueCount;
+
     private static RoutePath pointPath(ModConfig c) {
         RouteBuffer rb = RouteBuffer.INSTANCE;
-        if (rb.revision() != pointKeyRev || c.routeArrowSpacing != pointKeySpacing) {
-            pointPath = RoutePath.fromPoints(rb.points(), 4.0, c.routeArrowSpacing);
+        long now = System.currentTimeMillis();
+        boolean refreshIssues = editorActive && (!issuesFor || now - issuesMs > 1000);
+        if (rb.revision() != pointKeyRev || c.routeArrowSpacing != pointKeySpacing || refreshIssues || (issuesFor && !editorActive)) {
+            if (editorActive) recomputeIssues(rb);
+            else { issues = null; issuesFor = false; editorIssue = null; editorIssueIndex = -1; editorIssueCount = 0; }
+            pointPath = RoutePath.fromPoints(rb.points(), 4.0, c.routeArrowSpacing, issues);
             pointKeyRev = rb.revision();
             pointKeySpacing = c.routeArrowSpacing;
         }
         return pointPath;
+    }
+
+    private static void recomputeIssues(RouteBuffer rb) {
+        Minecraft mc = Minecraft.getInstance();
+        issuesFor = true;
+        issuesMs = System.currentTimeMillis();
+        editorIssue = null; editorIssueIndex = -1; editorIssueCount = 0;
+        var pts = rb.points();
+        if (mc.level == null || pts.size() < 2) { issues = null; return; }
+        var w = new com.farmmacro.route.TerrainLevel(mc.level);
+        byte[] out = new byte[pts.size() - 1];
+        for (int i = 0; i + 1 < pts.size(); i++) {
+            var is = com.farmmacro.route.Terrain.check(w, pts, i);
+            if (is == com.farmmacro.route.Terrain.Issue.OK) continue;
+            out[i] = (byte) (is.ordinal());
+            editorIssueCount++;
+            if (editorIssue == null) { editorIssue = "Отрезок " + (i + 1) + "→" + (i + 2) + ": " + is.text; editorIssueIndex = i; }
+        }
+        issues = out;
+    }
+
+    /** Проблема отрезка i → i+1 (по последнему пересчёту) или OK. */
+    public static com.farmmacro.route.Terrain.Issue issueAt(int i) {
+        byte[] is = issues;
+        if (is == null || i < 0 || i >= is.length) return com.farmmacro.route.Terrain.Issue.OK;
+        return com.farmmacro.route.Terrain.Issue.values()[is[i]];
     }
 
     private static void collect(LevelRenderContext ctx) {
@@ -214,7 +255,7 @@ public final class RouteRenderer {
             previewRgb = 0xB98CFF, cornerRgb = 0xFFB547;
     private static final int C_ATTACK = 0xFFA23A, C_USE = 0xC77DFF;
     private static final int C_START = 0x4DFF88, C_STOP = 0xFF4D4D, C_CUR = 0xFFF6B0;
-    private static final int C_JUMP = 0xFFE14D, C_SNEAK = 0xFF6FCF;
+    private static final int C_JUMP = 0xFFE14D, C_SNEAK = 0xFF6FCF, C_DROP = 0x4DD2FF, C_ISSUE = 0xFF2A2A;
 
     private static void emitAll(Builder b, RoutePath p, ModConfig c, float px, float py, float pz, float r2,
                                 float cx, float cy, float cz, int cur, boolean rec, float w, boolean actions,
@@ -253,14 +294,15 @@ public final class RouteRenderer {
                         passed ? dim(aheadRgb) : arrowRgb, passed ? 0.35f : Math.max(0.5f, opacity));
             }
         }
-        // прыжок / приседание
-        if (actions) {
+        // прыжок / приседание (по настройке действий) и спуск (всегда)
+        {
             for (int i = 0; i < p.marks; i++) {
+                if (!actions && p.mType[i] != RoutePath.M_DROP) continue;
                 float dx = p.mx[i] - px, dz = p.mz[i] - pz;
                 if (dx * dx + dz * dz > r2) continue;
                 boolean passed = cur >= 0 && p.mFrame[i] <= cur;
                 billboard(b, p.mx[i], p.my[i] + 0.12f, p.mz[i], cx, cy, cz, 0.07f,
-                        p.mType[i] == 0 ? C_JUMP : C_SNEAK, passed ? 0.35f : 0.9f);
+                        p.mType[i] == RoutePath.M_JUMP ? C_JUMP : p.mType[i] == RoutePath.M_DROP ? C_DROP : C_SNEAK, passed ? 0.35f : 0.9f);
             }
         }
         // маркеры: старт, точка остановки, текущая позиция
@@ -349,6 +391,7 @@ public final class RouteRenderer {
 
     private static int segColor(byte flags, boolean rec, boolean actions) {
         if (rec) return C_REC;
+        if (editorActive && (flags & RoutePath.F_ISSUE) != 0) return C_ISSUE;
         if (actions && (flags & RoutePath.F_ATTACK) != 0) return C_ATTACK;
         if (actions && (flags & RoutePath.F_USE) != 0) return C_USE;
         return aheadRgb;

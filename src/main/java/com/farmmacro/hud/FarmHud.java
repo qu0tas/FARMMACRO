@@ -36,6 +36,8 @@ public final class FarmHud {
                 y = drawStatus(g, mc, y);
                 y = drawEditor(g, mc, y);
                 y = drawHold(g, mc, y);
+                y = drawMouseLock(g, mc, y);
+                y = drawHuman(g, mc, y);
                 drawNavigator(g, mc, y, t);
                 drawCrosshairArrow(g, mc, t);
             }
@@ -147,7 +149,7 @@ public final class FarmHud {
     private static final String[] EDITOR_HINTS = {
             "ЛКМ — точка · зажать — двигать", "Shift+ЛКМ — вставить", "ПКМ — удалить",
             "Shift+ПКМ — параметры", "Ctrl+ЛКМ — углы «змейки»", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
-            "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+Z — отменить"};
+            "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+D — спуск на этаж ниже", "Ctrl+Z — отменить"};
 
     private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int y) {
         if (!com.farmmacro.route.RouteEditor.isActive()) return y;
@@ -156,7 +158,10 @@ public final class FarmHud {
         int w = PANEL_W + 20, x = sw - w - MARGIN;
         var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
         String snake = com.farmmacro.route.SnakeTool.status();
-        int h = 26 + EDITOR_HINTS.length * 10 + (snake != null ? 10 : 0);
+        String issue = com.farmmacro.visual.RouteRenderer.editorIssue;
+        if (issue != null && com.farmmacro.visual.RouteRenderer.editorIssueCount > 1)
+            issue += " (+" + (com.farmmacro.visual.RouteRenderer.editorIssueCount - 1) + ")";
+        int h = 26 + EDITOR_HINTS.length * 10 + (snake != null ? 10 : 0) + (issue != null ? 10 : 0);
         int col = 0xFFD08CFF;
         Ui.round(g, x, y, w, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
@@ -170,6 +175,7 @@ public final class FarmHud {
         Ui.text(g, f, Ui.ellipsize(f, line, w - 14), x + 8, y + 15, Ui.TEXT);
         int ly = y + 26;
         if (snake != null) { Ui.text(g, f, Ui.ellipsize(f, snake, w - 14), x + 8, ly, Ui.WARN); ly += 10; }
+        if (issue != null) { Ui.text(g, f, Ui.ellipsize(f, "⚠ " + issue, w - 14), x + 8, ly, 0xFFFF5A5A); ly += 10; }
         for (String hint : EDITOR_HINTS) { Ui.text(g, f, Ui.ellipsize(f, hint, w - 14), x + 8, ly, Ui.SUB); ly += 10; }
         return y + h + 4;
     }
@@ -188,6 +194,34 @@ public final class FarmHud {
         int col = 0xFFFFB347;
         String text = "ЗАЖИМ " + (attackNow || manual ? "ЛКМ" : "") + (useNow ? (attackNow || manual ? " + ПКМ" : "ПКМ") : "")
                 + (manual ? " · " + MacroManager.keyName(FarmMacroMod.keyHold) + " — выкл" : " · от макроса");
+        Ui.round(g, x, y, w, h, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
+        return y + h + 4;
+    }
+
+    /** Плашка «СЛУЧАЙНОСТЬ · сид» — пока играет проход со случайностью. */
+    private static int drawHuman(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        var h = com.farmmacro.macro.Humanizer.ACTIVE;
+        if (h == null || !MacroManager.INSTANCE.isPlaying()) return y;
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN, h2 = 15;
+        int col = 0xFFE08CFF;
+        Ui.round(g, x, y, w, h2, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h2 - 3, col);
+        Ui.text(g, f, Ui.ellipsize(f, "СЛУЧАЙНОСТЬ · " + h.status() + " · сид " + h.seed, w - 14), x + 8, y + 4, col);
+        return y + h2 + 4;
+    }
+
+    /** Плашка «МЫШЬ ЗАБЛОК.» — блокировка мыши (клавиша M). */
+    private static int drawMouseLock(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        if (!com.farmmacro.camera.MouseLock.isLocked()) return y;
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
+        int col = 0xFF6EC8FF;
+        String text = "МЫШЬ ЗАБЛОК. · " + MacroManager.keyName(FarmMacroMod.keyMouseLock) + " — снять";
         Ui.round(g, x, y, w, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
         Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);

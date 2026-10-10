@@ -22,6 +22,8 @@ public final class RouteStress {
         com.farmmacro.macro.HoldCheck.main();
         com.farmmacro.gui.NumberInputCheck.main();
         com.farmmacro.route.OffsetCheck.main();
+        com.farmmacro.route.DropCheck.main();
+        com.farmmacro.macro.HumanizerCheck.main();
     }
 
     /** «Змейка» по точкам: проверка рядов и геометрии маршрута по точкам. */

@@ -21,7 +21,10 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Детекторы паники. Паника = аварийный стоп макроса + красный экран + звук. Больше ничего.
@@ -33,6 +36,9 @@ import java.util.Locale;
  *  • {@link #tick} (каждый клиентский тик, пока макрос играет) проверяет мышь, слот, урон
  *    и, если есть причина, вызывает {@link #triggerPanic}.
  *  • Застревание и сход с маршрута проверяет MacroManager (ему нужна запись) и тоже зовёт triggerPanic.
+ *  • v1.10 — то, что видно только по пакетам сервера: любой пакет телепорта (даже без сдвига), взгляд (look at),
+ *    толчок (скорость/взрыв), чат с ником или словом, титры, режим игры/полёт/респавн/посадка, игроки рядом,
+ *    наблюдатель и вход/выход в Tab, слот от сервера, событие урона, предмет в руке сменился сам.
  */
 public class PanicDetector {
 
@@ -50,6 +56,14 @@ public class PanicDetector {
     private boolean moveCaptured;
     private double  mvX, mvY, mvZ;
     private float   mvYaw, mvPitch;
+    private String  mvKind = "телепорта";
+
+    // игроки рядом (null — ещё не запомнили, кто был рядом на старте), предмет в руке, падение со спуска
+    private Set<UUID> nearSeen;
+    private net.minecraft.world.item.Item heldItem;
+    private int     heldSlot = -1;
+    private boolean heldStackable;
+    private int     fallGraceTicks;
 
     private int redScreenTicksLeft;
     private int soundRepeatsLeft;
@@ -82,7 +96,14 @@ public class PanicDetector {
         expectedSlot   = p.getInventory().getSelectedSlot();
         pendingReason  = null;
         moveCaptured   = false;
+        heldSlot       = -1;
     }
+
+    /** Старт запуска (не круга): кто уже рядом — не паника, паника — только кто подойдёт. */
+    public void beginRun() { nearSeen = null; fallGraceTicks = 0; }
+
+    /** Автоход в спуске: урон от падения ещё N тиков не паника (падение — часть маршрута). */
+    public void allowFall(int ticks) { fallGraceTicks = Math.max(fallGraceTicks, ticks); }
 
     /** Макрос сам поставил этот слот — это не «внешняя» смена. */
     public void expectSlot(int slot) { expectedSlot = slot; }
@@ -108,9 +129,12 @@ public class PanicDetector {
                 + " (" + screen.getClass().getSimpleName() + ")");
     }
 
-    public void beforeServerMove() {
+    public void beforeServerMove() { beforeServerMove("телепорта"); }
+
+    public void beforeServerMove(String kind) {
         LocalPlayer p = Minecraft.getInstance().player;
         if (p == null || !armed()) { moveCaptured = false; return; }
+        mvKind = kind;
         mvX = p.getX(); mvY = p.getY(); mvZ = p.getZ();
         mvYaw = p.getYRot(); mvPitch = p.getXRot();
         moveCaptured = true;
@@ -130,6 +154,8 @@ public class PanicDetector {
             flag(String.format(Locale.ROOT, "Сервер телепортировал (%.1f бл)", dist));
         } else if (rot >= c.serverRotateThreshold) {
             flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.3f° ≥ %.3f°)", rot, c.serverRotateThreshold));
+        } else if (c.serverMoveAny) {
+            flag(String.format(Locale.ROOT, "Пакет %s от сервера (сдвиг %.2f бл, поворот %.2f°)", mvKind, dist, rot));
         }
         // Поворот от сервера — не движение мыши: детектор мыши сравнивает с уже повёрнутой камерой,
         // иначе мелкий серверный поворот (ниже порога сервера) засчитывался бы как «Камера повернулась».
@@ -178,6 +204,128 @@ public class PanicDetector {
         }
     }
 
+    // ── v1.10: пакеты, которые видит только клиент (и сервер в логах) ─────────
+
+    private static LocalPlayer player() { return Minecraft.getInstance().player; }
+
+    /** Скорость игрока от сервера: отдача, удочка, плагин «толкнуть». */
+    public void onServerMotion(int entityId, net.minecraft.world.phys.Vec3 mv) {
+        LocalPlayer p = player();
+        if (p == null || entityId != p.getId() || !armed() || !ModConfig.INSTANCE.detectKnockback || mv == null) return;
+        double v = mv.length();
+        if (v >= ModConfig.INSTANCE.knockbackThreshold)
+            flag(String.format(Locale.ROOT, "Сервер толкнул (скорость %.2f бл/т)", v));
+    }
+
+    public void onExplosion(java.util.Optional<net.minecraft.world.phys.Vec3> knockback) {
+        if (!armed() || !ModConfig.INSTANCE.detectKnockback || knockback == null || knockback.isEmpty()) return;
+        double v = knockback.get().length();
+        if (v >= ModConfig.INSTANCE.knockbackThreshold)
+            flag(String.format(Locale.ROOT, "Отдача взрыва (%.2f бл/т)", v));
+    }
+
+    /** Чат: system — сообщение сервера/плагина; sender — автор сообщения игрока (null — неизвестен). */
+    public void onChat(String text, UUID sender, String senderName, boolean overlay) {
+        LocalPlayer p = player();
+        ModConfig c = ModConfig.INSTANCE;
+        if (p == null || text == null || !armed() || !c.detectChat) return;
+        if (sender != null && sender.equals(p.getUUID())) return;           // своё сообщение
+        String hit = ChatMatch.hit(text, p.getGameProfile().name(), c.chatMentionName, c.chatKeywords);
+        if (hit == null) return;
+        flag((overlay ? "Надпись над хотбаром" : "Чат") + " (" + hit + ")" + (senderName != null ? " от " + senderName : "")
+                + ": «" + clip(text, 60) + "»");
+    }
+
+    public void onTitle(String text, boolean subtitle) {
+        if (!armed() || !ModConfig.INSTANCE.detectTitle || text == null || text.isBlank()) return;
+        flag((subtitle ? "Подзаголовок" : "Титр") + " на экране: «" + clip(text, 60) + "»");
+    }
+
+    public void onGameModeChanged(String to) {
+        if (armed() && ModConfig.INSTANCE.detectGameMode) flag("Сервер сменил режим игры" + (to != null ? ": " + to : ""));
+    }
+
+    public void onAbilities(boolean flying, boolean canFly) {
+        LocalPlayer p = player();
+        if (p == null || !armed() || !ModConfig.INSTANCE.detectGameMode) return;
+        var a = p.getAbilities();
+        if (a.flying != flying || a.mayfly != canFly)
+            flag("Сервер сменил полёт (летит: " + yes(flying) + ", может летать: " + yes(canFly) + ")");
+    }
+
+    public void onRespawn() {
+        if (armed() && ModConfig.INSTANCE.detectGameMode) flag("Респавн / смена мира");
+    }
+
+    public void onPassengers(int vehicle, int[] passengers) {
+        LocalPlayer p = player();
+        if (p == null || passengers == null || !armed() || !ModConfig.INSTANCE.detectGameMode) return;
+        for (int id : passengers)
+            if (id == p.getId() && (p.getVehicle() == null || p.getVehicle().getId() != vehicle)) {
+                flag("Посадили на сущность #" + vehicle);
+                return;
+            }
+    }
+
+    public void onServerSlot(int slot) {
+        LocalPlayer p = player();
+        if (p == null || !armed() || !ModConfig.INSTANCE.detectSlotChange) return;
+        int cur = p.getInventory().getSelectedSlot();
+        if (slot != cur) flag("Сервер сменил слот: " + (cur + 1) + " → " + (slot + 1));
+    }
+
+    /** Событие урона (приходит и на урон 0, и при поглощении — здоровье может не измениться). */
+    public void onDamageEvent(int entityId, boolean fall) {
+        LocalPlayer p = player();
+        if (p == null || entityId != p.getId() || !armed() || !ModConfig.INSTANCE.detectDamage) return;
+        if (fall && fallGraceTicks > 0) return;
+        flag(fall ? "Урон от падения" : "Получен урон (событие сервера)");
+    }
+
+    /** Список игроков (Tab): кто стал наблюдателем, кто зашёл. Вызывается до применения — в списке старое состояние. */
+    public void onPlayerInfo(net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket packet) {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        ModConfig c = ModConfig.INSTANCE;
+        if (p == null || mc.getConnection() == null || !armed()) return;
+        var actions = packet.actions();
+        boolean add = actions.contains(net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER);
+        boolean mode = actions.contains(net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket.Action.UPDATE_GAME_MODE);
+        for (var e : packet.entries()) {
+            if (e.profileId() == null || e.profileId().equals(p.getUUID())) continue;
+            var old = mc.getConnection().getPlayerInfo(e.profileId());
+            String name = e.profile() != null ? e.profile().name() : old != null ? old.getProfile().name() : "?";
+            if (add && old == null) {
+                if (c.detectSpectator && mode && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR) {
+                    flag("Зашёл игрок наблюдателем: " + name); return;
+                }
+                if (c.detectPlayerJoin) { flag("Зашёл игрок: " + name); return; }
+            } else if (mode && c.detectSpectator && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR
+                    && old != null && old.getGameMode() != net.minecraft.world.level.GameType.SPECTATOR) {
+                flag("Игрок стал наблюдателем: " + name); return;
+            }
+        }
+    }
+
+    public void onPlayerRemoved(java.util.List<UUID> ids) {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        if (p == null || ids == null || mc.getConnection() == null || !armed() || !ModConfig.INSTANCE.detectPlayerJoin) return;
+        for (UUID id : ids) {
+            if (id.equals(p.getUUID())) continue;
+            var old = mc.getConnection().getPlayerInfo(id);
+            flag("Игрок пропал из списка (вышел или ваниш): " + (old != null ? old.getProfile().name() : id.toString()));
+            return;
+        }
+    }
+
+    private static String yes(boolean b) { return b ? "да" : "нет"; }
+
+    private static String clip(String s, int n) {
+        s = s.replace('\n', ' ').strip();
+        return s.length() <= n ? s : s.substring(0, n - 1) + "…";
+    }
+
     // ── Тик ──────────────────────────────────────────────────────────────────
 
     /** Вызывается каждый тик, пока макрос играет, ДО применения очередного кадра. */
@@ -205,8 +353,43 @@ public class PanicDetector {
             if (real != expectedSlot) reason = "Слот сменился: " + (expectedSlot + 1) + " → " + (real + 1);
         }
 
+        // предмет в руке сменился/пропал сам — слот тот же (смену слота макросом не считаем)
+        var stack = p.getMainHandItem();
+        int sel = p.getInventory().getSelectedSlot();
+        if (reason == null && c.detectHeldItem && sel == heldSlot && heldItem != null) {
+            if (stack.isEmpty()) {
+                if (!heldStackable) reason = "Предмет в руке пропал: " + heldItem.getName(heldItem.getDefaultInstance()).getString();
+            } else if (stack.getItem() != heldItem) {
+                reason = "Предмет в руке сменился: " + heldItem.getName(heldItem.getDefaultInstance()).getString()
+                        + " → " + stack.getHoverName().getString();
+            }
+        }
+        heldSlot = sel;
+        heldItem = stack.isEmpty() ? null : stack.getItem();
+        heldStackable = !stack.isEmpty() && stack.isStackable();
+
+        // игрок подошёл: кто был рядом на старте — не считаем, считаем только новых в радиусе
+        if (mc.level != null) {
+            double r = c.playerNearRadius;
+            Set<UUID> now = new HashSet<>();
+            String who = null;
+            for (var other : mc.level.players()) {
+                if (other == p || other.getUUID().equals(p.getUUID())) continue;
+                double d = other.distanceTo(p);
+                if (d > r) continue;
+                now.add(other.getUUID());
+                if (who == null && nearSeen != null && !nearSeen.contains(other.getUUID()))
+                    who = String.format(Locale.ROOT, "Рядом игрок: %s (%.1f бл)", other.getGameProfile().name(), d);
+            }
+            if (nearSeen == null && !now.isEmpty()) LOGGER.info("Рядом на старте (не паника): {}", now.size());
+            nearSeen = now;
+            if (reason == null && c.detectPlayerNear && who != null) reason = who;
+        }
+
         float hp = p.getHealth();
-        if (reason == null && c.detectDamage && hp < expectedHealth - 0.01f) {
+        boolean fallOk = fallGraceTicks > 0;
+        if (fallGraceTicks > 0) fallGraceTicks--;
+        if (reason == null && c.detectDamage && !fallOk && hp < expectedHealth - 0.01f) {
             reason = String.format(Locale.ROOT, "Получен урон (−%.1f ❤)", (expectedHealth - hp) / 2f);
         }
         expectedHealth = hp;
@@ -247,6 +430,9 @@ public class PanicDetector {
         overlayText = reason;
         lastPanicMs = System.currentTimeMillis();
         pendingReason = null;
+
+        // 0. Мышь — сразу свободна (блокировка мыши), чтобы игрок мог реагировать сам.
+        Guard.run("panic/unlock-mouse", () -> com.farmmacro.camera.MouseLock.unlock(mc, "паника"));
 
         // 1. Остановка — главное. Если обычная остановка упала, отпускаем клавиши аварийно.
         if (!Guard.run("panic/stop", () -> MacroManager.INSTANCE.stopPlayback(mc, "§c⚠ Паника: " + reason)))

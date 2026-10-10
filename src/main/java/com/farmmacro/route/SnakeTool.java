@@ -73,7 +73,30 @@ public final class SnakeTool {
         int hint = Math.max(a[1], b[1]) + 1;
         List<RoutePoint> pts = SnakeBuilder.build(a[0], a[2], b[0], b[2], c.snakeStep, c.snakeAxis, c.snakeRowAction, c.snakeTurnAction,
                 (x, z) -> level == null ? hint : RouteEditor.topOf(level, new BlockPos(x, hint, z)).y);
+        // этажи: следующий этаж ниже на snakeFloorStep, тот же прямоугольник в обратном порядке (начинается там, где упал);
+        // последняя точка этажа — спуск «по ходу» (за край по направлению последнего ряда)
+        if (c.snakeFloors > 1 && !pts.isEmpty()) {
+            List<RoutePoint> floor0 = new java.util.ArrayList<>(pts), all = new java.util.ArrayList<>(pts);
+            for (int k = 1; k < c.snakeFloors; k++) {
+                int hk = hint - k * c.snakeFloorStep;
+                all.get(all.size() - 1).drop = true;
+                for (int j = floor0.size() - 1; j >= 0; j--) {
+                    RoutePoint src = floor0.get(j);
+                    int bx = (int) Math.floor(src.x), bz = (int) Math.floor(src.z);
+                    double y = level == null ? hk : RouteEditor.topOf(level, new BlockPos(bx, hk, bz)).y;
+                    RoutePoint q = new RoutePoint(bx + 0.5, y, bz + 0.5);
+                    // действие отрезка: в обратном порядке отрезок (j → j−1) — тот же, что был (j−1 → j)
+                    q.action = j > 0 ? floor0.get(j - 1).action : RoutePoint.NONE;
+                    all.add(q);
+                }
+            }
+            pts = all;
+        }
         if (c.snakeOffsetX != 0 || c.snakeOffsetZ != 0) for (RoutePoint p : pts) p.setOffset(c.snakeOffsetX, c.snakeOffsetZ);
+        if (level != null) {
+            com.farmmacro.route.TerrainLevel w = new com.farmmacro.route.TerrainLevel(level);
+            for (int i = 0; i < pts.size(); i++) if (pts.get(i).drop) Terrain.fillDepth(w, pts, i);
+        }
         return pts;
     }
 

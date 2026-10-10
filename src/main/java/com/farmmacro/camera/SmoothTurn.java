@@ -37,7 +37,9 @@ public final class SmoothTurn {
         if (!active) lastNs = 0;
         targetYaw = yaw;
         targetPitch = Mth.clamp(pitch, -90f, 90f);
-        speed = degPerSec;
+        int jp = com.farmmacro.config.ModConfig.INSTANCE.smoothTurnJitterPct;
+        speed = jp > 0 && degPerSec > 0
+                ? degPerSec * (1 + java.util.concurrent.ThreadLocalRandom.current().nextDouble(-jp, jp) / 100.0) : degPerSec;
         active = true;
     }
 
@@ -74,6 +76,16 @@ public final class SmoothTurn {
         float k = (float) (step / err);
         apply(p, ey * k, ep * k);
         if (step >= err) active = false;
+    }
+
+    /**
+     * «Случайность → Оглядеться»: шаг {@link com.farmmacro.macro.Humanizer.Look} (на ходу — шум pitch, на остановке —
+     * yaw и pitch) как движение мыши, детектору — как свой поворот. stopLeft — сколько ещё стоять (0 — идём).
+     */
+    public static void look(com.farmmacro.macro.Humanizer h, LocalPlayer p, int stopLeft) {
+        if (h == null || p == null) return;
+        float[] d = h.look.tick(stopLeft, h.lapPerfect());
+        if (d[0] != 0 || d[1] != 0) apply(p, d[0], d[1]);
     }
 
     /** Повернуть как мышь (Entity.turn принимает «сырые» единицы, ×0.15 внутри). */
