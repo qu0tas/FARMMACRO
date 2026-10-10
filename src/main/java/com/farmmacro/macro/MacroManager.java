@@ -64,6 +64,8 @@ public class MacroManager {
     private int    loopsDone;           // завершённых кругов в этом запуске
     private long   runStartMs;
     private int    countdownTicks;
+    /** v1.11: сколько ещё ждать плавного поворота к пресету культуры перед стартом (тиков). */
+    private int    turnWaitTicks;
     private int    pendingStartIndex;
     private PlaybackSource pendingSource;
     // запись по кадрам
@@ -232,12 +234,51 @@ public class MacroManager {
         if (resume) clearSavedPosition();
         pendingStartIndex = index;
         pendingSource = src;
-        if (c.startCountdownSeconds > 0) {
+        boolean turning = applyLaunchCrop(mc, src);
+        turnWaitTicks = turning ? turnWaitFor(mc) : 0;
+        if (c.startCountdownSeconds > 0 || turning) {
             state = State.COUNTDOWN;
             countdownTicks = c.startCountdownSeconds * 20;
         } else {
             beginPlaying(mc);
         }
+    }
+
+    /** Стоп/паника во время поворота к пресету культуры — не доворачивать камеру. */
+    private void cancelLaunchTurn() {
+        if (state == State.COUNTDOWN && turnWaitTicks > 0) com.farmmacro.camera.SmoothTurn.stop();
+        turnWaitTicks = 0;
+    }
+
+    /** Ждать поворота к пресету культуры не меньше 10 с и не больше 2 мин. */
+    private static final int TURN_WAIT_MIN = 200, TURN_WAIT_MAX = 2400;
+
+    /** Сколько тиков ждать поворота: оценка по углу и скорости (с запасом на плавное замедление в конце). */
+    private static int turnWaitFor(Minecraft mc) {
+        ModConfig c = ModConfig.INSTANCE;
+        float left = com.farmmacro.camera.SmoothTurn.remaining(mc.player);
+        if (!c.camSmooth || c.camTurnSpeed <= 0) return TURN_WAIT_MIN;
+        double ticks = left / c.camTurnSpeed * 20 * 1.5 + 40;
+        return (int) Math.max(TURN_WAIT_MIN, Math.min(TURN_WAIT_MAX, Math.ceil(ticks)));
+    }
+
+    /**
+     * v1.11 «Запуск → Культура»: повернуть к пресету культуры (плавно по camSmooth/camTurnSpeed или мгновенно).
+     * Не применяется, если у макроса/маршрута своя привязка камеры или запись играет с «Повторять камеру».
+     * @return true — поворот начат, старт ждёт его окончания
+     */
+    private boolean applyLaunchCrop(Minecraft mc, PlaybackSource src) {
+        ModConfig c = ModConfig.INSTANCE;
+        String crop = c.launchCrop;
+        if (crop == null || com.farmmacro.camera.CropPresets.NONE.equals(crop)) return false;
+        MacroSettings ms = src == recordingSource ? settings : com.farmmacro.route.RouteBuffer.INSTANCE.settings();
+        String label = com.farmmacro.camera.CropPresets.label(crop);
+        if (ms.camera.active()) { msg(mc, "§7Культура " + label + " не применена: у макроса своя привязка камеры (⚙)"); return false; }
+        if (src == recordingSource && c.replayCamera) { msg(mc, "§7Культура " + label + " не применена: включено «Повторять камеру»"); return false; }
+        int idx = com.farmmacro.camera.CameraPresets.indexForCrop(crop);
+        if (idx < 0) { msg(mc, "§6Нет пресета камеры для культуры " + label + " — вкладка «Камера»"); return false; }
+        com.farmmacro.camera.CameraPresets.apply(mc, idx);
+        return true;
     }
 
     private void beginPlaying(Minecraft mc) {
@@ -457,13 +498,21 @@ public class MacroManager {
 
     private void tickCountdown(Minecraft mc) {
         if (mc.player == null) { state = State.IDLE; releaseAll(mc); return; }
-        if (countdownTicks % 20 == 0) {
-            mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_HAT.value(), 1.6f, 0.8f));
+        if (countdownTicks > 0) {
+            if (countdownTicks % 20 == 0) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_HAT.value(), 1.6f, 0.8f));
+            }
+            if (--countdownTicks > 0) return;
         }
-        if (--countdownTicks <= 0) {
-            mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_PLING.value(), 2.0f, 0.8f));
-            beginPlaying(mc);
+        // пресет культуры ещё поворачивается — ждём (не дольше TURN_WAIT_MAX)
+        if (com.farmmacro.camera.SmoothTurn.isActive()) {
+            if (turnWaitTicks-- > 0) return;
+            com.farmmacro.camera.SmoothTurn.stop();      // не дождались — не крутить камеру на ходу
+            msg(mc, "§6Поворот к пресету культуры не закончился — старт с текущей камерой");
         }
+        turnWaitTicks = 0;
+        mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_PLING.value(), 2.0f, 0.8f));
+        beginPlaying(mc);
     }
 
     /** Штатное окончание (конец записи/лимит). keepResume — можно продолжить с этого места. */
@@ -488,6 +537,7 @@ public class MacroManager {
 
     public void forceStop(Minecraft mc) {
         com.farmmacro.panic.EventLog.log("STOP", "аварийная остановка");
+        cancelLaunchTurn();
         Humanizer.ACTIVE = null;
         state = State.IDLE;
         playbackIndex = 0;
@@ -497,13 +547,12 @@ public class MacroManager {
     }
 
     /**
-     * Убрать всё временное: выбранную/наведённую точку, выделение и превью «змейки» (если редактор закрыт).
+     * Убрать всё временное: выбранную/наведённую точку, выделение (если редактор закрыт).
      * Вызывается при стопе, панике, аварийной остановке, End, выходе из мира.
      */
     public static void clearTransient() {
         com.farmmacro.visual.RouteRenderer.editorHover = -1;
         if (!com.farmmacro.route.RouteEditor.isActive()) {
-            com.farmmacro.route.SnakeTool.reset();
             if (com.farmmacro.route.RouteBuffer.INSTANCE.selected() >= 0) com.farmmacro.route.RouteBuffer.INSTANCE.select(-1);
         }
     }
@@ -535,6 +584,7 @@ public class MacroManager {
     }
 
     private void stopInternal(Minecraft mc, boolean keepResume) {
+        cancelLaunchTurn();
         if (keepResume && state == State.PLAYING && source != null && mc.player != null
                 && (source != recordingSource || playbackIndex > 0)) {
             savedIndex = source.resumeIndex();

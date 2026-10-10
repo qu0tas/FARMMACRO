@@ -25,7 +25,8 @@ public class ModConfig {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Config");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("farmmacro.json");
+    /** Путь берётся лениво: класс можно грузить вне игры (проверки routeStress — старые конфиги, пресеты). */
+    private static Path configPath() { return FabricLoader.getInstance().getConfigDir().resolve("farmmacro.json"); }
 
     // ── Детекторы паники (работают только пока макрос играет) ────────────────
     public boolean panicEnabled        = true;
@@ -241,7 +242,6 @@ public class ModConfig {
     public String  routeStartColor       = "default";
     public String  routeStopColor        = "default";
     public String  routeArrowColor       = "default";
-    public String  snakePreviewColor     = "default";
     public String  hudAccentColor        = "default";
     public String  hudBgColor            = "default";
     /** Непрозрачность ленты, 10–100 %. */
@@ -255,40 +255,8 @@ public class ModConfig {
     /** Сдвиг точки в блоке стрелками: шаг и мелкий шаг (с Shift), блоков. */
     public double  routeOffsetStep       = 0.05;
     public double  routeOffsetFineStep   = 0.01;
-    /** «Змейка»: смещение всех точек внутри блока по X/Z при построении (−0.5…0.5). */
-    public double  snakeOffsetX          = 0;
-    public double  snakeOffsetZ          = 0;
-    /** «Змейка»: шаг между рядами, блоков. */
-    public int     snakeStep             = 3;
-    /** auto | x | z — вдоль какой оси ряды. */
-    public String  snakeAxis             = "auto";
-    /** Действие на ряду и на переходе между рядами: none | attack | use. */
-    public String  snakeRowAction        = "attack";
-    public String  snakeTurnAction       = "none";
-    /** Добавлять «змейку» в конец маршрута (иначе заменить). */
-    public boolean snakeAppend           = false;
-    /** «Змейка» по этажам: сколько этажей (1 — обычная) и на сколько блоков ниже каждый следующий. */
-    public int     snakeFloors           = 1;
-    public int     snakeFloorStep        = 3;
     /** Автоход: точка достигнута в этом радиусе по XZ, блоков. */
     public double  routeReachRadius      = 0.3;
-
-    // ── v1.11 «Авто-маршрут» (редактор: Ctrl+Shift+ЛКМ по двум углам). Ось, шаг, действия, «добавлять в конец»
-    //    и смещение — общие со «змейкой» (snakeAxis, snakeStep, snakeRowAction, snakeTurnAction, snakeAppend, snakeOffset*) ──
-    /** Шаг рядов «авто»: по проходам / периоду урожая; выкл — snakeStep. */
-    public boolean autoStepAuto          = true;
-    /** На сколько блоков ниже нижнего угла искать этажи. */
-    public int     autoRouteDepth        = 8;
-    /** Урожай только на: auto | farmland | sand | soul_sand. */
-    public String  autoSurface           = "auto";
-    /** Авто-маршрут: где идти — auto (по культуре) / low (ниже грядок, по воде) / level (на уровне культур). */
-    public String  autoWalk              = "auto";
-    /** Последняя точка ведёт обратно к старту (круги без ручной перестановки). */
-    public boolean autoReturnToStart     = true;
-    /** Пауза на концах рядов, тиков. */
-    public int     autoEndPause          = 0;
-    /** Сканирование: колонок за тик (больше — быстрее, но может подлагивать). */
-    public int     autoRouteColumnsPerTick = 512;
 
     // ── v1.11 меню: простой/расширенный режим и свёрнутые разделы (не входят в профили «Конфиги») ──
     /** Показывать тонкие настройки (пороги, веса, цвета, служебные шаги). */
@@ -302,18 +270,22 @@ public class ModConfig {
         public int    id    = 0;
         /** Имя для списка; пустое — «Пресет N». */
         public String name  = "";
-        /** id культуры из camera.CameraPresets.CROPS (только подпись). */
+        /** id культуры из camera.CropPresets.CROPS (подпись и «Запуск → Культура»). */
         public String crop  = "other";
         public float  yaw   = 0f;
         public float  pitch = 0f;
         public CamPreset() {}
         public CamPreset(String crop, float yaw, float pitch) { this.crop = crop; this.yaw = yaw; this.pitch = pitch; }
     }
-    public static final int CAM_NAME_MAX = 32;
+    public static final int CAM_NAME_MAX = 48;
     public java.util.List<CamPreset> camPresets = new java.util.ArrayList<>();
     public int     camSelected           = 0;
     /** Следующий свободный id пресета. */
     public int     camNextId             = 1;
+    /** v1.11: какие стандартные пресеты культур уже дописаны (camera.CropPresets.DEFAULTS_REV). Не входит в профили. */
+    public int     camDefaultsRev        = 0;
+    /** v1.11 «Запуск → Культура»: id культуры, чей пресет ставится при старте макроса/маршрута; "none" — не ставить. */
+    public String  launchCrop            = "none";
 
     /** Новый пресет с постоянным id (в список не добавляет). */
     public CamPreset newCamPreset(String crop, float yaw, float pitch) {
@@ -382,7 +354,6 @@ public class ModConfig {
         routeStartColor   = colorOrDefault(routeStartColor);
         routeStopColor    = colorOrDefault(routeStopColor);
         routeArrowColor   = colorOrDefault(routeArrowColor);
-        snakePreviewColor = colorOrDefault(snakePreviewColor);
         hudAccentColor    = colorOrDefault(hudAccentColor);
         hudBgColor        = colorOrDefault(hudBgColor);
         routeOpacity          = clamp(routeOpacity, 1, 100);
@@ -395,32 +366,22 @@ public class ModConfig {
         java.util.Set<Integer> ids = new java.util.HashSet<>();
         for (CamPreset p : camPresets) {
             if (p.id <= 0 || !ids.add(p.id)) { p.id = camNextId++; ids.add(p.id); }   // старые пресеты (до 1.6) — без id
-            p.yaw = net.minecraft.util.Mth.wrapDegrees(Float.isFinite(p.yaw) ? p.yaw : 0f);
-            p.pitch = clamp(Float.isFinite(p.pitch) ? p.pitch : 0f, -90f, 90f);
-            if (p.crop == null) p.crop = "other";
+            p.yaw = com.farmmacro.camera.CropPresets.yaw(p.yaw);        // 0.1°, −180…180
+            p.pitch = com.farmmacro.camera.CropPresets.pitch(p.pitch);  // 0.1°, −90…90
+            if (!com.farmmacro.camera.CropPresets.isCrop(p.crop)) p.crop = com.farmmacro.camera.CropPresets.OTHER;   // свёкла, ягоды (до 1.11) → «Другое»
             p.name = p.name == null ? "" : p.name.strip();
             if (p.name.length() > CAM_NAME_MAX) p.name = p.name.substring(0, CAM_NAME_MAX);
             if (p.name.isEmpty()) p.name = "Пресет " + p.id;
         }
         camSelected           = camPresets.isEmpty() ? 0 : clamp(camSelected, 0, camPresets.size() - 1);
         camTurnSpeed          = clamp(camTurnSpeed, 1, 3600);
+        if (!com.farmmacro.camera.CropPresets.NONE.equals(launchCrop) && !com.farmmacro.camera.CropPresets.isCrop(launchCrop)
+                || com.farmmacro.camera.CropPresets.OTHER.equals(launchCrop)) launchCrop = com.farmmacro.camera.CropPresets.NONE;
+        camDefaultsRev        = Math.max(0, camDefaultsRev);
         routeEditReach        = clamp(routeEditReach, 1, 128);
         routeOffsetStep       = clamp(routeOffsetStep, 0.001, 0.5);
         routeOffsetFineStep   = clamp(routeOffsetFineStep, 0.001, 0.5);
-        snakeOffsetX          = clamp(snakeOffsetX, -0.5, 0.5);
-        snakeOffsetZ          = clamp(snakeOffsetZ, -0.5, 0.5);
-        snakeStep             = clamp(snakeStep, 1, 64);
-        snakeFloors           = clamp(snakeFloors, 1, 64);
-        snakeFloorStep        = clamp(snakeFloorStep, 1, 64);
         routeReachRadius      = clamp(routeReachRadius, 0.01, 2);
-        if (!"auto".equals(snakeAxis) && !"x".equals(snakeAxis) && !"z".equals(snakeAxis)) snakeAxis = "auto";
-        if (!java.util.List.of("none", "attack", "use").contains(snakeRowAction)) snakeRowAction = "attack";
-        if (!java.util.List.of("none", "attack", "use").contains(snakeTurnAction)) snakeTurnAction = "none";
-        autoRouteDepth        = clamp(autoRouteDepth, 0, 40);
-        autoEndPause          = clamp(autoEndPause, 0, 200);
-        autoRouteColumnsPerTick = clamp(autoRouteColumnsPerTick, 16, 8192);
-        if (!com.farmmacro.route.AutoRoute.SURFACES.contains(autoSurface)) autoSurface = "auto";
-        if (!com.farmmacro.route.AutoRoute.WALKS.contains(autoWalk)) autoWalk = "auto";
         if (uiSections == null) uiSections = new java.util.LinkedHashMap<>();
         if (uiSections.size() > 200) uiSections.clear();
         hatOpacity            = clamp(hatOpacity, 0, 100);
@@ -443,7 +404,7 @@ public class ModConfig {
                         + "чат=%s ник=%s титр=%s режим=%s игрок рядом=%s %.0f бл наблюдатель=%s вход/выход=%s предмет=%s | "
                         + "синхр=%s %.4f бл %.4f° | параметры=%s %.2f%% | препятствие=%s %.1f бл | скорость=%s %.3f бл/т | "
                         + "подозр=%s %.1f/%.0f с веса %.1f/%.1f/%.1f/%.1f/%.1f/%.1f слова мягко=%s | журнал=%s | "
-                        + "авто-маршрут шаг=%s поверхность=%s идти=%s к старту=%s пауза=%d т глубина=%d",
+                        + "культура=%s пресетов=%d",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
@@ -455,7 +416,7 @@ public class ModConfig {
                 detectObstacle, obstacleRange, detectVelocity, velocityAnomaly,
                 suspicionEnabled, suspicionLimit, suspicionHalfLifeSec, suspWeightSync, suspWeightRollback, suspWeightKnock,
                 suspWeightPlayerFar, suspWeightChatWord, suspWeightActionBar, chatWordsSoft, eventLogEnabled,
-                autoStepAuto ? "авто" : String.valueOf(snakeStep), autoSurface, autoWalk, autoReturnToStart, autoEndPause, autoRouteDepth);
+                launchCrop, camPresets == null ? 0 : camPresets.size());
     }
 
     private static String colorOrDefault(String id) {
@@ -468,8 +429,10 @@ public class ModConfig {
 
     // ── Сохранение / загрузка ─────────────────────────────────────────────────
     public static void load() {
+        final Path CONFIG_PATH = configPath();
         if (!Files.exists(CONFIG_PATH)) {
             INSTANCE = new ModConfig();
+            INSTANCE.ensureCamDefaults();
             save();
             return;
         }
@@ -479,16 +442,40 @@ public class ModConfig {
         } catch (Exception e) {
             LOGGER.error("Не удалось прочитать farmmacro.json, беру настройки по умолчанию", e);
             INSTANCE = new ModConfig();
+            // v1.11: ниже конфиг может пересохраниться (стандартные пресеты) — сначала сохранить битый файл рядом
+            try {
+                Path bak = CONFIG_PATH.resolveSibling("farmmacro.json.broken");
+                Files.copy(CONFIG_PATH, bak, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.warn("Битый конфиг сохранён как {}", bak);
+            } catch (Exception e2) {
+                LOGGER.error("Не удалось сохранить копию битого конфига", e2);
+            }
         }
         float yaw0 = INSTANCE.yawThreshold, pitch0 = INSTANCE.pitchThreshold;
         INSTANCE.sanitize();
         if (yaw0 != INSTANCE.yawThreshold || pitch0 != INSTANCE.pitchThreshold)
             LOGGER.warn("Пороги поворота в {} были вне диапазона ({} / {}), исправлены", CONFIG_PATH, yaw0, pitch0);
+        if (INSTANCE.ensureCamDefaults()) {
+            save();
+            LOGGER.info("Пресеты камеры: дописаны стандартные пресеты культур, всего {}", INSTANCE.camPresets.size());
+        }
         LOGGER.info("Конфиг {} загружен: {}", CONFIG_PATH, INSTANCE.describeThresholds());
+    }
+
+    /**
+     * v1.11: пусто → 7 стандартных пресетов культур; свои есть, а набор ещё не дописывался — дописать без дублей по имени.
+     * @return true — список или ревизия изменились (нужно сохранить)
+     */
+    public boolean ensureCamDefaults() {
+        int before = camPresets.size(), rev0 = camDefaultsRev;
+        camDefaultsRev = com.farmmacro.camera.CropPresets.ensureDefaults(camPresets, camDefaultsRev,
+                com.farmmacro.camera.CameraPresets.MAX, () -> camNextId++);
+        return camPresets.size() != before || camDefaultsRev != rev0;
     }
 
     /** Пишет во временный файл и атомарно подменяет — конфиг не побьётся при вылете игры. */
     public static void save() {
+        final Path CONFIG_PATH = configPath();
         try {
             Path tmp = CONFIG_PATH.resolveSibling("farmmacro.json.tmp");
             try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {

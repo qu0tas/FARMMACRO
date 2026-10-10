@@ -88,9 +88,6 @@ public final class RouteRenderer {
     /** Что показывает редактор (ставит route.RouteEditor каждый тик). */
     public static int editorHover = -1;
     public static boolean editorActive;
-    /** Углы выделения «змейки» (мир) и превью точек; null — нет. */
-    public static double[] editorCornerA, editorCornerB;
-    public static List<com.farmmacro.route.RoutePoint> editorPreview;
 
     /** Проблемы отрезков (Terrain) — только в редакторе; пересчёт при правке маршрута и раз в секунду (мир меняется). */
     private static byte[] issues;
@@ -191,8 +188,6 @@ public final class RouteRenderer {
         startRgb = HatColors.rgbOr(c.routeStartColor, C_START);
         stopRgb = HatColors.rgbOr(c.routeStopColor, C_STOP);
         arrowRgb = HatColors.rgbOr(c.routeArrowColor, 0xFFFFFF);
-        previewRgb = HatColors.rgbOr(c.snakePreviewColor, C_PREVIEW);
-        cornerRgb = HatColors.rgbOr(c.snakePreviewColor, C_CORNER);
         opacity = c.routeOpacity / 100f;
         glow = c.routeGlow;
         long ms = System.currentTimeMillis();
@@ -251,8 +246,7 @@ public final class RouteRenderer {
     private static float opacity = 0.9f;
     private static boolean glow = true;
     /** Цвета из настроек «Визуал» (по умолчанию — константы ниже). */
-    private static int pointRgb = 0xD8F4FF, startRgb = 0x4DFF88, stopRgb = 0xFF4D4D, arrowRgb = 0xFFFFFF,
-            previewRgb = 0xB98CFF, cornerRgb = 0xFFB547;
+    private static int pointRgb = 0xD8F4FF, startRgb = 0x4DFF88, stopRgb = 0xFF4D4D, arrowRgb = 0xFFFFFF;
     private static final int C_ATTACK = 0xFFA23A, C_USE = 0xC77DFF;
     private static final int C_START = 0x4DFF88, C_STOP = 0xFF4D4D, C_CUR = 0xFFF6B0;
     private static final int C_JUMP = 0xFFE14D, C_SNEAK = 0xFF6FCF, C_DROP = 0x4DD2FF, C_ISSUE = 0xFF2A2A;
@@ -326,9 +320,8 @@ public final class RouteRenderer {
     }
 
     private static final int C_POINT = 0xD8F4FF, C_SEL = 0xFFE14D, C_HOVER = 0xFFFFFF, C_TARGET = 0xFFF6B0;
-    private static final int C_CORNER = 0xFFB547, C_PREVIEW = 0xB98CFF;
 
-    /** Точки маршрута, выбранная/наведённая, цель автохода, углы выделения и превью «змейки». */
+    /** Точки маршрута, выбранная/наведённая, цель автохода. */
     private static void emitPoints(Builder b, ModConfig c, float px, float pz, float r2,
                                    float cx, float cy, float cz, int cur, float pulse) {
         List<com.farmmacro.route.RoutePoint> pts = RouteBuffer.INSTANCE.points();
@@ -365,26 +358,6 @@ public final class RouteRenderer {
                 float ccx = (float) q.centerX(), ccz = (float) q.centerZ();
                 ribbon(b, ccx, y, ccz, x, y, z, cx, cy, cz, 0.012f, 0x9AA4B5, 0.7f);
                 billboard(b, ccx, y + 0.02f, ccz, cx, cy, cz, 0.035f, 0x9AA4B5, 0.7f);
-            }
-        }
-        double[] a = editorActive ? editorCornerA : null, bb = editorActive ? editorCornerB : null;
-        if (a != null) beacon(b, (float) a[0], (float) a[1], (float) a[2], cx, cy, cz, cornerRgb, 0.9f);
-        if (bb != null) beacon(b, (float) bb[0], (float) bb[1], (float) bb[2], cx, cy, cz, cornerRgb, 0.9f);
-        if (a != null && bb != null) {
-            float x0 = (float) Math.min(a[0], bb[0]) - 0.5f, x1 = (float) Math.max(a[0], bb[0]) + 0.5f;
-            float z0 = (float) Math.min(a[2], bb[2]) - 0.5f, z1 = (float) Math.max(a[2], bb[2]) + 0.5f;
-            float y = (float) Math.max(a[1], bb[1]) + 0.02f;
-            ribbon(b, x0, y, z0, x1, y, z0, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
-            ribbon(b, x1, y, z0, x1, y, z1, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
-            ribbon(b, x1, y, z1, x0, y, z1, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
-            ribbon(b, x0, y, z1, x0, y, z0, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
-        }
-        List<com.farmmacro.route.RoutePoint> pv = editorActive ? editorPreview : null;
-        if (pv != null) {
-            for (int i = 1; i < pv.size(); i++) {
-                var p0 = pv.get(i - 1); var p1 = pv.get(i);
-                ribbon(b, (float) p0.x, (float) p0.y + 0.03f, (float) p0.z, (float) p1.x, (float) p1.y + 0.03f, (float) p1.z,
-                        cx, cy, cz, 0.04f, previewRgb, 0.75f);
             }
         }
     }

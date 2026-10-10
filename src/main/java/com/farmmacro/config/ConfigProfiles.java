@@ -98,6 +98,7 @@ public final class ConfigProfiles {
         loaded.camPresets = cur.camPresets;
         loaded.camSelected = cur.camSelected;
         loaded.camNextId = cur.camNextId;
+        loaded.camDefaultsRev = cur.camDefaultsRev;
         loaded.uiAdvanced = cur.uiAdvanced; loaded.uiSections = cur.uiSections;    // вид меню — не часть профиля
         loaded.keyRecord = cur.keyRecord; loaded.keyPlay = cur.keyPlay; loaded.keyClear = cur.keyClear; loaded.keyOpenGui = cur.keyOpenGui;
         loaded.sanitize();

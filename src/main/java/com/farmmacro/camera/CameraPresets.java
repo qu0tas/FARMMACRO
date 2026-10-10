@@ -12,7 +12,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Пресеты камеры: имя, yaw/pitch с любой точностью и подпись культуры; панель — вкладка «Камера» меню.
+ * Пресеты камеры: имя, yaw/pitch (точность 0.1°) и культура; панель — вкладка «Камера» меню.
+ * v1.11: стандартные пресеты под культуры и миграция — {@link CropPresets}.
  * Применение по клавише/кнопке работает в любой момент, кроме воспроизведения записи с «Повторять камеру».
  * Поворот к пресету — {@link SmoothTurn} (плавно с настраиваемой скоростью или мгновенно), без случайности.
  */
@@ -21,22 +22,22 @@ public final class CameraPresets {
 
     public static final int MAX = 16;
 
-    public record Crop(String id, String label) {}
+    public static final List<CropPresets.Crop> CROPS = CropPresets.CROPS;
 
-    public static final List<Crop> CROPS = List.of(
-            new Crop("wheat", "Пшеница"), new Crop("carrot", "Морковь"), new Crop("potato", "Картофель"),
-            new Crop("beetroot", "Свёкла"), new Crop("melon", "Арбуз"), new Crop("pumpkin", "Тыква"),
-            new Crop("cane", "Тростник"), new Crop("cactus", "Кактус"), new Crop("cocoa", "Какао"),
-            new Crop("wart", "Незерский нарост"), new Crop("mushroom", "Грибы"), new Crop("berries", "Ягоды"),
-            new Crop("other", "Другое"));
+    public static String cropLabel(String id) { return CropPresets.label(id); }
 
-    public static String cropLabel(String id) {
-        for (Crop c : CROPS) if (c.id().equals(id)) return c.label();
-        return "Другое";
-    }
+    public static String describe(CamPreset p) { return CropPresets.describe(p); }
 
-    public static String describe(CamPreset p) {
-        return p.name + " · " + cropLabel(p.crop) + " · yaw " + deg(p.yaw) + "° · pitch " + deg(p.pitch) + "°";
+    /** Индекс пресета культуры (см. {@link CropPresets#indexFor}), -1 — нет. */
+    public static int indexForCrop(String crop) { return CropPresets.indexFor(list(), crop); }
+
+    /** «Сбросить к стандартным»: 7 стандартных пресетов вместо текущих (id совпавших по имени сохраняются). */
+    public static void resetToStandard() {
+        ModConfig c = ModConfig.INSTANCE;
+        c.camPresets = new java.util.ArrayList<>(CropPresets.resetToStandard(c.camPresets, () -> c.camNextId++));
+        c.camSelected = 0;
+        c.camDefaultsRev = CropPresets.DEFAULTS_REV;
+        ModConfig.save();
     }
 
     /** Угол без потери введённой точности: 90 → «90.0», 12.345 → «12.345» (кратчайшая запись float). */
@@ -115,8 +116,8 @@ public final class CameraPresets {
         ModConfig c = ModConfig.INSTANCE;
         CamPreset p = selected();
         if (p == null) { p = c.newCamPreset("other", 0, 0); c.camPresets.add(p); c.camSelected = 0; }
-        p.yaw = Mth.wrapDegrees(pl.getYRot());
-        p.pitch = pl.getXRot();
+        p.yaw = CropPresets.yaw(pl.getYRot());
+        p.pitch = CropPresets.pitch(pl.getXRot());
         ModConfig.save();
         msg(mc, "§a◎ Сохранено в пресет " + (c.camSelected + 1) + ": §f" + describe(p));
     }
@@ -126,7 +127,7 @@ public final class CameraPresets {
         ModConfig c = ModConfig.INSTANCE;
         if (c.camPresets.size() >= MAX) return -1;
         LocalPlayer pl = mc.player;
-        c.camPresets.add(c.newCamPreset("other", pl != null ? Mth.wrapDegrees(pl.getYRot()) : 0, pl != null ? pl.getXRot() : 0));
+        c.camPresets.add(c.newCamPreset("other", pl != null ? CropPresets.yaw(pl.getYRot()) : 0, pl != null ? CropPresets.pitch(pl.getXRot()) : 0));
         c.camSelected = c.camPresets.size() - 1;
         ModConfig.save();
         return c.camSelected;

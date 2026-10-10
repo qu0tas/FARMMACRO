@@ -25,7 +25,7 @@ import java.util.List;
  *
  *  ЛКМ по блоку — точка в центре верхней грани; ЛКМ по точке — выбрать, зажать и вести — передвинуть;
  *  Shift+ЛКМ — вставить в ближайший отрезок; ПКМ по точке — удалить; Shift+ПКМ по точке — параметры;
- *  Ctrl+ЛКМ — угол выделения «змейки» (два угла → маршрут по рядам); Ctrl+Shift+ЛКМ — углы авто-маршрута; Ctrl+Z — отменить;
+ *  Alt+ЛКМ — выделить ещё, Ctrl+A — все, стрелки — сдвиг в блоке; Ctrl+Z — отменить;
  *  Ctrl+D — «Спуск» у выбранной/наведённой точки (если следующая ниже и по линии есть обрыв — вставить спуск на краю).
  */
 public final class RouteEditor {
@@ -55,13 +55,11 @@ public final class RouteEditor {
         if (active == on) return;
         active = on;
         hover = -1; dragIndex = -1;
-        SnakeTool.reset();
-        AutoRouteTool.reset();
         RouteRenderer.editorActive = on;
         RouteRenderer.editorHover = -1;
         if (on) {
             MacroManager.INSTANCE.useRouteSource();
-            msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+ЛКМ — «змейка», Ctrl+Shift+ЛКМ — авто-маршрут, Ctrl+D — спуск, "
+            msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+D — спуск, "
                     + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход");
         } else {
             RouteBuffer.INSTANCE.select(-1);         // подсветка выбранной точки — только в редакторе
@@ -75,19 +73,12 @@ public final class RouteEditor {
     public static void onLeftClick(Minecraft mc) {
         LocalPlayer p = mc.player;
         if (p == null) return;
-        boolean ctrl = mc.hasControlDown(), shift = mc.hasShiftDown();
+        boolean shift = mc.hasShiftDown();
         if (mc.hasAltDown()) {                   // Alt+ЛКМ — добавить/убрать из выделения
             int h = pickPoint(mc);
             if (h < 0) { msg(mc, "§7Alt+ЛКМ — по точке, чтобы выделить несколько"); return; }
             RouteBuffer.INSTANCE.toggleMark(h);
             msg(mc, "§7Выделено точек: " + RouteBuffer.INSTANCE.selection().size() + " · стрелки — сдвиг в блоке");
-            return;
-        }
-        if (ctrl || AutoRouteTool.pending()) {   // угол выделения (авто-маршрут ждёт угол — хватит ЛКМ)
-            Vec3 at = targetPoint(mc);
-            if (at == null) { msg(mc, "§7Наведи прицел на блок"); return; }
-            if (AutoRouteTool.wantsCorner(shift)) AutoRouteTool.corner(mc, at);   // Ctrl+Shift+ЛКМ — авто-маршрут
-            else SnakeTool.corner(mc, at);
             return;
         }
         int h = pickPoint(mc);
@@ -134,7 +125,7 @@ public final class RouteEditor {
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) {
             active = false; RouteRenderer.editorActive = false; RouteRenderer.editorHover = -1;
-            SnakeTool.reset(); RouteBuffer.INSTANCE.select(-1);
+            RouteBuffer.INSTANCE.select(-1);
             return;
         }
         if (MacroManager.INSTANCE.getState() != MacroManager.State.IDLE) { setActive(mc, false); return; }
@@ -157,9 +148,7 @@ public final class RouteEditor {
         boolean z = mc.screen == null && mc.hasControlDown()
                 && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_Z);
         if (z && !undoWasDown) {
-            if (AutoRouteTool.cancelIfPending()) msg(mc, "§7Авто-маршрут отменён");
-            else if (SnakeTool.cancelIfPending()) msg(mc, "§7Выделение отменено");
-            else msg(mc, RouteBuffer.INSTANCE.undo() ? "§7Отменено · точек: " + RouteBuffer.INSTANCE.size() : "§7Нечего отменять");
+            msg(mc, RouteBuffer.INSTANCE.undo() ? "§7Отменено · точек: " + RouteBuffer.INSTANCE.size() : "§7Нечего отменять");
         }
         undoWasDown = z;
 
@@ -183,8 +172,6 @@ public final class RouteEditor {
 
         hover = dragIndex >= 0 ? dragIndex : pickPoint(mc);
         RouteRenderer.editorHover = hover;
-        SnakeTool.tick(mc);
-        AutoRouteTool.tick(mc);
     }
 
     // ── Спуск ────────────────────────────────────────────────────────────────

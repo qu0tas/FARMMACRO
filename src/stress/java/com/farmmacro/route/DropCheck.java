@@ -74,11 +74,7 @@ public final class DropCheck {
             vx = vx * (1 - air) + dir[0] * speed * air; vz = vz * (1 - air) + dir[1] * speed * air;
             double nx = x + vx, nz = z + vz;
             if (Terrain.blockedAt(g, nx, y, nz)) {
-                // в воде у бортика до блока — выплываем (в игре автоход держит прыжок)
-                double up = Terrain.floorY(g, nx, y + 1.0, nz, 2);
-                boolean wet = g instanceof FarmGrid fg && fg.tag((int) Math.floor(x), (int) Math.floor(y + 0.01), (int) Math.floor(z)) == FarmGrid.WATER;
-                if (wet && onGround && !Double.isNaN(up) && up > y && !Terrain.blockedAt(g, nx, up, nz)) { y = up; }
-                else { vx = 0; vz = 0; nx = x; nz = z; }
+                vx = 0; vz = 0; nx = x; nz = z;
             }
             x = nx; z = nz;
             double f = support(g, x, y, z);
@@ -170,25 +166,26 @@ public final class DropCheck {
         System.out.printf(Locale.ROOT, "  спуск назад по полу: %s%n", ne.panic);
         check(ne.panic != null && ne.panic.startsWith("Спуск у точки"), "ждали «не упал», а " + ne);
 
-        // «змейка»-этажи в обратном порядке: два ряда сверху, спуск, те же ряды снизу
+        // два этажа из точек: два ряда сверху, спуск, те же ряды снизу в обратном порядке
         Grid two = new Grid().fill(0, 9, 69, 0, 3, 1).fill(-3, 12, 65, 0, 3, 1);
-        var top = SnakeBuilder.build(9, 0, 0, 3, 3, "x", "attack", "none", (x, z) -> 70);
+        var top = List.of(TestRoutes.pt(9, 70, 0, RoutePoint.ATTACK), TestRoutes.pt(0, 70, 0, RoutePoint.NONE),
+                TestRoutes.pt(0, 70, 3, RoutePoint.ATTACK), TestRoutes.pt(9, 70, 3, RoutePoint.NONE));
         var all = new java.util.ArrayList<>(top);
         all.get(all.size() - 1).drop = true;
         for (int j = top.size() - 1; j >= 0; j--) { RoutePoint s = top.get(j); all.add(new RoutePoint(s.x, 66, s.z)); }
         int dropAt = top.size() - 1;
         Terrain.fillDepth(two, all, dropAt);
         Sim sn = sim(two, all, 90f, 20_000);
-        System.out.printf(Locale.ROOT, "  «змейка» 2 этажа (%d точек): %s за %d тиков, упал на %.2f%n",
+        System.out.printf(Locale.ROOT, "  2 этажа из точек (%d точек): %s за %d тиков, упал на %.2f%n",
                 all.size(), sn.panic == null ? "пройдена" : "ПАНИКА " + sn.panic, sn.ticks, sn.fall);
-        check(sn.done && sn.panic == null, "«змейка» по этажам: " + sn);
+        check(sn.done && sn.panic == null, "2 этажа: " + sn);
         // то же со «Случайностью»: 100 сидов — без паники, падение то же, длина прохода разная
         var hs = new com.farmmacro.macro.HumanSettings();
         hs.enabled = true; hs.hesitateChance = 15; hs.landDelayMax = 12;
         int mn = Integer.MAX_VALUE, mx = 0;
         for (int i = 0; i < 100; i++) {
             Sim hr = sim(two, all, 90f, 20_000, new com.farmmacro.macro.Humanizer(hs, 500 + i));
-            check(hr.done && hr.panic == null && Math.abs(hr.fall - 4) < 0.05, "«змейка» по этажам со случайностью, сид " + (500 + i) + ": " + hr);
+            check(hr.done && hr.panic == null && Math.abs(hr.fall - 4) < 0.05, "2 этажа со случайностью, сид " + (500 + i) + ": " + hr);
             mn = Math.min(mn, hr.ticks); mx = Math.max(mx, hr.ticks);
         }
         check(mx > mn, "со случайностью длина не различается");

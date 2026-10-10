@@ -2,7 +2,7 @@ package com.farmmacro.macro;
 
 import com.farmmacro.route.PointRoute;
 import com.farmmacro.route.RoutePoint;
-import com.farmmacro.route.SnakeBuilder;
+import com.farmmacro.route.TestRoutes;
 import com.farmmacro.route.WalkCore;
 
 import java.util.*;
@@ -28,7 +28,7 @@ public final class ConfigSweep {
 
     static Farm farm(String name, int w, int d, int step, boolean pauses, boolean sprint, float yaw) {
         PointRoute r = new PointRoute();
-        r.points.addAll(SnakeBuilder.build(0, 0, w - 1, d - 1, step, "x", "attack", "none", (x, z) -> 64));
+        r.points.addAll(TestRoutes.rows(0, 0, w - 1, d - 1, step, 64));
         if (pauses) for (int i = 1; i < r.points.size(); i += 2) r.points.get(i).pauseTicks = 8;   // конец ряда — пауза
         if (sprint) for (RoutePoint p : r.points) p.sprint = true;
         return new Farm(name, r, yaw, sprint);

@@ -77,7 +77,7 @@ public final class FarmHud {
         String head; int col;
         switch (st) {
             case RECORDING -> { head = "ЗАПИСЬ · " + MacroManager.formatTicks(m.getFrameCount()); col = Ui.DANGER; }
-            case COUNTDOWN -> { head = "СТАРТ ЧЕРЕЗ " + (m.getCountdownTicks() + 19) / 20; col = Ui.WARN; }
+            case COUNTDOWN -> { head = m.getCountdownTicks() > 0 ? "СТАРТ ЧЕРЕЗ " + (m.getCountdownTicks() + 19) / 20 : "ПОВОРОТ КАМЕРЫ"; col = Ui.WARN; }
             case PLAYING -> { head = "ИГРАЕТ"; col = Ui.ON; }
             default -> { head = "СТОП"; col = Ui.SUB; }
         }
@@ -149,7 +149,7 @@ public final class FarmHud {
 
     private static final String[] EDITOR_HINTS = {
             "ЛКМ — точка · зажать — двигать", "Shift+ЛКМ — вставить", "ПКМ — удалить",
-            "Shift+ПКМ — параметры", "Ctrl+ЛКМ — углы «змейки»", "Ctrl+Shift+ЛКМ — авто-маршрут", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
+            "Shift+ПКМ — параметры", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
             "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+D — спуск на этаж ниже", "Ctrl+Z — отменить"};
 
     private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int y) {
@@ -158,12 +158,10 @@ public final class FarmHud {
         int sw = mc.getWindow().getGuiScaledWidth();
         int w = PANEL_W + 20, x = sw - w - MARGIN;
         var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
-        String snake = com.farmmacro.route.AutoRouteTool.status();
-        if (snake == null) snake = com.farmmacro.route.SnakeTool.status();
         String issue = com.farmmacro.visual.RouteRenderer.editorIssue;
         if (issue != null && com.farmmacro.visual.RouteRenderer.editorIssueCount > 1)
             issue += " (+" + (com.farmmacro.visual.RouteRenderer.editorIssueCount - 1) + ")";
-        int h = 26 + EDITOR_HINTS.length * 10 + (snake != null ? 10 : 0) + (issue != null ? 10 : 0);
+        int h = 26 + EDITOR_HINTS.length * 10 + (issue != null ? 10 : 0);
         int col = 0xFFD08CFF;
         Ui.round(g, x, y, w, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
@@ -176,7 +174,6 @@ public final class FarmHud {
                 + (rb.isDirty() ? " · не сохранён" : "");
         Ui.text(g, f, Ui.ellipsize(f, line, w - 14), x + 8, y + 15, Ui.TEXT);
         int ly = y + 26;
-        if (snake != null) { Ui.text(g, f, Ui.ellipsize(f, snake, w - 14), x + 8, ly, Ui.WARN); ly += 10; }
         if (issue != null) { Ui.text(g, f, Ui.ellipsize(f, "⚠ " + issue, w - 14), x + 8, ly, 0xFFFF5A5A); ly += 10; }
         for (String hint : EDITOR_HINTS) { Ui.text(g, f, Ui.ellipsize(f, hint, w - 14), x + 8, ly, Ui.SUB); ly += 10; }
         return y + h + 4;
@@ -363,7 +360,7 @@ public final class FarmHud {
             float scale = 4f + frac * 1.5f;
             pose.translate(sw / 2f, sh / 2f - 30);
             pose.scale(scale, scale);
-            String s = String.valueOf(sec);
+            String s = sec > 0 ? String.valueOf(sec) : "◎";      // 0 — ждём поворот к пресету культуры
             g.text(mc.font, s, -mc.font.width(s) / 2, -4, Ui.alpha(Ui.WARN, 0.35f + 0.65f * frac), true);
         } finally {
             pose.popMatrix();

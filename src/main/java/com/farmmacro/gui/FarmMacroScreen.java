@@ -534,9 +534,25 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(number("Точка старта: допуск", "Дальше — предупреждение и стрелка в HUD",
                 () -> cfg().startPointWarnDistance, v -> cfg().startPointWarnDistance = v,
                 0.01, 1024, 0.5, 4, v -> Rows.num(v) + " бл").adv());
+        rows.add(new Rows.Selector("Культура", "При старте макроса или маршрута повернуть к пресету этой культуры "
+                + "(плавно, как " + MacroManager.keyName(FarmMacroMod.keyCamApply) + "); выбранный пресет — и для "
+                + MacroManager.keyName(FarmMacroMod.keyCamApply) + ". Не действует, если у макроса своя привязка камеры (⚙)",
+                () -> LAUNCH_CROPS, () -> cfg().launchCrop, v -> {
+                    cfg().launchCrop = v;
+                    int i = com.farmmacro.camera.CameraPresets.indexForCrop(v);
+                    if (i >= 0) cfg().camSelected = i;
+                    save();
+                }));
+        rows.add(new Rows.Note(() -> {
+            String crop = cfg().launchCrop;
+            if (com.farmmacro.camera.CropPresets.NONE.equals(crop)) return "";
+            int i = com.farmmacro.camera.CameraPresets.indexForCrop(crop);
+            return i < 0 ? "Нет пресета для этой культуры — добавь во вкладке «Камера» или «Сбросить к стандартным»."
+                    : "Пресет: " + com.farmmacro.camera.CameraPresets.describe(cfg().camPresets.get(i));
+        }, Ui.SUB));
         rows.add(toggle("Повторять камеру", "Повороты камеры из записи (выкл — камера как есть)",
                 () -> cfg().replayCamera, v -> cfg().replayCamera = v));
-        rows.add(new Rows.Note("Пресеты камеры (yaw/pitch) — во вкладке «Камера».", Ui.SUB).adv());
+        rows.add(new Rows.Note("Пресеты камеры под культуры (yaw/pitch) — во вкладке «Камера».", Ui.SUB).adv());
 
         rows.add(new Rows.Section("Случайность").key("l.human"));
         rows.add(toggle("Случайность", "Общий выключатель. Настройки — у каждого макроса/маршрута (⚙ → «Случайность») или общие",
@@ -565,6 +581,11 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private static final List<Rows.Choice> CROPS = com.farmmacro.camera.CameraPresets.CROPS.stream()
             .map(c -> new Rows.Choice(c.id(), c.label())).toList();
+    /** «Запуск → Культура»: «Не менять» + культуры (без «Другое»). */
+    private static final List<Rows.Choice> LAUNCH_CROPS = java.util.stream.Stream.concat(
+            java.util.stream.Stream.of(new Rows.Choice(com.farmmacro.camera.CropPresets.NONE, "Не менять камеру")),
+            CROPS.stream().filter(c -> !com.farmmacro.camera.CropPresets.OTHER.equals(c.id()))).toList();
+    private long confirmCamResetUntil;
 
     private static ModConfig.CamPreset selPreset() { return com.farmmacro.camera.CameraPresets.selected(); }
 
@@ -576,9 +597,10 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     /** Вкладка «Камера»: пресеты yaw/pitch, не привязанные к макросам; ввод чисел, «Взять текущие», применение. */
     private void buildCamera() {
-        rows.add(new Rows.Note("Пресет — имя, yaw и pitch (у каждой культуры свои). " + presetHint()
+        rows.add(new Rows.Note("Пресет — имя, культура, yaw и pitch (точность 0.1°). Стандартные пресеты культур можно "
+                + "переименовать, поменять и удалить. " + presetHint()
                 + " Работает в любой момент, кроме записи, которая играет с «Повторять камеру». "
-                + "Автоход и макросы сами камеру не крутят.", Ui.SUB));
+                + "«Запуск → Культура» ставит пресет культуры при старте.", Ui.SUB));
 
         rows.add(new Rows.Section("Применение"));
         rows.add(toggle("Плавный поворот", "При применении пресета: постоянная скорость с торможением в конце, выкл — мгновенно",
@@ -597,7 +619,17 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn("+ Новый из текущего взгляда", Rows.Style.PRIMARY, () -> {
                     com.farmmacro.camera.CameraPresets.addFromCurrent(minecraft);
                     buildTab();
-                }).enabledIf(() -> cfg().camPresets.size() < com.farmmacro.camera.CameraPresets.MAX)));
+                }).enabledIf(() -> cfg().camPresets.size() < com.farmmacro.camera.CameraPresets.MAX),
+                new Rows.Btn(() -> System.currentTimeMillis() < confirmCamResetUntil ? "Точно сбросить?" : "Сбросить к стандартным",
+                        () -> System.currentTimeMillis() < confirmCamResetUntil ? Rows.Style.DANGER : Rows.Style.SECONDARY, () -> {
+                    if (System.currentTimeMillis() >= confirmCamResetUntil) {
+                        confirmCamResetUntil = System.currentTimeMillis() + 3000;
+                        return;
+                    }
+                    confirmCamResetUntil = 0;
+                    com.farmmacro.camera.CameraPresets.resetToStandard();
+                    buildTab();
+                }).tip("Заменить все пресеты на 7 стандартных пресетов культур (свои удалятся). Нажми ещё раз для подтверждения")));
 
         if (list.isEmpty()) return;
         java.util.function.BooleanSupplier has = () -> selPreset() != null;
@@ -610,24 +642,24 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             save();
             return true;
         }, null, ModConfig.CAM_NAME_MAX, 0).enabledIf(has));
-        rows.add(new Rows.Selector("Культура", "Подпись в списке", () -> CROPS,
+        rows.add(new Rows.Selector("Культура", "Для подписи и «Запуск → Культура»", () -> CROPS,
                 () -> selPreset() != null ? selPreset().crop : "other",
                 v -> { if (selPreset() != null) { selPreset().crop = v; save(); } }).enabledIf(has));
-        rows.add(new Rows.TextField("Yaw", "По горизонтали, как в F3: −180…180 (270 → −90), любая точность",
+        rows.add(new Rows.TextField("Yaw", "По горизонтали, как в F3: −180…180 (270 → −90), точность 0.1°",
                 () -> selPreset() != null ? com.farmmacro.camera.CameraPresets.deg(selPreset().yaw) : "", v -> {
             Float f = com.farmmacro.camera.CameraPresets.parseDeg(v);
             var p = selPreset();
             if (f == null || p == null) return false;
-            p.yaw = net.minecraft.util.Mth.wrapDegrees(f);
+            p.yaw = com.farmmacro.camera.CropPresets.yaw(f);
             save();
             return true;
         }, Rows.TextField.numeric(), 16, 92).enabledIf(has));
-        rows.add(new Rows.TextField("Pitch", "По вертикали: −90 вверх … 90 вниз, любая точность",
+        rows.add(new Rows.TextField("Pitch", "По вертикали: −90 вверх … 90 вниз, точность 0.1°",
                 () -> selPreset() != null ? com.farmmacro.camera.CameraPresets.deg(selPreset().pitch) : "", v -> {
             Float f = com.farmmacro.camera.CameraPresets.parseDeg(v);
             var p = selPreset();
             if (f == null || p == null || f < -90f || f > 90f) return false;
-            p.pitch = f;
+            p.pitch = com.farmmacro.camera.CropPresets.pitch(f);
             save();
             return true;
         }, Rows.TextField.numeric(), 16, 92).enabledIf(has));
@@ -635,15 +667,15 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn("Взять текущие", Rows.Style.SECONDARY, () -> {
                     var p = selPreset();
                     if (p != null && minecraft.player != null) {
-                        p.yaw = net.minecraft.util.Mth.wrapDegrees(minecraft.player.getYRot());
-                        p.pitch = minecraft.player.getXRot();
+                        p.yaw = com.farmmacro.camera.CropPresets.yaw(minecraft.player.getYRot());
+                        p.pitch = com.farmmacro.camera.CropPresets.pitch(minecraft.player.getXRot());
                         save();
                     }
                 }).enabledIf(() -> has.getAsBoolean() && minecraft.player != null)
                         .tip("Записать в выбранный пресет, куда ты сейчас смотришь (yaw и pitch)"),
                 new Rows.Btn("Yaw ровно по оси", Rows.Style.SECONDARY, () -> {
                     var p = selPreset();
-                    if (p != null) { p.yaw = net.minecraft.util.Mth.wrapDegrees(Math.round(p.yaw / 45f) * 45f); save(); }
+                    if (p != null) { p.yaw = com.farmmacro.camera.CropPresets.yaw(Math.round(p.yaw / 45f) * 45f); save(); }
                 }).enabledIf(has).tip("Округлить yaw до ближайших 45° — чтобы идти ровно вдоль ряда"),
                 new Rows.Btn("Применить", Rows.Style.SUCCESS, () ->
                         com.farmmacro.camera.CameraPresets.apply(minecraft, cfg().camSelected))
@@ -748,7 +780,6 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(colorRow("Маяк старта", "По умолчанию зелёный", () -> cfg().routeStartColor, v -> cfg().routeStartColor = v).under(ro).adv());
         rows.add(colorRow("Маяк остановки", "По умолчанию красный", () -> cfg().routeStopColor, v -> cfg().routeStopColor = v).under(ro).adv());
         rows.add(colorRow("Цвет стрелок", "По умолчанию белые", () -> cfg().routeArrowColor, v -> cfg().routeArrowColor = v).under(ro).adv());
-        rows.add(colorRow("Превью «змейки» и авто", "Углы выделения и превью рядов в редакторе", () -> cfg().snakePreviewColor, v -> cfg().snakePreviewColor = v).adv());
 
         rows.add(new Rows.Section("HUD").key("v.hud"));
         rows.add(toggle("Панель статуса", "Состояние, прогресс, круги, время сессии",
@@ -802,18 +833,6 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private static final List<Rows.Choice> SOURCES = List.of(
             new Rows.Choice("RECORDING", "Запись"), new Rows.Choice("ROUTE", "Маршрут по точкам"));
-    private static final List<Rows.Choice> AXES = List.of(
-            new Rows.Choice("auto", "Вдоль длинной стороны"), new Rows.Choice("x", "Вдоль X"), new Rows.Choice("z", "Вдоль Z"));
-    private static final List<Rows.Choice> SEG_ACTIONS = List.of(
-            new Rows.Choice("none", "Ничего"), new Rows.Choice("attack", "Держать ЛКМ"), new Rows.Choice("use", "Держать ПКМ"));
-
-    private static final List<Rows.Choice> WALKS = List.of(
-            new Rows.Choice("auto", "Авто (по культуре)"), new Rows.Choice("low", "Ниже грядок (по воде)"),
-            new Rows.Choice("level", "На уровне культур"));
-    private static final List<Rows.Choice> SURFACES = List.of(
-            new Rows.Choice("auto", "Любая"), new Rows.Choice("farmland", "Грядки"),
-            new Rows.Choice("sand", "Песок"), new Rows.Choice("soul_sand", "Песок душ"));
-
     private void buildMacros() {
         rows.add(new Rows.Section("Текущий макрос"));
         rows.add(new BufferCard());
@@ -831,7 +850,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> openFolder(MacroStorage.MACRO_DIR))));
     }
 
-    /** Вкладка «Маршруты»: текущий маршрут, авто-маршрут, общие настройки рядов, «змейка», автоход, сохранённые. */
+    /** Вкладка «Маршруты»: текущий маршрут (точки), подсказка по редактору, автоход и редактор, сохранённые. */
     private void buildRoutes() {
         var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
         rows.add(new Rows.Section("Маршрут по точкам").key("r.cur"));
@@ -841,69 +860,11 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
         rows.add(new Rows.Section("Подсказка: редактор").key("r.help").closed());
         rows.add(new Rows.Note("Редактор (" + MacroManager.keyName(FarmMacroMod.keyEditor) + "): ЛКМ — точка, зажать — двигать, "
-                + "Shift+ЛКМ — вставить, ПКМ — удалить, Shift+ПКМ — параметры точки, Ctrl+ЛКМ по двум углам — «змейка», "
-                + "Ctrl+Shift+ЛКМ по двум углам — авто-маршрут, Alt+ЛКМ — выделить ещё, Ctrl+A — все, "
-                + "стрелки — сдвиг выделенных внутри блока (Shift — мелко), Ctrl+Z — отменить.", Ui.SUB));
+                + "Shift+ЛКМ — вставить, ПКМ — удалить, Shift+ПКМ — параметры точки, "
+                + "Alt+ЛКМ — выделить ещё, Ctrl+A — все, стрелки — сдвиг выделенных внутри блока (Shift — мелко), "
+                + "Ctrl+D — спуск на этаж ниже, Ctrl+Z — отменить.", Ui.SUB));
         rows.add(new Rows.Note("Автоход не поворачивает камеру: идёт клавишами W/A/S/D относительно текущего yaw. "
-                + "Поставь yaw вдоль рядов (пресет камеры) — тогда ряды идут чистыми W/S.", Ui.SUB));
-
-        rows.add(new Rows.Section("Авто-маршрут").key("r.auto"));
-        rows.add(new Rows.Note("Выдели два угла фермы — мод сам найдёт ряды, проходы, этажи и спуски и построит маршрут. "
-                + "Перед запуском пройди глазами превью: эвристика может ошибиться на необычной ферме.", Ui.SUB));
-        rows.add(new Rows.Buttons(
-                new Rows.Btn("Выделить область", Rows.Style.PRIMARY, () -> {
-                    onClose();
-                    com.farmmacro.route.RouteEditor.setActive(minecraft, true);
-                    com.farmmacro.route.AutoRouteTool.arm(minecraft);
-                }).enabledIf(() -> minecraft.player != null && MacroManager.INSTANCE.getState() == MacroManager.State.IDLE)
-                        .tip("Закрыть меню и включить редактор: ЛКМ по первому углу, потом по второму (в редакторе то же — Ctrl+Shift+ЛКМ)"),
-                new Rows.Btn("Повторить по прошлой области", Rows.Style.SECONDARY, () -> {
-                    onClose();
-                    com.farmmacro.route.RouteEditor.setActive(minecraft, true);   // сканирование идёт в тике редактора
-                    com.farmmacro.route.AutoRouteTool.rerun(minecraft);
-                }).enabledIf(() -> com.farmmacro.route.AutoRouteTool.hasLast() && minecraft.player != null
-                        && MacroManager.INSTANCE.getState() == MacroManager.State.IDLE)
-                        .tip("Пересканировать те же углы с текущими настройками")));
-        rows.add(toggle("Шаг рядов: авто", "Шаг = период урожая (проходы между рядами); выкл — «Шаг рядов» из раздела ниже",
-                () -> cfg().autoStepAuto, v -> cfg().autoStepAuto = v));
-        rows.add(new Rows.Selector("Поверхность", "Где искать урожай: любая или только на грядках / песке / песке душ",
-                () -> SURFACES, () -> cfg().autoSurface, v -> { cfg().autoSurface = v; save(); }));
-        rows.add(new Rows.Selector("Где идти", "Авто: пшеница, морковь, картофель, нарост, грибы — по каналу ниже грядок (вода); "
-                + "арбуз, тыква, тростник, цветы, кактус, какао — на уровне культур",
-                () -> WALKS, () -> cfg().autoWalk, v -> { cfg().autoWalk = v; save(); }));
-        rows.add(toggle("Вернуться к старту", "В конце маршрута — путь обратно к первой точке (для цикла)",
-                () -> cfg().autoReturnToStart, v -> cfg().autoReturnToStart = v));
-        rows.add(number("Пауза на концах рядов", "Точка-пауза в конце каждого ряда", () -> cfg().autoEndPause,
-                v -> cfg().autoEndPause = (int) v, 0, 200, 1, 10, v -> v == 0 ? "нет" : ticksFmt(v)).integer());
-        rows.add(number("Глубина поиска этажей", "На сколько блоков ниже углов искать нижние этажи", () -> cfg().autoRouteDepth,
-                v -> cfg().autoRouteDepth = (int) v, 0, 40, 1, 4, v -> (int) v + " бл").integer().adv());
-        rows.add(number("Колонок за тик", "Скорость сканирования; меньше — плавнее FPS", () -> cfg().autoRouteColumnsPerTick,
-                v -> cfg().autoRouteColumnsPerTick = (int) v, 16, 8192, 64, 512, v -> String.valueOf((int) v)).integer().adv());
-
-        rows.add(new Rows.Section("Ряды: «змейка» и авто").key("r.rows"));
-        rows.add(new Rows.Note("Общее для «змейки» (Ctrl+ЛКМ) и авто-маршрута (Ctrl+Shift+ЛКМ).", Ui.SUB).adv());
-        rows.add(new Rows.Selector("Направление рядов", "Авто-маршрут при «вдоль длинной стороны» выбирает ось по урожаю",
-                () -> AXES, () -> cfg().snakeAxis, v -> { cfg().snakeAxis = v; save(); }));
-        rows.add(number("Шаг рядов", "Расстояние между соседними рядами (у авто — если «Шаг рядов: авто» выкл)", () -> cfg().snakeStep,
-                v -> cfg().snakeStep = (int) v, 1, 64, 1, 4, v -> (int) v + " бл").integer());
-        rows.add(new Rows.Selector("На ряду", "Что держать, пока идём по ряду", () -> SEG_ACTIONS, () -> cfg().snakeRowAction,
-                v -> { cfg().snakeRowAction = v; save(); }));
-        rows.add(new Rows.Selector("На переходе", "Между рядами", () -> SEG_ACTIONS, () -> cfg().snakeTurnAction,
-                v -> { cfg().snakeTurnAction = v; save(); }));
-        rows.add(toggle("Добавлять в конец", "Выкл — новый маршрут заменяет текущий (Ctrl+Z вернёт)",
-                () -> cfg().snakeAppend, v -> cfg().snakeAppend = v));
-        rows.add(number("Смещение рядов X", "Все точки сдвинуты внутри блока по X (+ — восток)", () -> cfg().snakeOffsetX,
-                v -> cfg().snakeOffsetX = v, -0.5, 0.5, 0.05, 0.01, v -> (v > 0 ? "+" : "") + Rows.num(v) + " бл").adv());
-        rows.add(number("Смещение рядов Z", "По Z (+ — юг). 0 — по центру блоков", () -> cfg().snakeOffsetZ,
-                v -> cfg().snakeOffsetZ = v, -0.5, 0.5, 0.05, 0.01, v -> (v > 0 ? "+" : "") + Rows.num(v) + " бл").adv());
-
-        rows.add(new Rows.Section("«Змейка»: этажи").key("r.snake"));
-        rows.add(number("Этажей", "1 — обычная «змейка». Больше — после последнего ряда спуск, следующий этаж в обратную сторону. "
-                        + "Авто-маршрут находит этажи сам",
-                () -> cfg().snakeFloors, v -> cfg().snakeFloors = (int) v, 1, 64, 1, 2, v -> String.valueOf((int) v)).integer());
-        rows.add(number("Этажи: шаг вниз", "На сколько блоков ниже каждый следующий этаж (углы выделяй на верхнем)",
-                () -> cfg().snakeFloorStep, v -> cfg().snakeFloorStep = (int) v, 1, 64, 1, 2, v -> (int) v + " бл").integer()
-                .under(() -> cfg().snakeFloors > 1));
+                + "Поставь yaw вдоль рядов (пресет культуры во вкладке «Камера») — тогда ряды идут чистыми W/S.", Ui.SUB));
 
         rows.add(new Rows.Section("Автоход и редактор").key("r.walk"));
         rows.add(number("Точка достигнута", "Радиус по горизонтали", () -> cfg().routeReachRadius,
@@ -973,7 +934,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             String title = !has ? "Пусто" : rb.loadedName() != null ? rb.loadedName() + (rb.isDirty() ? " · изменён" : "")
                     : "Новый маршрут · не сохранён";
             String sub;
-            if (!has) sub = "Открой редактор и поставь точки или «змейку»";
+            if (!has) sub = "Открой редактор и поставь точки";
             else {
                 var p0 = rb.get(0);
                 sub = rb.size() + " точек";
@@ -1388,7 +1349,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         String status; int col;
         switch (m.getState()) {
             case RECORDING -> { status = "● ЗАПИСЬ " + MacroManager.formatTicks(m.getFrameCount()); col = Ui.DANGER; }
-            case COUNTDOWN -> { status = "◷ СТАРТ ЧЕРЕЗ " + ((m.getCountdownTicks() + 19) / 20); col = Ui.WARN; }
+            case COUNTDOWN -> { status = m.getCountdownTicks() > 0 ? "◷ СТАРТ ЧЕРЕЗ " + ((m.getCountdownTicks() + 19) / 20) : "◎ ПОВОРОТ КАМЕРЫ"; col = Ui.WARN; }
             case PLAYING -> { status = (m.isRoutePlaying() ? "▶ точка " + (m.getProgress() + 1) : "▶ " + m.getProgress()) + "/" + m.getProgressTotal()
                     + (cfg().loopEnabled ? " · круг " + (m.getLoopsDone() + 1) : ""); col = Ui.ON; }
             default -> {

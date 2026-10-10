@@ -14,9 +14,9 @@ public final class RouteStress {
 
     public static void main(String[] args) {
         int n = args.length > 0 ? Integer.parseInt(args[0]) : 70_000;
-        report("Ферма-«змейка» (ряды 96 бл, ЛКМ на рядах, дрожание ±3 мм)", farm(n), 48);
+        report("Ферма рядами (ряды 96 бл, ЛКМ на рядах, дрожание ±3 мм)", farm(n), 48);
         report("Хаотичная прогулка (поворот каждые 1–3 с, прыжки) — худший случай", wander(n), 48);
-        snake();
+        points();
         com.farmmacro.route.WalkSim.main();
         com.farmmacro.camera.CameraBindingCheck.main();
         com.farmmacro.macro.HoldCheck.main();
@@ -26,13 +26,13 @@ public final class RouteStress {
         com.farmmacro.macro.HumanizerCheck.main();
         com.farmmacro.panic.SyncCheck.main();
         com.farmmacro.route.VelocitySim.main();
-        com.farmmacro.route.AutoRouteCheck.main();
+        com.farmmacro.camera.CropPresetsCheck.main();
         try { com.farmmacro.panic.SuspicionCheck.main(); } catch (Exception e) { throw new IllegalStateException(e); }
     }
 
-    /** «Змейка» по точкам: проверка рядов и геометрии маршрута по точкам. */
-    private static void snake() {
-        var pts = com.farmmacro.route.SnakeBuilder.build(0, 0, 95, 95, 3, "auto", "attack", "none", (x, z) -> 64);
+    /** Маршрут по точкам (ряды 96×96, шаг 3): проверка рядов и геометрии ленты. */
+    private static void points() {
+        var pts = com.farmmacro.route.TestRoutes.rows(0, 0, 95, 95, 3, 64);
         int rows = 0;
         for (int i = 0; i + 1 < pts.size(); i += 2) {
             var a = pts.get(i); var b = pts.get(i + 1);
@@ -40,21 +40,13 @@ public final class RouteStress {
             rows++;
         }
         var last = pts.get(pts.size() - 1);
-        if (last.z != 95.5 || !"none".equals(last.action)) throw new IllegalStateException("последний ряд не на краю B: " + last.z);
-        var edge = com.farmmacro.route.SnakeBuilder.build(0, 0, 9, 3, 1, "z", "use", "none", (x, z) -> 64);
-        if (edge.get(0).x != 0.5 || edge.get(1).z != 3.5) throw new IllegalStateException("ось z не соблюдена");
-        var one = com.farmmacro.route.SnakeBuilder.build(5, 5, 5, 5, 3, "auto", "attack", "none", (x, z) -> 64);
-        if (one.size() != 1) throw new IllegalStateException("1×1 должен дать одну точку: " + one.size());
+        if (last.z != 95.5 || !"none".equals(last.action)) throw new IllegalStateException("последний ряд не на краю: " + last.z);
         long t0 = System.nanoTime();
-        var big = com.farmmacro.route.SnakeBuilder.build(0, 0, 2047, 4095, 1, "auto", "attack", "none", (x, z) -> 64);
-        double msSnake = (System.nanoTime() - t0) / 1e6;
-        t0 = System.nanoTime();
         RoutePath p = RoutePath.fromPoints(pts, 4.0, 4.0);
         double msPath = (System.nanoTime() - t0) / 1e6;
-        System.out.printf("%n«Змейка» 96×96, шаг 3: рядов %d, точек %d → отрезков ленты %d, стрелок %d, %.2f мс%n",
+        if (p.size < pts.size()) throw new IllegalStateException("лента короче маршрута: " + p.size + " < " + pts.size());
+        System.out.printf("%nМаршрут по точкам: ряды 96×96, шаг 3: рядов %d, точек %d → отрезков ленты %d, стрелок %d, %.2f мс%n",
                 rows, pts.size(), p.size - 1, p.arrows, msPath);
-        System.out.printf("«Змейка» 2048×4096, шаг 1: точек %d за %.1f мс (в редакторе предел %d)%n",
-                big.size(), msSnake, com.farmmacro.route.RouteBuffer.MAX_POINTS);
     }
 
     private static void report(String name, List<MacroFrame> frames, int radius) {

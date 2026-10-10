@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * Симуляция автохода (WalkCore) без игры: простая кинематика (камера стоит на заданном yaw, движение — W/A/S/D
- * относительно него, разгон/инерция как у ходьбы), проверка, что «змейка» проходится целиком без ложной паники
+ * относительно него, разгон/инерция как у ходьбы), проверка, что маршрут из точек (ряды) проходится целиком без ложной паники
  * и без единого поворота камеры, а стена и снос дают «Застрял» и «Сошёл с маршрута».
  */
 public final class WalkSim {
@@ -60,44 +60,44 @@ public final class WalkSim {
     private static String res(Result r) { return r.panic == null ? "пройдена" : "ПАНИКА " + r.panic; }
 
     public static void main() {
-        var snake = SnakeBuilder.build(0, 0, 31, 31, 3, "auto", "attack", "none", (x, z) -> 64);
-        boolean alongX = snake.get(0).z == snake.get(1).z;
+        var rows = TestRoutes.rows(0, 0, 31, 31, 3, 64);
+        boolean alongX = rows.get(0).z == rows.get(1).z;
         // yaw вдоль рядов: ряды по X → смотрим на −X (yaw 90) или +X (−90); по Z → +Z (0)
         float axisYaw = alongX ? 90f : 0f;
-        Result ok = run(route(snake), axisYaw, 30, true, -1, -1, 20_000);
-        System.out.printf("%nАвтоход «змейка» 32×32 шаг 3 (%d точек), yaw %.0f° вдоль рядов: %s за %d тиков (%.0f с), "
+        Result ok = run(route(rows), axisYaw, 30, true, -1, -1, 20_000);
+        System.out.printf("%nАвтоход по точкам: ряды 32×32 шаг 3 (%d точек), yaw %.0f° вдоль рядов: %s за %d тиков (%.0f с), "
                         + "макс. отклонение %.2f бл, диагональ %d из %d тиков%n",
-                snake.size(), axisYaw, res(ok), ok.ticks, ok.ticks / 20.0, ok.maxSide, diagTicks, keyTicks);
-        if (ok.panic != null || ok.reached != snake.size()) throw new IllegalStateException("змейка не пройдена: " + ok);
+                rows.size(), axisYaw, res(ok), ok.ticks, ok.ticks / 20.0, ok.maxSide, diagTicks, keyTicks);
+        if (ok.panic != null || ok.reached != rows.size()) throw new IllegalStateException("маршрут не пройден: " + ok);
         if (ok.maxSide > 0.25) throw new IllegalStateException("вдоль оси ушёл вбок: " + ok);
 
-        Result side = run(route(snake), axisYaw + 90f, 30, true, -1, -1, 20_000);
+        Result side = run(route(rows), axisYaw + 90f, 30, true, -1, -1, 20_000);
         System.out.printf("  yaw поперёк рядов (%.0f°, ряды — A/D): %s за %d тиков, макс. отклонение %.2f бл%n",
                 axisYaw + 90f, res(side), side.ticks, side.maxSide);
         if (side.panic != null) throw new IllegalStateException("поперёк рядов паника: " + side);
 
-        Result skew = run(route(snake), 37f, 30, true, -1, -1, 40_000);
+        Result skew = run(route(rows), 37f, 30, true, -1, -1, 40_000);
         System.out.printf("  yaw 37° (не по оси): %s за %d тиков, макс. отклонение %.2f бл, диагональ %d из %d тиков%n",
                 res(skew), skew.ticks, skew.maxSide, diagTicks, keyTicks);
         if (skew.panic != null) throw new IllegalStateException("yaw 37° дал панику: " + skew);
 
-        for (RoutePoint p : snake) p.sprint = true;
-        Result sprint = run(route(snake), axisYaw, 30, true, -1, -1, 20_000);
+        for (RoutePoint p : rows) p.sprint = true;
+        Result sprint = run(route(rows), axisYaw, 30, true, -1, -1, 20_000);
         System.out.printf("  со спринтом (спринт только при W): %s за %d тиков, макс. отклонение %.2f бл%n",
                 res(sprint), sprint.ticks, sprint.maxSide);
         if (sprint.panic != null) throw new IllegalStateException("спринт дал панику: " + sprint);
-        for (RoutePoint p : snake) p.sprint = false;
+        for (RoutePoint p : rows) p.sprint = false;
 
-        Result wall = run(route(snake), axisYaw, 30, true, 100, -1, 20_000);
+        Result wall = run(route(rows), axisYaw, 30, true, 100, -1, 20_000);
         System.out.printf("  стена на 100-м тике: %s (тик %d)%n", wall.panic, wall.ticks);
         if (wall.panic == null || !wall.panic.startsWith("Застрял") || wall.ticks > 100 + 30 + 5)
             throw new IllegalStateException("стена не дала «Застрял» вовремя: " + wall);
 
-        Result push = run(route(snake), axisYaw, 30, true, -1, 150, 20_000);
+        Result push = run(route(rows), axisYaw, 30, true, -1, 150, 20_000);
         System.out.printf("  снос на 6 бл на 150-м тике: %s (тик %d)%n", push.panic, push.ticks);
         if (push.panic == null || !push.panic.startsWith("Сошёл")) throw new IllegalStateException("снос не дал «Сошёл»: " + push);
 
-        var paused = SnakeBuilder.build(0, 0, 9, 0, 3, "x", "attack", "none", (x, z) -> 64);
+        var paused = new java.util.ArrayList<>(List.of(TestRoutes.pt(0, 64, 0, RoutePoint.ATTACK), TestRoutes.pt(9, 64, 0, RoutePoint.NONE)));
         paused.add(new RoutePoint(9.5, 64, 6.5));
         paused.get(1).pauseTicks = 40;
         Result pz = run(route(paused), 90f, 30, true, -1, -1, 5_000);

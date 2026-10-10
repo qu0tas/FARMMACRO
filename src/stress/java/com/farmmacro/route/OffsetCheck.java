@@ -46,11 +46,12 @@ public final class OffsetCheck {
         check(near(f90[0], -1) && near(f90[1], 0) && near(l90[0], 0) && near(l90[1], 1), "yaw 90: вперёд −X, влево +Z");
         check(near(b30[0], 0) && near(b30[1], -1), "yaw 30 → ближайшая ось Z, назад −Z");
 
-        // «змейка» со смещением рядов
-        var pts = SnakeBuilder.build(0, 0, 4, 2, 2, SnakeBuilder.AXIS_X, "attack", "none", (x, z) -> 64);
+        // ряды из точек со смещением
+        var pts = java.util.List.of(TestRoutes.pt(0, 64, 0, RoutePoint.ATTACK), TestRoutes.pt(4, 64, 0, RoutePoint.NONE),
+                TestRoutes.pt(4, 64, 2, RoutePoint.ATTACK), TestRoutes.pt(0, 64, 2, RoutePoint.NONE));
         for (RoutePoint s : pts) s.setOffset(0, 0.25);
-        check(pts.stream().allMatch(s -> near(s.z - Math.floor(s.z), 0.75) && near(s.oz, 0.25)), "змейка: все точки смещены на Z +0.25");
+        check(pts.stream().allMatch(s -> near(s.z - Math.floor(s.z), 0.75) && near(s.oz, 0.25)), "ряды: все точки смещены на Z +0.25");
 
-        System.out.println("Смещение в блоке: ±0.5, центр, серии сдвигов, перенос/вставка/копия, файлы, стрелки по взгляду, «змейка» — OK");
+        System.out.println("Смещение в блоке: ±0.5, центр, серии сдвигов, перенос/вставка/копия, файлы, стрелки по взгляду, ряды — OK");
     }
 }

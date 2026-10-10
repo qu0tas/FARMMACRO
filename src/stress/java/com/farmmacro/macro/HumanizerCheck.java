@@ -2,7 +2,7 @@ package com.farmmacro.macro;
 
 import com.farmmacro.route.PointRoute;
 import com.farmmacro.route.RoutePoint;
-import com.farmmacro.route.SnakeBuilder;
+import com.farmmacro.route.TestRoutes;
 import com.farmmacro.route.WalkCore;
 
 import java.util.ArrayList;
@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * «Случайность» вне игры: повторяемость по сиду, пределы значений, выкл = как раньше, и 200 проходов «змейки» 20×20
+ * «Случайность» вне игры: повторяемость по сиду, пределы значений, выкл = как раньше, и 200 проходов рядов из точек 20×20
  * с разными сидами (кинематика как в WalkSim): все точки, без ложной паники, смазанный угол не дальше допуска,
  * длина прохода в тиках разная.
  */
@@ -23,9 +23,9 @@ public final class HumanizerCheck {
     /** Тиков стояли по остановкам «Случайности» (WalkCore.pauseExternal) за последний run. */
     static int stoodTicks, stopsDone;
 
-    static PointRoute snake() {
+    static PointRoute rowsRoute() {
         PointRoute r = new PointRoute();
-        r.points.addAll(SnakeBuilder.build(0, 0, 19, 19, 3, "x", "attack", "none", (x, z) -> 64));
+        r.points.addAll(TestRoutes.rows(0, 0, 19, 19, 3, 64));
         for (int i = 3; i < r.points.size(); i += 4) r.points.get(i).pauseTicks = 10;
         return r;
     }
@@ -36,7 +36,7 @@ public final class HumanizerCheck {
     /** withStops — как в игре: shaper.stopNow до WalkCore.tick (остановки посреди пути, заминки). */
     static Run run(Humanizer human, int maxTicks, boolean withStops) {
         stoodTicks = 0; stopsDone = 0;
-        PointRoute r = snake().copy();
+        PointRoute r = rowsRoute().copy();
         WalkCore core = new WalkCore();
         WalkCore.Out out = new WalkCore.Out();
         if (human != null) human.shapeRoute(r);
@@ -137,9 +137,9 @@ public final class HumanizerCheck {
         check(worst <= Math.max(plain.maxOff, hs.cornerSlop) + 0.05, String.format(Locale.ROOT, "смазанный угол ушёл на %.2f бл", worst));
         check(max > min, "длина проходов не различается");
         check(distinct.size() == n, "есть одинаковые проходы: " + distinct.size() + " из " + n);
-        System.out.printf(Locale.ROOT, "%nСлучайность: «змейка» 20×20 (%d точек) × %d сидов — без паники; тиков min %d / сред. %.0f / max %d "
+        System.out.printf(Locale.ROOT, "%nСлучайность: ряды из точек 20×20 (%d точек) × %d сидов — без паники; тиков min %d / сред. %.0f / max %d "
                         + "(без случайности %d); макс. уход от линии %.2f бл (допуск %.2f); перекрытий %d, зазоров %d — OK%n",
-                snake().points.size(), n, min, sum / (double) n, max, plain.ticks, worst, hs.cornerSlop, ov, gp);
+                rowsRoute().points.size(), n, min, sum / (double) n, max, plain.ticks, worst, hs.cornerSlop, ov, gp);
 
         // запись: повтор/пропуск стоячих кадров, ЛКМ позже
         Humanizer.RecShaper rs = new Humanizer(hs, 5).recShaper();

@@ -1,7 +1,7 @@
 package com.farmmacro.route;
 
 /**
- * v1.11 «Аномалия скорости» на симуляции автохода: «змейка» с ванильной инерцией (0.546) и с инерцией WalkSim (0.55)
+ * v1.11 «Аномалия скорости» на симуляции автохода: ряды из точек с ванильной инерцией (0.546) и с инерцией WalkSim (0.55)
  * проходится без паники, с остановками «Случайности» — тоже; толчок без пакета — паника, с пакетом — нет;
  * мелкий толчок ниже допуска — нет; упор в стену с ходьбы (0.215 < 0.25) — не аномалия, а «Застрял»; удар в стену
  * при допуске 0.1 без флага столкновения — аномалия, с флагом — снова «Застрял».
@@ -22,10 +22,10 @@ public final class VelocitySim {
     }
 
     static R run(double keep, int pushAt, double pushV, boolean pushPacket, int wallAt, boolean wallFlag, int stopsEvery, double limit) {
-        var snake = SnakeBuilder.build(0, 0, 31, 31, 3, "auto", "attack", "none", (x, z) -> 64);
-        boolean alongX = snake.get(0).z == snake.get(1).z;
+        var rows = TestRoutes.rows(0, 0, 31, 31, 3, 64);
+        boolean alongX = rows.get(0).z == rows.get(1).z;
         float yaw = alongX ? 90f : 0f;
-        PointRoute r = WalkSim.route(snake);
+        PointRoute r = WalkSim.route(rows);
         WalkCore core = new WalkCore();
         WalkCore.Out out = new WalkCore.Out();
         VelocityCheck vc = new VelocityCheck();
@@ -66,11 +66,11 @@ public final class VelocitySim {
     public static void main() {
         System.out.printf("%nАномалия скорости (v1.11, допуск 0.25 бл/т):%n");
         R a = run(VelocityCheck.KEEP, -1, 0, false, -1, false, 0);
-        ok(a.panic == null, "змейка 32×32, ванильная инерция", a);
+        ok(a.panic == null, "ряды 32×32, ванильная инерция", a);
         R b = run(0.55, -1, 0, false, -1, false, 0);
-        ok(b.panic == null, "змейка, инерция WalkSim 0.55", b);
+        ok(b.panic == null, "ряды, инерция WalkSim 0.55", b);
         R c = run(VelocityCheck.KEEP, -1, 0, false, -1, false, 150);
-        ok(c.panic == null, "змейка с остановками 20 т каждые 150 т", c);
+        ok(c.panic == null, "ряды с остановками 20 т каждые 150 т", c);
         R d = run(VelocityCheck.KEEP, 400, 0.6, false, -1, false, 0);
         ok(d.panic != null && d.panic.startsWith("Аномалия скорости"), "толчок 0.6 бл/т без пакета", d);
         R e = run(VelocityCheck.KEEP, 400, 0.6, true, -1, false, 0);
