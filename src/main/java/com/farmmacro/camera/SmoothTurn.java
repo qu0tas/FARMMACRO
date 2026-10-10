@@ -6,7 +6,8 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
 
 /**
- * Плавный детерминированный поворот камеры к заданному yaw/pitch.
+ * Плавный детерминированный поворот камеры к заданному yaw/pitch. С 1.6.0 — только для применения пресета
+ * по клавише/кнопке; автоход и привязки камеры к макросу камеру сами плавно не крутят.
  *
  * Вызывается каждый кадр сразу после того, как игра применила движение мыши
  * ({@code MouseHandler.handleAccumulatedMovement}, миксин {@code CameraTurnMixin}), и поворачивает игрока тем же
@@ -21,12 +22,9 @@ import net.minecraft.util.Mth;
 public final class SmoothTurn {
     private SmoothTurn() {}
 
-    public enum Owner { PRESET, WALKER }
-
     private static final float EASE_DEG = 12f;
 
     private static boolean active;
-    private static Owner owner;
     private static float targetYaw, targetPitch;
     private static double speed;
     private static long lastNs;
@@ -35,18 +33,15 @@ public final class SmoothTurn {
      * Начать (или перенацелить) поворот.
      * @param degPerSec ≤ 0 — мгновенно (в ближайший кадр)
      */
-    public static void turnTo(float yaw, float pitch, double degPerSec, Owner who) {
+    public static void turnTo(float yaw, float pitch, double degPerSec) {
         if (!active) lastNs = 0;
         targetYaw = yaw;
         targetPitch = Mth.clamp(pitch, -90f, 90f);
         speed = degPerSec;
-        owner = who;
         active = true;
     }
 
-    public static void stop(Owner who) { if (active && owner == who) active = false; }
-    public static void stopAll()       { active = false; }
-    public static boolean isActive(Owner who) { return active && owner == who; }
+    public static void stop()          { active = false; }
     public static boolean isActive()   { return active; }
 
     /** Сколько градусов осталось довернуть (0, если поворота нет). */
@@ -68,10 +63,7 @@ public final class SmoothTurn {
         float ey = Mth.wrapDegrees(targetYaw - p.getYRot());
         float ep = targetPitch - p.getXRot();
         double err = Math.hypot(ey, ep);
-        if (err < 0.01) {
-            if (owner == Owner.PRESET) active = false;
-            return;
-        }
+        if (err < 0.01) { active = false; return; }
         double step;
         if (speed <= 0) step = err;
         else {
@@ -81,7 +73,7 @@ public final class SmoothTurn {
         }
         float k = (float) (step / err);
         apply(p, ey * k, ep * k);
-        if (owner == Owner.PRESET && step >= err) active = false;
+        if (step >= err) active = false;
     }
 
     /** Повернуть как мышь (Entity.turn принимает «сырые» единицы, ×0.15 внутри). */

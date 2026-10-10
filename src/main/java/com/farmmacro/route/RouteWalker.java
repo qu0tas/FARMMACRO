@@ -1,6 +1,5 @@
 package com.farmmacro.route;
 
-import com.farmmacro.camera.SmoothTurn;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.macro.PlaybackSource;
@@ -13,21 +12,23 @@ import net.minecraft.client.player.LocalPlayer;
 
 /**
  * Автоход по маршруту из точек — источник воспроизведения для MacroManager. Решения принимает {@link WalkCore}:
- *  • yaw — к следующей точке через {@link SmoothTurn} с ограничением скорости ({@code routeTurnSpeed}), без случайности;
- *    pitch — свой у точки или общий у маршрута;
- *  • «вперёд» нажат, только когда камера смотрит на точку (ошибка yaw &lt; 35°), иначе стоим и доворачиваем;
+ *  • камеру сам НЕ поворачивает: yaw/pitch остаются такими, какие поставил игрок; если у маршрута выбран пресет
+ *    камеры — он ставится мгновенно при старте/на точке смены (PointRoute.settings.camera), дальше yaw/pitch не меняются;
+ *  • направление к точке раскладывается по осям текущего yaw и нажимается клавишами W/A/S/D (8 направлений);
  *  • точка достигнута в радиусе {@code routeReachRadius} по XZ или если её уже проскочили по ходу отрезка;
  *  • в точке её параметры (действие, присед, спринт, слот, pitch) включаются на отрезок до следующей, затем пауза
  *    и один прыжок, если заданы;
  *  • препятствия не обходит: «вперёд» нажат, а игрок почти не сдвинулся за {@code stuckThresholdTicks} —
  *    паника «Застрял»; отошёл от линии отрезка дальше {@code driftThreshold} — «Сошёл с маршрута».
- * Каждый свой поворот сообщается детектору паники (SmoothTurn → {@code PanicDetector.expectTurn}).
+ * Своих поворотов у автохода нет, поэтому детектор «Камера повернулась» ловит любое движение мыши.
  */
 public final class RouteWalker implements PlaybackSource {
     public static final RouteWalker INSTANCE = new RouteWalker();
 
     private final WalkCore core = new WalkCore();
     private final WalkCore.Out out = new WalkCore.Out();
+    private final com.farmmacro.camera.CameraBinding.Tracker camTracker = new com.farmmacro.camera.CameraBinding.Tracker();
+    private com.farmmacro.camera.CameraBinding camera;
     private boolean started;
 
     private RouteWalker() {}
@@ -42,7 +43,12 @@ public final class RouteWalker implements PlaybackSource {
 
     @Override
     public void startPass(Minecraft mc, int index) {
-        core.start(RouteBuffer.INSTANCE.route().copy(), index, ModConfig.INSTANCE.stuckThresholdTicks);
+        PointRoute r = RouteBuffer.INSTANCE.route().copy();
+        core.start(r, index, ModConfig.INSTANCE.stuckThresholdTicks);
+        camera = r.settings.camera;
+        camTracker.reset();
+        int from = Math.max(0, core.segment());
+        camTracker.update(mc, camera, from, "старт, точка " + (from + 1));
         started = true;
         int seg = core.segment();
         if (seg >= 0 && mc.player != null) applySlot(mc.player, core.points().get(seg).slot - 1);
@@ -51,11 +57,10 @@ public final class RouteWalker implements PlaybackSource {
     @Override public boolean passDone() { return started && core.done(); }
     @Override public int progress()      { return started ? core.target() : 0; }
     @Override public int resumeIndex()   { return started ? core.target() : 0; }
-    @Override public boolean controlsCamera(ModConfig c) { return true; }
+    @Override public boolean controlsCamera(ModConfig c) { return false; }
 
     @Override
     public void stop(Minecraft mc) {
-        SmoothTurn.stop(SmoothTurn.Owner.WALKER);
         started = false;
     }
 
@@ -82,15 +87,18 @@ public final class RouteWalker implements PlaybackSource {
         }
         if (core.done()) {
             release(o);
-            SmoothTurn.stop(SmoothTurn.Owner.WALKER);
             return false;
         }
-        SmoothTurn.turnTo(out.yaw, out.pitch, c.routeTurnSpeed, SmoothTurn.Owner.WALKER);
+        // точка смены камеры: «с точки N» — когда дошли до N (отрезок от неё), мгновенно, затем те же оси
+        int seg = Math.max(0, core.segment());
+        if (camTracker.update(mc, camera, seg, "точка " + (seg + 1))) core.resteer(p.getX(), p.getZ(), p.getYRot(), out);
         if (out.slot >= 0) applySlot(p, out.slot);
+        int hs = core.segment();
+        com.farmmacro.macro.MouseHold.INSTANCE.position(core.target(), hs >= 0 && hs < core.points().size() && core.points().get(hs).hold);
         MacroManager.press(o.keyUp, out.forward);
-        MacroManager.press(o.keyDown, false);
-        MacroManager.press(o.keyLeft, false);
-        MacroManager.press(o.keyRight, false);
+        MacroManager.press(o.keyDown, out.back);
+        MacroManager.press(o.keyLeft, out.left);
+        MacroManager.press(o.keyRight, out.right);
         MacroManager.press(o.keySprint, out.sprint);
         MacroManager.press(o.keyShift, out.sneak);
         MacroManager.press(o.keyAttack, out.attack);

@@ -7,8 +7,11 @@ package com.farmmacro.route;
 public class RoutePoint {
     public static final String NONE = "none", ATTACK = "attack", USE = "use";
 
-    /** Центр верхней грани блока. */
+    /** Куда идти: центр верхней грани блока + смещение (ox, oz). */
     public double x, y, z;
+    /** Смещение внутри блока по X/Z, −0.5…+0.5 (0 — центр). x = центр + ox, z = центр + oz. */
+    public double ox, oz;
+    public static final double OFFSET_MAX = 0.5;
     /** none | attack (держать ЛКМ) | use (держать ПКМ) — на отрезке до следующей точки. */
     public String  action = NONE;
     public boolean sneak, sprint;
@@ -18,8 +21,8 @@ public class RoutePoint {
     public int     slot;
     /** Пауза в точке перед следующим отрезком, тиков. */
     public int     pauseTicks;
-    /** Свой pitch на отрезке; null — pitch маршрута. */
-    public Float   pitch;
+    /** «Зажим мыши: по точкам» в настройках маршрута — держать выбранную кнопку на отрезке от этой точки. */
+    public boolean hold;
 
     public RoutePoint() {}
 
@@ -28,15 +31,51 @@ public class RoutePoint {
     public RoutePoint copy() {
         RoutePoint p = new RoutePoint(x, y, z);
         p.action = action; p.sneak = sneak; p.sprint = sprint; p.jump = jump;
-        p.slot = slot; p.pauseTicks = pauseTicks; p.pitch = pitch;
+        p.slot = slot; p.pauseTicks = pauseTicks; p.hold = hold;
+        p.ox = ox; p.oz = oz;
         return p;
     }
 
-    /** Те же параметры отрезка, другие координаты (для вставки и «змейки»). */
+    /** Те же параметры отрезка (и смещение) в другом блоке: nx/nz — центр нового блока. */
     public RoutePoint withPos(double nx, double ny, double nz) {
         RoutePoint p = copy();
-        p.x = nx; p.y = ny; p.z = nz;
+        p.moveCenter(nx, ny, nz);
         return p;
+    }
+
+    public double centerX() { return x - ox; }
+    public double centerZ() { return z - oz; }
+
+    /** Перенести в другой блок (cx/cz — центр), смещение сохраняется. */
+    public void moveCenter(double cx, double ny, double cz) {
+        x = cx + ox; y = ny; z = cz + oz;
+    }
+
+    public static final int FORWARD = 0, BACK = 1, LEFT = 2, RIGHT = 3;
+
+    /** Единичный сдвиг по X/Z для направления относительно взгляда yaw («вперёд» — ближайшая ось X/Z). */
+    public static double[] axisStep(float yaw, int dir) {
+        double r = Math.toRadians(yaw);
+        double fx = -Math.sin(r), fz = Math.cos(r);
+        if (Math.abs(fx) >= Math.abs(fz)) { fx = Math.signum(fx); fz = 0; } else { fz = Math.signum(fz); fx = 0; }
+        double rx = -fz, rz = fx;                  // вправо от взгляда
+        return switch (dir) {
+            case FORWARD -> new double[]{fx, fz};
+            case BACK -> new double[]{-fx, -fz};
+            case RIGHT -> new double[]{rx, rz};
+            default -> new double[]{-rx, -rz};
+        };
+    }
+
+    public static double clampOffset(double v) {
+        return Double.isFinite(v) ? Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, Math.round(v * 1e6) / 1e6)) : 0;
+    }
+
+    /** Задать смещение внутри блока (обрезается до ±0.5). */
+    public void setOffset(double nox, double noz) {
+        double cx = centerX(), cz = centerZ();
+        ox = clampOffset(nox); oz = clampOffset(noz);
+        x = cx + ox; z = cz + oz;
     }
 
     public boolean attack() { return ATTACK.equals(action); }
@@ -47,7 +86,11 @@ public class RoutePoint {
         if (!NONE.equals(action) && !ATTACK.equals(action) && !USE.equals(action)) action = NONE;
         slot = Math.max(0, Math.min(9, slot));
         pauseTicks = Math.max(0, Math.min(20 * 60, pauseTicks));
-        if (pitch != null && (!Float.isFinite(pitch) || pitch < -90 || pitch > 90)) pitch = null;
+        if (!Double.isFinite(ox) || !Double.isFinite(oz) || Math.abs(ox) > OFFSET_MAX || Math.abs(oz) > OFFSET_MAX) {
+            double cx = Double.isFinite(ox) ? x - ox : x, cz = Double.isFinite(oz) ? z - oz : z;
+            ox = clampOffset(ox); oz = clampOffset(oz);
+            x = cx + ox; z = cz + oz;
+        }
     }
 
     public boolean finite() { return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z); }

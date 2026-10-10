@@ -35,11 +35,30 @@ public final class FarmHud {
                 Target t = target(mc, pt);
                 y = drawStatus(g, mc, y);
                 y = drawEditor(g, mc, y);
+                y = drawHold(g, mc, y);
                 drawNavigator(g, mc, y, t);
                 drawCrosshairArrow(g, mc, t);
             }
             drawCountdown(g, mc);
         }));
+    }
+
+    // ── Цвета HUD (Визуал → HUD): «по умолчанию» — как раньше ─────────────────
+
+    /** Фон панелей: по умолчанию тёмно-синий 78 %, иначе выбранный цвет с той же прозрачностью. */
+    private static int bg() {
+        int rgb = com.farmmacro.visual.HatColors.rgbOr(ModConfig.INSTANCE.hudBgColor, -1);
+        return rgb < 0 ? 0xC8101420 : 0xC8000000 | rgb;
+    }
+
+    private static int accent() {
+        int rgb = com.farmmacro.visual.HatColors.rgbOr(ModConfig.INSTANCE.hudAccentColor, -1);
+        return rgb < 0 ? Ui.ACCENT : 0xFF000000 | rgb;
+    }
+
+    private static int accentHi() {
+        int rgb = com.farmmacro.visual.HatColors.rgbOr(ModConfig.INSTANCE.hudAccentColor, -1);
+        return rgb < 0 ? Ui.ACCENT_HI : 0xFF000000 | rgb;
     }
 
     // ── Статус ───────────────────────────────────────────────────────────────
@@ -76,7 +95,7 @@ public final class FarmHud {
         int x = sw - PANEL_W - MARGIN;
         boolean playing = st == MacroManager.State.PLAYING;
         int h = playing ? 46 : 36;
-        Ui.round(g, x, y, PANEL_W, h, 5, 0xC8101420);
+        Ui.round(g, x, y, PANEL_W, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
 
         Ui.circle(g, x + 9, y + 8, 2, blink || st != MacroManager.State.RECORDING ? col : Ui.alpha(col, 0.3f));
@@ -127,7 +146,8 @@ public final class FarmHud {
 
     private static final String[] EDITOR_HINTS = {
             "ЛКМ — точка · зажать — двигать", "Shift+ЛКМ — вставить", "ПКМ — удалить",
-            "Shift+ПКМ — параметры", "Ctrl+ЛКМ — углы «змейки»", "Ctrl+Z — отменить"};
+            "Shift+ПКМ — параметры", "Ctrl+ЛКМ — углы «змейки»", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
+            "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+Z — отменить"};
 
     private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int y) {
         if (!com.farmmacro.route.RouteEditor.isActive()) return y;
@@ -138,16 +158,39 @@ public final class FarmHud {
         String snake = com.farmmacro.route.SnakeTool.status();
         int h = 26 + EDITOR_HINTS.length * 10 + (snake != null ? 10 : 0);
         int col = 0xFFD08CFF;
-        Ui.round(g, x, y, w, h, 5, 0xC8101420);
+        Ui.round(g, x, y, w, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
         Ui.text(g, f, "РЕДАКТОР · " + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход", x + 8, y + 4, col);
         int sel = rb.selected();
-        String line = rb.size() + " точек" + (sel >= 0 ? " · выбрана " + (sel + 1) : "")
+        int many = rb.selection().size();
+        var sp = rb.get(sel);
+        String line = rb.size() + " точек" + (many > 1 ? " · выделено " + many : sel >= 0 ? " · выбрана " + (sel + 1) : "")
+                + (sp != null && (sp.ox != 0 || sp.oz != 0) ? " · смещ. " + com.farmmacro.gui.Rows.num(sp.ox) + "/" + com.farmmacro.gui.Rows.num(sp.oz) : "")
                 + (rb.isDirty() ? " · не сохранён" : "");
         Ui.text(g, f, Ui.ellipsize(f, line, w - 14), x + 8, y + 15, Ui.TEXT);
         int ly = y + 26;
         if (snake != null) { Ui.text(g, f, Ui.ellipsize(f, snake, w - 14), x + 8, ly, Ui.WARN); ly += 10; }
         for (String hint : EDITOR_HINTS) { Ui.text(g, f, Ui.ellipsize(f, hint, w - 14), x + 8, ly, Ui.SUB); ly += 10; }
+        return y + h + 4;
+    }
+
+    // ── Зажим мыши ───────────────────────────────────────────────────────────
+
+    /** Плашка «ЗАЖИМ ЛКМ» — ручной зажим или зажим от играющего макроса. */
+    private static int drawHold(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        var mh = com.farmmacro.macro.MouseHold.INSTANCE;
+        boolean manual = mh.isManual();
+        boolean attackNow = mh.wants(mc, mc.options.keyAttack), useNow = mh.wants(mc, mc.options.keyUse);
+        if (!manual && !attackNow && !useNow) return y;
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
+        int col = 0xFFFFB347;
+        String text = "ЗАЖИМ " + (attackNow || manual ? "ЛКМ" : "") + (useNow ? (attackNow || manual ? " + ПКМ" : "ПКМ") : "")
+                + (manual ? " · " + MacroManager.keyName(FarmMacroMod.keyHold) + " — выкл" : " · от макроса");
+        Ui.round(g, x, y, w, h, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
         return y + h + 4;
     }
 
@@ -160,7 +203,7 @@ public final class FarmHud {
     private static Target target(Minecraft mc, float pt) {
         MacroManager m = MacroManager.INSTANCE;
         LocalPlayer p = mc.player;
-        if (p == null || m.getState() != MacroManager.State.IDLE) return null;
+        if (p == null || m.getState() != MacroManager.State.IDLE || m.isNavDismissed()) return null;
         double tx, ty, tz; String title, hint;
         if (m.savedMatchesSource()) {
             tx = m.getSavedX(); ty = m.getSavedY(); tz = m.getSavedZ();
@@ -188,20 +231,20 @@ public final class FarmHud {
         Font f = mc.font;
         int sw = mc.getWindow().getGuiScaledWidth();
         int x = sw - PANEL_W - MARGIN, h = 36;
-        int accent = t.arrived() ? Ui.ON : Ui.ACCENT;
+        int accent = t.arrived() ? Ui.ON : accent();
 
         float pulse = (float) (0.55 + 0.45 * Math.sin(System.currentTimeMillis() / 300.0));
-        Ui.round(g, x, y, PANEL_W, h, 5, 0xC8101420);
+        Ui.round(g, x, y, PANEL_W, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, Ui.alpha(accent, 0.5f + 0.5f * pulse));
         Ui.text(g, f, Ui.ellipsize(f, t.arrived() ? "✔ На месте" : t.title(), PANEL_W - 44), x + 8, y + 4,
-                t.arrived() ? Ui.ON : Ui.ACCENT_HI);
+                t.arrived() ? Ui.ON : accentHi());
         Ui.text(g, f, distText(t), x + 8, y + 15, Ui.TEXT);
         Ui.text(g, f, Ui.ellipsize(f, t.hint(), PANEL_W - 40), x + 8, y + 25, Ui.SUB);
 
         int ax = x + PANEL_W - 18, ay = y + h / 2;
         Ui.circle(g, ax, ay, 12, 0xFF1C2230);
         if (t.dist() < 0.75) Ui.circle(g, ax, ay, 4, Ui.ON);
-        else drawArrow(g, ax, ay, t.relAngle(), t.arrived() ? Ui.ON : Ui.ACCENT_HI);
+        else drawArrow(g, ax, ay, t.relAngle(), t.arrived() ? Ui.ON : accentHi());
     }
 
     /** Маленькая стрелка вокруг прицела, указывает на цель; рядом расстояние. */
@@ -222,7 +265,7 @@ public final class FarmHud {
             float r = 17f;
             int ax = cx + Math.round((float) Math.sin(t.relAngle()) * r);
             int ay = cy - Math.round((float) Math.cos(t.relAngle()) * r);
-            drawArrow(g, ax, ay, t.relAngle(), Ui.alpha(t.arrived() ? Ui.ON : Ui.ACCENT_HI, 0.75f + 0.25f * pulse));
+            drawArrow(g, ax, ay, t.relAngle(), Ui.alpha(t.arrived() ? Ui.ON : accentHi(), 0.75f + 0.25f * pulse));
         }
         String d = distText(t);
         Ui.textCentered(g, mc.font, d, cx, cy + 24, Ui.alpha(t.arrived() ? Ui.ON : 0xFFFFFFFF, 0.9f));

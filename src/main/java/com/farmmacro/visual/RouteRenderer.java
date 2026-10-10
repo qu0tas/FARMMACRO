@@ -146,6 +146,12 @@ public final class RouteRenderer {
         final boolean actions = c.routeShowActions;
         final String xray = editorActive && "off".equals(c.routeSeeThrough) ? "dim" : c.routeSeeThrough;
         aheadRgb = HatColors.rgb(c.routeColor);
+        pointRgb = HatColors.rgbOr(c.routePointColor, C_POINT);
+        startRgb = HatColors.rgbOr(c.routeStartColor, C_START);
+        stopRgb = HatColors.rgbOr(c.routeStopColor, C_STOP);
+        arrowRgb = HatColors.rgbOr(c.routeArrowColor, 0xFFFFFF);
+        previewRgb = HatColors.rgbOr(c.snakePreviewColor, C_PREVIEW);
+        cornerRgb = HatColors.rgbOr(c.snakePreviewColor, C_CORNER);
         opacity = c.routeOpacity / 100f;
         glow = c.routeGlow;
         long ms = System.currentTimeMillis();
@@ -175,20 +181,24 @@ public final class RouteRenderer {
         List<com.farmmacro.route.RoutePoint> pts = RouteBuffer.INSTANCE.points();
         double r = Math.min(c.routeRadius, 48);
         double r2 = r * r;
-        int sel = RouteBuffer.INSTANCE.selected(), shown = 0;
+        int sel = editorActive ? RouteBuffer.INSTANCE.selected() : -1, shown = 0;
+        int lrgb = HatColors.rgbOr(c.routeLabelColor, 0xAAAAAA);   // по умолчанию серый, как §7
         var camState = ctx.levelState().cameraRenderState;
         for (int i = 0; i < pts.size() && shown < 160; i++) {
             var q = pts.get(i);
             double dx = q.x - me.x, dz = q.z - me.z;
             if (dx * dx + dz * dz > r2) continue;
             shown++;
+            // номер: выбранная — жёлтый, наведённая — белый, остальные — цвет из настроек
+            int numRgb = i == sel ? 0xFFFF55 : editorActive && i == editorHover ? 0xFFFFFF : lrgb;
+            var text = net.minecraft.network.chat.Component.literal(String.valueOf(i + 1)).withColor(numRgb);
             StringBuilder t = new StringBuilder();
-            t.append(i == sel ? "§e" : i == editorHover ? "§f" : "§7").append(i + 1);
             if (q.pauseTicks > 0) t.append(" §6⏸").append(q.pauseTicks);
             if (q.slot > 0) t.append(" §b[").append(q.slot).append(']');
+            if (!t.isEmpty()) text.append(net.minecraft.network.chat.Component.literal(t.toString()));
             Vec3 rel = new Vec3(q.x - cam.x, q.y + 0.25 - cam.y, q.z - cam.z);
             ctx.submitNodeCollector().submitNameTag(ctx.poseStack(), rel, 0,
-                    net.minecraft.network.chat.Component.literal(t.toString()), true,
+                    text, true,
                     net.minecraft.util.LightCoordsUtil.FULL_BRIGHT, rel.lengthSqr(), camState);
         }
     }
@@ -199,6 +209,9 @@ public final class RouteRenderer {
     private static int aheadRgb = 0x38D6FF;
     private static float opacity = 0.9f;
     private static boolean glow = true;
+    /** Цвета из настроек «Визуал» (по умолчанию — константы ниже). */
+    private static int pointRgb = 0xD8F4FF, startRgb = 0x4DFF88, stopRgb = 0xFF4D4D, arrowRgb = 0xFFFFFF,
+            previewRgb = 0xB98CFF, cornerRgb = 0xFFB547;
     private static final int C_ATTACK = 0xFFA23A, C_USE = 0xC77DFF;
     private static final int C_START = 0x4DFF88, C_STOP = 0xFF4D4D, C_CUR = 0xFFF6B0;
     private static final int C_JUMP = 0xFFE14D, C_SNEAK = 0xFF6FCF;
@@ -237,7 +250,7 @@ public final class RouteRenderer {
                 if (dx * dx + dz * dz > r2) continue;
                 boolean passed = cur >= 0 && p.aFrame[i] <= cur;
                 chevron(b, p.ax[i], p.ay[i] + 0.01f, p.az[i], p.adx[i], p.adz[i], s,
-                        passed ? dim(aheadRgb) : 0xFFFFFF, passed ? 0.35f : Math.max(0.5f, opacity));
+                        passed ? dim(aheadRgb) : arrowRgb, passed ? 0.35f : Math.max(0.5f, opacity));
             }
         }
         // прыжок / приседание
@@ -252,7 +265,7 @@ public final class RouteRenderer {
         }
         // маркеры: старт, точка остановки, текущая позиция
         if (!rec && p.size > 0) {
-            beacon(b, p.x[0], p.y[0], p.z[0], cx, cy, cz, C_START, 0.9f);
+            beacon(b, p.x[0], p.y[0], p.z[0], cx, cy, cz, startRgb, 0.9f);
         }
         if (m.savedMatchesSource() && !rec) {
             // точка остановки хранится в мировых координатах — вернуть в координаты маршрута
@@ -261,7 +274,7 @@ public final class RouteRenderer {
             float oy = (float) (rel ? m.getOffsetY() : 0);
             float oz = (float) (rel ? m.getOffsetZ() : 0);
             beacon(b, (float) m.getSavedX() - ox, (float) m.getSavedY() - oy, (float) m.getSavedZ() - oz,
-                    cx, cy, cz, C_STOP, 0.9f);
+                    cx, cy, cz, stopRgb, 0.9f);
         }
         if (!pts && cur >= 0 && cur < m.getFrameCount()) {
             MacroFrame f = m.getFrames().get(cur);
@@ -277,7 +290,9 @@ public final class RouteRenderer {
     private static void emitPoints(Builder b, ModConfig c, float px, float pz, float r2,
                                    float cx, float cy, float cz, int cur, float pulse) {
         List<com.farmmacro.route.RoutePoint> pts = RouteBuffer.INSTANCE.points();
-        int sel = RouteBuffer.INSTANCE.selected();
+        // выбранная/наведённая точка — только в редакторе (раньше жёлтый столб оставался на последней точке после стопа)
+        int sel = editorActive ? RouteBuffer.INSTANCE.selected() : -1;
+        int hov = editorActive ? editorHover : -1;
         int target = cur >= 0 ? (cur + RoutePath.FRAME_SCALE - 1) / RoutePath.FRAME_SCALE : -1;
         for (int i = 0; i < pts.size(); i++) {
             var q = pts.get(i);
@@ -287,32 +302,47 @@ public final class RouteRenderer {
             if (i == sel) {
                 billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.2f + 0.04f * pulse, C_SEL, 0.95f);
                 ribbon(b, x, y, z, x, y + 1.1f, z, cx, cy, cz, 0.035f, C_SEL, 0.8f);
-            } else if (i == editorHover) {
+            } else if (editorActive && RouteBuffer.INSTANCE.isMarked(i)) {
+                billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.15f, C_SEL, 0.85f);
+            } else if (i == hov) {
                 billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.17f, C_HOVER, 0.95f);
             } else if (i == target) {
                 billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.15f + 0.05f * pulse, C_TARGET, 0.95f);
             } else {
-                billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.1f, q.pauseTicks > 0 ? C_ATTACK : C_POINT, 0.85f);
+                billboard(b, x, y + 0.12f, z, cx, cy, cz, 0.1f, q.pauseTicks > 0 ? C_ATTACK : pointRgb, 0.85f);
             }
         }
-        double[] a = editorCornerA, bb = editorCornerB;
-        if (a != null) beacon(b, (float) a[0], (float) a[1], (float) a[2], cx, cy, cz, C_CORNER, 0.9f);
-        if (bb != null) beacon(b, (float) bb[0], (float) bb[1], (float) bb[2], cx, cy, cz, C_CORNER, 0.9f);
+        // в редакторе: у смещённых точек — тонкая линия от центра блока
+        if (editorActive) {
+            for (int i = 0; i < pts.size(); i++) {
+                var q = pts.get(i);
+                if (q.ox == 0 && q.oz == 0) continue;
+                float x = (float) q.x, y = (float) q.y + 0.03f, z = (float) q.z;
+                float dx = x - px, dz = z - pz;
+                if (dx * dx + dz * dz > r2) continue;
+                float ccx = (float) q.centerX(), ccz = (float) q.centerZ();
+                ribbon(b, ccx, y, ccz, x, y, z, cx, cy, cz, 0.012f, 0x9AA4B5, 0.7f);
+                billboard(b, ccx, y + 0.02f, ccz, cx, cy, cz, 0.035f, 0x9AA4B5, 0.7f);
+            }
+        }
+        double[] a = editorActive ? editorCornerA : null, bb = editorActive ? editorCornerB : null;
+        if (a != null) beacon(b, (float) a[0], (float) a[1], (float) a[2], cx, cy, cz, cornerRgb, 0.9f);
+        if (bb != null) beacon(b, (float) bb[0], (float) bb[1], (float) bb[2], cx, cy, cz, cornerRgb, 0.9f);
         if (a != null && bb != null) {
             float x0 = (float) Math.min(a[0], bb[0]) - 0.5f, x1 = (float) Math.max(a[0], bb[0]) + 0.5f;
             float z0 = (float) Math.min(a[2], bb[2]) - 0.5f, z1 = (float) Math.max(a[2], bb[2]) + 0.5f;
             float y = (float) Math.max(a[1], bb[1]) + 0.02f;
-            ribbon(b, x0, y, z0, x1, y, z0, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
-            ribbon(b, x1, y, z0, x1, y, z1, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
-            ribbon(b, x1, y, z1, x0, y, z1, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
-            ribbon(b, x0, y, z1, x0, y, z0, cx, cy, cz, 0.03f, C_CORNER, 0.8f);
+            ribbon(b, x0, y, z0, x1, y, z0, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
+            ribbon(b, x1, y, z0, x1, y, z1, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
+            ribbon(b, x1, y, z1, x0, y, z1, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
+            ribbon(b, x0, y, z1, x0, y, z0, cx, cy, cz, 0.03f, cornerRgb, 0.8f);
         }
-        List<com.farmmacro.route.RoutePoint> pv = editorPreview;
+        List<com.farmmacro.route.RoutePoint> pv = editorActive ? editorPreview : null;
         if (pv != null) {
             for (int i = 1; i < pv.size(); i++) {
                 var p0 = pv.get(i - 1); var p1 = pv.get(i);
                 ribbon(b, (float) p0.x, (float) p0.y + 0.03f, (float) p0.z, (float) p1.x, (float) p1.y + 0.03f, (float) p1.z,
-                        cx, cy, cz, 0.04f, C_PREVIEW, 0.75f);
+                        cx, cy, cz, 0.04f, previewRgb, 0.75f);
             }
         }
     }
@@ -338,7 +368,9 @@ public final class RouteRenderer {
         if (glow) {
             ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w * 2.6f, rgb, a * 0.22f);
             ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w, rgb, a);
-            ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w * 0.35f, HatColors.lighten(rgb, 0.6f), Math.min(1f, a + 0.1f));
+            // светлая середина; у тёмных цветов (чёрный, тёмно-серый) почти не светлеет — лента остаётся тёмной
+            float k = HatColors.luma(rgb) < 70 ? 0.12f : 0.6f;
+            ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w * 0.35f, HatColors.lighten(rgb, k), Math.min(1f, a + 0.1f));
         } else {
             ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w, rgb, a);
         }

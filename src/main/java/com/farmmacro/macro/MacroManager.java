@@ -51,6 +51,11 @@ public class MacroManager {
 
     private final List<MacroFrame> frames = new ArrayList<>();
     private String loadedName;          // null — несохранённая запись
+    /** Настройки текущего макроса (камера: from — индекс кадра). Сохраняются в файл макроса (v4). */
+    private MacroSettings settings = new MacroSettings();
+    /** Настройки поменяли в окне, а файл ещё старый. */
+    private boolean settingsDirty;
+    private final com.farmmacro.camera.CameraBinding.Tracker camTracker = new com.farmmacro.camera.CameraBinding.Tracker();
     private State  state = State.IDLE;
 
     // воспроизведение (общее)
@@ -84,9 +89,12 @@ public class MacroManager {
         if (state != State.RECORDING) {
             frames.clear();
             loadedName = null;
+            settings = new MacroSettings();
+            settingsDirty = false;
             clearSavedPosition();
             state = State.RECORDING;
             sourceKind = SourceKind.RECORDING;
+            navDismissed = false;
             msg(mc, "§c● Запись началась §7(" + keyName(com.farmmacro.FarmMacroMod.keyRecord) + " — стоп)");
         } else {
             state = State.IDLE;
@@ -113,25 +121,53 @@ public class MacroManager {
         if (state == State.PLAYING || state == State.COUNTDOWN) { msg(mc, "§cСначала останови воспроизведение"); return; }
         frames.clear();
         loadedName = null;
+        settings = new MacroSettings();
+        settingsDirty = false;
         state = State.IDLE;
         clearSavedPosition();
         msg(mc, "§7Буфер макроса очищен.");
     }
 
     /** Загрузить сохранённый макрос в буфер. */
-    public boolean loadMacro(String name, List<MacroFrame> loaded, Minecraft mc) {
+    public boolean loadMacro(String name, List<MacroFrame> loaded, MacroSettings set, Minecraft mc) {
         if (state != State.IDLE) { msg(mc, "§cСначала останови запись/воспроизведение"); return false; }
+        saveSettingsIfDirty();
         frames.clear();
         frames.addAll(loaded);
         loadedName = name;
+        settings = set == null ? new MacroSettings() : set;
+        settingsDirty = false;
         clearSavedPosition();
         sourceKind = SourceKind.RECORDING;
+        navDismissed = false;
         msg(mc, "§aЗагружен «" + name + "»: " + formatTicks(frames.size()) + ". "
                 + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — запуск");
         return true;
     }
 
-    public void markSaved(String name) { loadedName = name; }
+    public void markSaved(String name) { loadedName = name; settingsDirty = false; }
+
+    // ── Настройки макроса ────────────────────────────────────────────────────
+
+    public MacroSettings getSettings() { return settings; }
+    public com.farmmacro.camera.CameraBinding getCamera() { return settings.camera; }
+
+    /** Окно настроек поменяло настройки (в файл уйдёт при закрытии окна/меню или загрузке другого макроса). */
+    public void settingsChanged() { settingsDirty = true; }
+    public boolean isSettingsDirty() { return settingsDirty; }
+
+    /** Настройки записаны в файл загруженного макроса снаружи (⚙ у карточки) — взять копию, файл уже свежий. */
+    public void replaceSettings(MacroSettings s) {
+        if (state != State.IDLE || s == null) return;
+        settings = s;
+        settingsDirty = false;
+    }
+
+    /** Дописать изменённые настройки в файл загруженного макроса. */
+    public void saveSettingsIfDirty() {
+        if (!settingsDirty || loadedName == null || frames.isEmpty()) return;
+        if (MacroStorage.INSTANCE.save(loadedName, frames, settings)) settingsDirty = false;
+    }
 
     // ── Воспроизведение ──────────────────────────────────────────────────────
 
@@ -192,6 +228,7 @@ public class MacroManager {
 
         PanicDetector.INSTANCE.silence();
         com.farmmacro.route.RouteEditor.setActive(mc, false);
+        navDismissed = false;
         if (resume) clearSavedPosition();
         pendingStartIndex = index;
         pendingSource = src;
@@ -209,6 +246,8 @@ public class MacroManager {
         loopsDone = 0;
         runStartMs = System.currentTimeMillis();
         if (sessionStartMs == 0) sessionStartMs = runStartMs;
+        MouseHold.INSTANCE.begin(source == recordingSource ? settings.hold
+                : com.farmmacro.route.RouteBuffer.INSTANCE.settings().hold, source != recordingSource);
         startPass(mc, pendingStartIndex);
         LOGGER.info("Старт ({}), пороги: {}", source == recordingSource ? "запись" : "маршрут",
                 ModConfig.INSTANCE.describeThresholds());
@@ -232,6 +271,7 @@ public class MacroManager {
             if (source != null) source.stop(mc);
             source = null;
             releaseAll(mc);
+            clearTransient();
             return;
         }
         ModConfig c = ModConfig.INSTANCE;
@@ -257,6 +297,7 @@ public class MacroManager {
             startPass(mc, 0);
         }
 
+        MouseHold.INSTANCE.tickRun();
         source.tick(mc, c);          // паника из источника сама остановит макрос
     }
 
@@ -272,6 +313,8 @@ public class MacroManager {
         public void startPass(Minecraft mc, int index) {
             playbackIndex = index;
             passStartIndex = index;
+            camTracker.reset();
+            camTracker.update(mc, settings.camera, index, "старт, кадр " + (index + 1));
             LocalPlayer p = mc.player;
             MacroFrame f = frames.get(index);
             offX = p.getX() - f.x; offY = p.getY() - f.y; offZ = p.getZ() - f.z;
@@ -287,7 +330,8 @@ public class MacroManager {
 
         public int resumeIndex() { return Math.max(0, Math.min(playbackIndex - 1, frames.size() - 1)); }
 
-        public boolean controlsCamera(ModConfig c) { return c.replayCamera; }
+        /** Камеру крутит запись («Повторять камеру»), только если не выбран пресет камеры. */
+        public boolean controlsCamera(ModConfig c) { return c.replayCamera && !settings.camera.active(); }
 
         public boolean tick(Minecraft mc, ModConfig c) {
             LocalPlayer p = mc.player;
@@ -300,11 +344,14 @@ public class MacroManager {
             MacroFrame f = frames.get(playbackIndex);
             p.getInventory().setSelectedSlot(f.selectedSlot);
             PanicDetector.INSTANCE.expectSlot(f.selectedSlot);
-            if (c.replayCamera) {
+            if (settings.camera.active()) {
+                camTracker.update(mc, settings.camera, playbackIndex, "кадр " + (playbackIndex + 1));
+            } else if (c.replayCamera) {
                 p.setYRot(f.yaw);
                 p.setXRot(f.pitch);
                 PanicDetector.INSTANCE.expectRotation(f.yaw, f.pitch);
             }
+            MouseHold.INSTANCE.position(playbackIndex, false);
             Options o = mc.options;
             press(o.keyUp, f.forward);
             press(o.keyDown, f.back);
@@ -350,7 +397,7 @@ public class MacroManager {
     }
 
     private void tickCountdown(Minecraft mc) {
-        if (mc.player == null) { state = State.IDLE; return; }
+        if (mc.player == null) { state = State.IDLE; releaseAll(mc); return; }
         if (countdownTicks % 20 == 0) {
             mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_HAT.value(), 1.6f, 0.8f));
         }
@@ -379,9 +426,45 @@ public class MacroManager {
     public void forceStop(Minecraft mc) {
         state = State.IDLE;
         playbackIndex = 0;
-        com.farmmacro.camera.SmoothTurn.stop(com.farmmacro.camera.SmoothTurn.Owner.WALKER);
         source = null;
         releaseAll(mc);
+        com.farmmacro.util.Guard.run("transient/clear", MacroManager::clearTransient);
+    }
+
+    /**
+     * Убрать всё временное: выбранную/наведённую точку, выделение и превью «змейки» (если редактор закрыт).
+     * Вызывается при стопе, панике, аварийной остановке, End, выходе из мира.
+     */
+    public static void clearTransient() {
+        com.farmmacro.visual.RouteRenderer.editorHover = -1;
+        if (!com.farmmacro.route.RouteEditor.isActive()) {
+            com.farmmacro.route.SnakeTool.reset();
+            if (com.farmmacro.route.RouteBuffer.INSTANCE.selected() >= 0) com.farmmacro.route.RouteBuffer.INSTANCE.select(-1);
+        }
+    }
+
+    /** End: остановить (без точки возобновления), сбросить точку остановки, зажим мыши, всё временное и навигатор. */
+    public void resetAll(Minecraft mc) {
+        boolean wasActive = isActive();
+        if (wasActive) stopInternal(mc, false);
+        boolean held = MouseHold.INSTANCE.isManual() || MouseHold.INSTANCE.running() != null;
+        clearSavedPosition();
+        MouseHold.INSTANCE.stopAll(mc);
+        clearTransient();
+        navDismissed = true;
+        msg(mc, (wasActive ? "§e■ Стоп и сброс" : "§7Сброшено") + "§7: точка остановки, указатели"
+                + (held ? ", зажим мыши" : "") + " · навигатор вернётся при запуске или загрузке");
+    }
+
+    /** Навигатор (HUD) скрыт клавишей End до следующего запуска/загрузки/записи. */
+    private boolean navDismissed;
+    public boolean isNavDismissed() { return navDismissed; }
+    public void showNav() { navDismissed = false; }
+
+    /** Точка остановки маршрута не относится к новому маршруту (загрузили другой / очистили). */
+    public void routeUnloaded() {
+        if (savedKind == SourceKind.ROUTE) clearSavedPosition();
+        clearTransient();
     }
 
     private void stopInternal(Minecraft mc, boolean keepResume) {
@@ -393,26 +476,31 @@ public class MacroManager {
             savedY = mc.player.getY();
             savedZ = mc.player.getZ();
             hasSavedPosition = true;
+            navDismissed = false;
         }
         if (source != null) source.stop(mc);
         source = null;
         state = State.IDLE;
         playbackIndex = 0;
         releaseAll(mc);
+        clearTransient();
     }
 
     // ── Клавиши ──────────────────────────────────────────────────────────────
 
+    /** Нажать/отпустить клавишу от источника. ЛКМ/ПКМ остаются зажатыми, если их держит «Зажим мыши». */
     public static void press(KeyMapping key, boolean down) {
         // жмём ту клавишу, на которую игрок реально назначил действие
-        KeyMapping.set(KeyMappingHelper.getBoundKeyOf(key), down);
+        KeyMapping.set(KeyMappingHelper.getBoundKeyOf(key), down || MouseHold.INSTANCE.wants(Minecraft.getInstance(), key));
     }
 
+    /** Отпустить всё — без учёта «Зажима мыши» (его выключают до этого). */
     private static void releaseAll(Minecraft mc) {
+        MouseHold.INSTANCE.stopAll(mc);
         Options o = mc.options;
         if (o == null) return;
         for (KeyMapping k : new KeyMapping[]{o.keyUp, o.keyDown, o.keyLeft, o.keyRight, o.keyJump,
-                o.keyShift, o.keySprint, o.keyAttack, o.keyUse}) press(k, false);
+                o.keyShift, o.keySprint, o.keyAttack, o.keyUse}) KeyMapping.set(KeyMappingHelper.getBoundKeyOf(k), false);
     }
 
     // ── Геттеры для GUI/HUD ──────────────────────────────────────────────────

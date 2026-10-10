@@ -34,7 +34,11 @@ public final class RouteEditor {
     private static int hover = -1;
     private static int dragIndex = -1;
     private static boolean dragMoved;
-    private static boolean undoWasDown;
+    private static boolean undoWasDown, selAllWasDown;
+    /** Стрелки: какая была нажата в прошлом тике, сколько тиков держится, когда был последний сдвиг (для Ctrl+Z одним шагом). */
+    private static int arrowHeld = -1, arrowTicks;
+    private static long lastNudgeMs;
+    private static List<Integer> lastNudgeSel = List.of();
 
     public static boolean isActive() { return active; }
     public static int hovered()      { return hover; }
@@ -58,6 +62,7 @@ public final class RouteEditor {
             msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+ЛКМ — «змейка», "
                     + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход");
         } else {
+            RouteBuffer.INSTANCE.select(-1);         // подсветка выбранной точки — только в редакторе
             msg(mc, "§7Редактор закрыт: " + RouteBuffer.INSTANCE.size() + " точек"
                     + (RouteBuffer.INSTANCE.isDirty() ? " §e(не сохранено — меню → Макросы → Маршруты)" : ""));
         }
@@ -69,6 +74,13 @@ public final class RouteEditor {
         LocalPlayer p = mc.player;
         if (p == null) return;
         boolean ctrl = mc.hasControlDown(), shift = mc.hasShiftDown();
+        if (mc.hasAltDown()) {                   // Alt+ЛКМ — добавить/убрать из выделения
+            int h = pickPoint(mc);
+            if (h < 0) { msg(mc, "§7Alt+ЛКМ — по точке, чтобы выделить несколько"); return; }
+            RouteBuffer.INSTANCE.toggleMark(h);
+            msg(mc, "§7Выделено точек: " + RouteBuffer.INSTANCE.selection().size() + " · стрелки — сдвиг в блоке");
+            return;
+        }
         if (ctrl) {                              // угол выделения
             Vec3 at = targetPoint(mc);
             if (at == null) { msg(mc, "§7Наведи прицел на блок"); return; }
@@ -117,7 +129,11 @@ public final class RouteEditor {
     public static void tick(Minecraft mc) {
         if (!active) return;
         LocalPlayer p = mc.player;
-        if (p == null || mc.level == null) { active = false; RouteRenderer.editorActive = false; SnakeTool.reset(); return; }
+        if (p == null || mc.level == null) {
+            active = false; RouteRenderer.editorActive = false; RouteRenderer.editorHover = -1;
+            SnakeTool.reset(); RouteBuffer.INSTANCE.select(-1);
+            return;
+        }
         if (MacroManager.INSTANCE.getState() != MacroManager.State.IDLE) { setActive(mc, false); return; }
 
         // перетаскивание
@@ -127,7 +143,7 @@ public final class RouteEditor {
             } else {
                 Vec3 at = targetPoint(mc);
                 RoutePoint q = RouteBuffer.INSTANCE.get(dragIndex);
-                if (at != null && (Math.abs(at.x - q.x) > 1e-3 || Math.abs(at.z - q.z) > 1e-3 || Math.abs(at.y - q.y) > 1e-3)) {
+                if (at != null && (Math.abs(at.x - q.centerX()) > 1e-3 || Math.abs(at.z - q.centerZ()) > 1e-3 || Math.abs(at.y - q.y) > 1e-3)) {
                     if (!dragMoved) { RouteBuffer.INSTANCE.snapshot(); dragMoved = true; }
                     RouteBuffer.INSTANCE.moveNoUndo(dragIndex, at.x, at.y, at.z);
                 }
@@ -143,9 +159,58 @@ public final class RouteEditor {
         }
         undoWasDown = z;
 
+        // Ctrl+A — выделить все / снять выделение
+        boolean selAll = mc.screen == null && mc.hasControlDown()
+                && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_A);
+        if (selAll && !selAllWasDown) {
+            RouteBuffer rb = RouteBuffer.INSTANCE;
+            if (rb.markedCount() >= rb.size() && rb.size() > 0) { rb.select(-1); msg(mc, "§7Выделение снято"); }
+            else { rb.markAll(); msg(mc, "§7Выделены все точки: " + rb.size() + " · стрелки — сдвиг в блоке"); }
+        }
+        selAllWasDown = selAll;
+
+        tickArrows(mc);
+
         hover = dragIndex >= 0 ? dragIndex : pickPoint(mc);
         RouteRenderer.editorHover = hover;
         SnakeTool.tick(mc);
+    }
+
+    // ── Смещение в блоке стрелками ───────────────────────────────────────────
+
+    private static final int[] ARROWS = {InputConstants.KEY_UP, InputConstants.KEY_DOWN, InputConstants.KEY_LEFT, InputConstants.KEY_RIGHT};
+
+    /**
+     * Стрелки сдвигают выделенные точки внутри блока: ↑/↓ — вперёд/назад, ←/→ — влево/вправо относительно взгляда
+     * (по ближайшей оси X/Z). Шаг — routeOffsetStep, с Shift — routeOffsetFineStep. Держать — повтор каждые 2 тика.
+     * Серия нажатий подряд (пауза < 1 с, то же выделение) — один шаг Ctrl+Z.
+     */
+    private static void tickArrows(Minecraft mc) {
+        int key = -1;
+        if (mc.screen == null && !mc.hasControlDown() && !mc.hasAltDown())
+            for (int k : ARROWS) if (InputConstants.isKeyDown(mc.getWindow(), k)) { key = k; break; }
+        if (key < 0) { arrowHeld = -1; arrowTicks = 0; return; }
+        boolean fire = key != arrowHeld || (arrowTicks >= 7 && arrowTicks % 2 == 1);
+        arrowTicks = key == arrowHeld ? arrowTicks + 1 : 0;
+        arrowHeld = key;
+        if (!fire) return;
+        RouteBuffer rb = RouteBuffer.INSTANCE;
+        List<Integer> sel = rb.selection();
+        if (sel.isEmpty()) { msg(mc, "§7Выбери точку (ЛКМ), Alt+ЛКМ — ещё, Ctrl+A — все; стрелки сдвигают в блоке"); return; }
+        ModConfig c = ModConfig.INSTANCE;
+        double step = mc.hasShiftDown() ? c.routeOffsetFineStep : c.routeOffsetStep;
+        int dir = key == InputConstants.KEY_UP ? RoutePoint.FORWARD : key == InputConstants.KEY_DOWN ? RoutePoint.BACK
+                : key == InputConstants.KEY_RIGHT ? RoutePoint.RIGHT : RoutePoint.LEFT;
+        double[] d = RoutePoint.axisStep(mc.player.getYRot(), dir);
+        long now = System.currentTimeMillis();
+        boolean snap = now - lastNudgeMs > 1000 || !sel.equals(lastNudgeSel);
+        rb.nudge(sel, d[0] * step, d[1] * step, snap);
+        lastNudgeMs = now;
+        lastNudgeSel = sel;
+        RoutePoint p = rb.get(sel.get(0));
+        msg(mc, String.format(java.util.Locale.ROOT, "§bСмещение%s: X %+.3f  Z %+.3f §7(шаг %s%s) · Ctrl+Z — отменить",
+                sel.size() == 1 ? " точки " + (sel.get(0) + 1) : " " + sel.size() + " точек (у первой)", p.ox, p.oz,
+                com.farmmacro.gui.Rows.num(step), mc.hasShiftDown() ? ", мелкий" : ""));
     }
 
     // ── Прицел ───────────────────────────────────────────────────────────────

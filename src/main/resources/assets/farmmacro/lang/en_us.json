@@ -5,11 +5,12 @@
   "key.farmmacro.clear": "FarmMacro: Clear Recording",
   "key.farmmacro.gui": "FarmMacro: Open GUI",
   "key.farmmacro.resume": "FarmMacro: Resume from saved position",
-  "key.farmmacro.resetpos": "FarmMacro: Reset saved position",
+  "key.farmmacro.resetpos": "FarmMacro: Stop & reset (resume point, markers, hold)",
   "subtitles.farmmacro.panic": "FarmMacro: panic",
   "subtitles.farmmacro.done": "FarmMacro: macro finished",
-  "key.farmmacro.cam_apply": "FarmMacro: Camera — turn to preset",
+  "key.farmmacro.cam_apply": "FarmMacro: Camera — apply preset",
   "key.farmmacro.cam_next": "FarmMacro: Camera — next preset",
   "key.farmmacro.cam_save": "FarmMacro: Camera — save current view",
-  "key.farmmacro.editor": "FarmMacro: Route editor"
+  "key.farmmacro.editor": "FarmMacro: Route editor",
+  "key.farmmacro.hold": "FarmMacro: Hold LMB on/off"
 }

@@ -23,6 +23,8 @@ public final class RouteBuffer {
     private boolean dirty;
     private int revision;
     private int selected = -1;
+    /** Дополнительно выделенные точки (Alt+ЛКМ, Ctrl+A) — для группового смещения. Сбрасываются при изменении состава. */
+    private final java.util.TreeSet<Integer> marked = new java.util.TreeSet<>();
     private final Deque<PointRoute> undo = new ArrayDeque<>();
 
     private RouteBuffer() {}
@@ -36,7 +38,56 @@ public final class RouteBuffer {
     public String loadedName()        { return loadedName; }
     public boolean isDirty()          { return dirty; }
     public int  selected()            { return selected < size() ? selected : -1; }
-    public void select(int i)         { selected = i >= 0 && i < size() ? i : -1; revision++; }
+    public void select(int i)         { selected = i >= 0 && i < size() ? i : -1; if (selected < 0) marked.clear(); revision++; }
+
+    // ── Выделение нескольких точек ──
+    public boolean isMarked(int i)    { return marked.contains(i); }
+    public int markedCount()          { return marked.size(); }
+    /** Alt+ЛКМ: добавить/убрать точку из выделения (выбранная тоже считается выделенной). */
+    public void toggleMark(int i) {
+        if (get(i) == null) return;
+        if (!marked.remove(i)) marked.add(i);
+        if (selected < 0) selected = i;
+        revision++;
+    }
+    public void markAll() { marked.clear(); for (int i = 0; i < size(); i++) marked.add(i); if (selected < 0 && size() > 0) selected = 0; revision++; }
+    public void clearMarks() { marked.clear(); revision++; }
+    /** Выделенные точки: отмеченные + выбранная, по порядку. */
+    public List<Integer> selection() {
+        java.util.TreeSet<Integer> all = new java.util.TreeSet<>();
+        for (int i : marked) if (i < size()) all.add(i);
+        if (selected() >= 0) all.add(selected());
+        return new java.util.ArrayList<>(all);
+    }
+
+    /** Сдвинуть смещение выделенных точек на (dx, dz), каждая обрезается до ±0.5. snapshot — сделать снимок для Ctrl+Z. */
+    public int nudge(List<Integer> which, double dx, double dz, boolean snapshot) {
+        if (which.isEmpty()) return 0;
+        if (snapshot) snapshot();
+        int n = 0;
+        for (int i : which) {
+            RoutePoint p = get(i);
+            if (p == null) continue;
+            p.setOffset(p.ox + dx, p.oz + dz);
+            n++;
+        }
+        changed();
+        return n;
+    }
+
+    /** Задать одно и то же смещение точкам (одно действие для Ctrl+Z). */
+    public void setOffset(List<Integer> which, double ox, double oz) {
+        if (which.isEmpty()) return;
+        snapshot();
+        for (int i : which) { RoutePoint p = get(i); if (p != null) p.setOffset(ox, oz); }
+        changed();
+    }
+
+    public List<Integer> all() {
+        List<Integer> l = new java.util.ArrayList<>(size());
+        for (int i = 0; i < size(); i++) l.add(i);
+        return l;
+    }
     public boolean canUndo()          { return !undo.isEmpty(); }
 
     /** Снимок для отмены. Вызывать перед изменением (перетаскивание — один раз в начале). */
@@ -49,6 +100,7 @@ public final class RouteBuffer {
     public void undoDrop() { undo.poll(); }
 
     public boolean undo() {
+        marked.clear();
         PointRoute prev = undo.poll();
         if (prev == null) return false;
         route = prev;
@@ -90,6 +142,7 @@ public final class RouteBuffer {
         RoutePoint p = last != null ? last.withPos(x, y, z) : new RoutePoint(x, y, z);
         if (last != null) { p.pauseTicks = 0; p.jump = false; }
         route.points.add(p);
+        marked.clear();
         selected = size() - 1;
         changed();
         return selected;
@@ -110,6 +163,7 @@ public final class RouteBuffer {
         RoutePoint p = a.withPos(x, y, z);
         p.pauseTicks = 0; p.jump = false;
         route.points.add(best + 1, p);
+        marked.clear();
         selected = best + 1;
         changed();
         return selected;
@@ -117,6 +171,7 @@ public final class RouteBuffer {
 
     public void remove(int i) {
         if (get(i) == null) return;
+        marked.clear();
         snapshot();
         route.points.remove(i);
         if (selected == i) selected = -1;
@@ -128,11 +183,12 @@ public final class RouteBuffer {
     public void moveNoUndo(int i, double x, double y, double z) {
         RoutePoint p = get(i);
         if (p == null) return;
-        p.x = x; p.y = y; p.z = z;
+        p.moveCenter(x, y, z);              // x/z — центр блока под прицелом, смещение остаётся
         changed();
     }
 
     public void replaceAll(Minecraft mc, List<RoutePoint> pts) {
+        marked.clear();
         snapshot();
         stamp(mc);
         route.points.clear();
@@ -142,13 +198,23 @@ public final class RouteBuffer {
         changed();
     }
 
-    public void setPitch(float pitch) {
-        route.pitch = Math.max(-90, Math.min(90, pitch));
-        changed();
+    /** Настройки текущего маршрута (окно «Настройки макроса»). */
+    public com.farmmacro.macro.MacroSettings settings() {
+        if (route.settings == null) route.settings = new com.farmmacro.macro.MacroSettings();
+        return route.settings;
+    }
+
+    /** Настройки уже записаны в файл загруженного маршрута (⚙ у карточки) — взять копию, «изменён» не ставить. */
+    public void replaceSettings(com.farmmacro.macro.MacroSettings s) {
+        if (s == null) return;
+        route.settings = s;
+        revision++;
     }
 
     /** Новый пустой маршрут (без отмены). */
     public void clear() {
+        marked.clear();
+        MacroManager.INSTANCE.routeUnloaded();
         route = new PointRoute();
         loadedName = null;
         dirty = false;
@@ -159,6 +225,9 @@ public final class RouteBuffer {
 
     /** Загрузить из файла. */
     public void load(String name, PointRoute r) {
+        marked.clear();
+        MacroManager.INSTANCE.routeUnloaded();
+        MacroManager.INSTANCE.showNav();
         route = r;
         loadedName = name;
         dirty = false;

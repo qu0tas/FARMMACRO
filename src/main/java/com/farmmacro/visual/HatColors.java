@@ -17,7 +17,24 @@ public final class HatColors {
             new Preset("yellow", "Жёлтый",     0xFFE14D),
             new Preset("green",  "Зелёный",    0x4DFF88),
             new Preset("blue",   "Синий",      0x3D6BFF),
-            new Preset("white",  "Белый",      0xF2F2F2));
+            new Preset("white",  "Белый",      0xF2F2F2),
+            new Preset("gray",   "Серый",      0x8A8A8A),
+            new Preset("dark_gray", "Тёмно-серый", 0x3A3A3A),
+            new Preset("black",  "Чёрный",     0x000000));
+
+    /** Id «как задумано в моде» для настроек цвета отдельных элементов (точки, маяки, HUD…). */
+    public static final String DEFAULT = "default";
+
+    /** Цвет пресета или def, если выбран «По умолчанию» / неизвестный id. */
+    public static int rgbOr(String id, int def) {
+        for (Preset p : PRESETS) if (p.id().equals(id)) return p.rgb();
+        return def;
+    }
+
+    /** Яркость 0–255 (для тёмных цветов: светлая середина ленты не должна делать чёрное серым). */
+    public static int luma(int rgb) {
+        return (((rgb >> 16) & 255) * 3 + ((rgb >> 8) & 255) * 6 + (rgb & 255)) / 10;
+    }
 
     public static final List<String[]> STYLES = List.of(
             new String[]{"gradient", "Градиент"},

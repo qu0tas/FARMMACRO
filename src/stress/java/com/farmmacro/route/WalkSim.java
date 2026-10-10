@@ -3,22 +3,26 @@ package com.farmmacro.route;
 import java.util.List;
 
 /**
- * Симуляция автохода (WalkCore) без игры: простая кинематика (поворот с ограничением скорости,
- * разгон/инерция как у ходьбы), проверка, что «змейка» проходится целиком без ложной паники,
- * а стена и снос дают «Застрял» и «Сошёл с маршрута».
+ * Симуляция автохода (WalkCore) без игры: простая кинематика (камера стоит на заданном yaw, движение — W/A/S/D
+ * относительно него, разгон/инерция как у ходьбы), проверка, что «змейка» проходится целиком без ложной паники
+ * и без единого поворота камеры, а стена и снос дают «Застрял» и «Сошёл с маршрута».
  */
 public final class WalkSim {
 
     record Result(int ticks, int reached, String panic, double maxSide, int pausedTicks) {}
 
-    static Result run(PointRoute r, double turnDegPerSec, int stuckTicks, boolean drift,
+    /** Тиков с нажатой клавишей движения и из них — по диагонали (две оси сразу), за последний run. */
+    static int keyTicks, diagTicks;
+
+    static Result run(PointRoute r, float yaw, int stuckTicks, boolean drift,
                       int wallAfter, int pushAt, int maxTicks) {
         WalkCore core = new WalkCore();
         WalkCore.Out out = new WalkCore.Out();
+        keyTicks = 0; diagTicks = 0;
         core.start(r, 0, stuckTicks);
         RoutePoint p0 = r.points.get(0);
         double x = p0.x + 0.1, z = p0.z - 0.1, vx = 0, vz = 0;
-        float yaw = 37;
+        final float yaw0 = yaw;
         double maxSide = 0;
         int paused = 0, lastTarget = 0, reached = 0;
         for (int t = 0; t < maxTicks; t++) {
@@ -26,14 +30,13 @@ public final class WalkSim {
             if (out.panic != null) return new Result(t, reached, out.panic, maxSide, paused);
             if (core.done()) return new Result(t, r.points.size(), null, maxSide, paused);
             if (core.target() != lastTarget) { reached += core.target() - lastTarget; lastTarget = core.target(); }
-            // поворот: как SmoothTurn за тик (20 кадров/с упрощённо)
-            float err = WalkCore.wrap(out.yaw - yaw);
-            float step = (float) (turnDegPerSec / 20.0 * Math.max(0.2, Math.min(1, Math.abs(err) / 12.0)));
-            yaw += Math.abs(err) <= step ? err : Math.signum(err) * step;
-            double speed = out.forward ? (out.sneak ? WalkCore.SNEAK : out.sprint ? WalkCore.SPRINT : WalkCore.WALK) : 0;
-            if (!out.forward && core.target() > 0) paused++;
-            double rad = Math.toRadians(yaw);
-            double dx = -Math.sin(rad) * speed, dz = Math.cos(rad) * speed;
+            if (yaw != yaw0) throw new IllegalStateException("камера повернулась");
+            boolean moving = out.forward || out.back || out.left || out.right;
+            double speed = moving ? (out.sneak ? WalkCore.SNEAK : out.sprint ? WalkCore.SPRINT : WalkCore.WALK) : 0;
+            if (!moving && core.target() > 0) paused++;
+            if (moving) { keyTicks++; if (out.forward ^ out.back && out.left ^ out.right) diagTicks++; }
+            double[] dir = WalkCore.moveDir(out, yaw);
+            double dx = dir[0] * speed, dz = dir[1] * speed;
             // инерция: скорость догоняет целевую за несколько тиков, как у ходьбы
             vx = vx * 0.55 + dx * 0.45; vz = vz * 0.55 + dz * 0.45;
             if (wallAfter >= 0 && t >= wallAfter) { vx = 0; vz = 0; }
@@ -51,42 +54,53 @@ public final class WalkSim {
     static PointRoute route(List<RoutePoint> pts) {
         PointRoute r = new PointRoute();
         r.points.addAll(pts);
-        r.pitch = 30;
         return r;
     }
 
+    private static String res(Result r) { return r.panic == null ? "пройдена" : "ПАНИКА " + r.panic; }
+
     public static void main() {
         var snake = SnakeBuilder.build(0, 0, 31, 31, 3, "auto", "attack", "none", (x, z) -> 64);
-        Result ok = run(route(snake), 180, 30, true, -1, -1, 20_000);
-        System.out.printf("%nАвтоход «змейка» 32×32 шаг 3 (%d точек), поворот 180°/с: %s за %d тиков (%.0f с), макс. отклонение %.2f бл%n",
-                snake.size(), ok.panic == null ? "пройдена" : "ПАНИКА " + ok.panic, ok.ticks, ok.ticks / 20.0, ok.maxSide);
+        boolean alongX = snake.get(0).z == snake.get(1).z;
+        // yaw вдоль рядов: ряды по X → смотрим на −X (yaw 90) или +X (−90); по Z → +Z (0)
+        float axisYaw = alongX ? 90f : 0f;
+        Result ok = run(route(snake), axisYaw, 30, true, -1, -1, 20_000);
+        System.out.printf("%nАвтоход «змейка» 32×32 шаг 3 (%d точек), yaw %.0f° вдоль рядов: %s за %d тиков (%.0f с), "
+                        + "макс. отклонение %.2f бл, диагональ %d из %d тиков%n",
+                snake.size(), axisYaw, res(ok), ok.ticks, ok.ticks / 20.0, ok.maxSide, diagTicks, keyTicks);
         if (ok.panic != null || ok.reached != snake.size()) throw new IllegalStateException("змейка не пройдена: " + ok);
+        if (ok.maxSide > 0.25) throw new IllegalStateException("вдоль оси ушёл вбок: " + ok);
 
-        Result slow = run(route(snake), 45, 30, true, -1, -1, 40_000);
-        System.out.printf("  поворот 45°/с: %s за %d тиков, макс. отклонение %.2f бл%n",
-                slow.panic == null ? "пройдена" : "ПАНИКА " + slow.panic, slow.ticks, slow.maxSide);
-        if (slow.panic != null) throw new IllegalStateException("медленный поворот дал панику: " + slow);
+        Result side = run(route(snake), axisYaw + 90f, 30, true, -1, -1, 20_000);
+        System.out.printf("  yaw поперёк рядов (%.0f°, ряды — A/D): %s за %d тиков, макс. отклонение %.2f бл%n",
+                axisYaw + 90f, res(side), side.ticks, side.maxSide);
+        if (side.panic != null) throw new IllegalStateException("поперёк рядов паника: " + side);
+
+        Result skew = run(route(snake), 37f, 30, true, -1, -1, 40_000);
+        System.out.printf("  yaw 37° (не по оси): %s за %d тиков, макс. отклонение %.2f бл, диагональ %d из %d тиков%n",
+                res(skew), skew.ticks, skew.maxSide, diagTicks, keyTicks);
+        if (skew.panic != null) throw new IllegalStateException("yaw 37° дал панику: " + skew);
 
         for (RoutePoint p : snake) p.sprint = true;
-        Result sprint = run(route(snake), 180, 30, true, -1, -1, 20_000);
-        System.out.printf("  со спринтом: %s за %d тиков, макс. отклонение %.2f бл%n",
-                sprint.panic == null ? "пройдена" : "ПАНИКА " + sprint.panic, sprint.ticks, sprint.maxSide);
+        Result sprint = run(route(snake), axisYaw, 30, true, -1, -1, 20_000);
+        System.out.printf("  со спринтом (спринт только при W): %s за %d тиков, макс. отклонение %.2f бл%n",
+                res(sprint), sprint.ticks, sprint.maxSide);
         if (sprint.panic != null) throw new IllegalStateException("спринт дал панику: " + sprint);
         for (RoutePoint p : snake) p.sprint = false;
 
-        Result wall = run(route(snake), 180, 30, true, 100, -1, 20_000);
+        Result wall = run(route(snake), axisYaw, 30, true, 100, -1, 20_000);
         System.out.printf("  стена на 100-м тике: %s (тик %d)%n", wall.panic, wall.ticks);
         if (wall.panic == null || !wall.panic.startsWith("Застрял") || wall.ticks > 100 + 30 + 5)
             throw new IllegalStateException("стена не дала «Застрял» вовремя: " + wall);
 
-        Result push = run(route(snake), 180, 30, true, -1, 150, 20_000);
+        Result push = run(route(snake), axisYaw, 30, true, -1, 150, 20_000);
         System.out.printf("  снос на 6 бл на 150-м тике: %s (тик %d)%n", push.panic, push.ticks);
         if (push.panic == null || !push.panic.startsWith("Сошёл")) throw new IllegalStateException("снос не дал «Сошёл»: " + push);
 
         var paused = SnakeBuilder.build(0, 0, 9, 0, 3, "x", "attack", "none", (x, z) -> 64);
         paused.add(new RoutePoint(9.5, 64, 6.5));
         paused.get(1).pauseTicks = 40;
-        Result pz = run(route(paused), 180, 30, true, -1, -1, 5_000);
+        Result pz = run(route(paused), 90f, 30, true, -1, -1, 5_000);
         System.out.printf("  пауза 40 т в точке 2: %s, стояли %d тиков%n", pz.panic == null ? "ок" : pz.panic, pz.pausedTicks);
         if (pz.panic != null || pz.pausedTicks < 40) throw new IllegalStateException("пауза не выдержана: " + pz);
     }

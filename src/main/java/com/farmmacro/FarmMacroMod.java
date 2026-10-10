@@ -6,6 +6,7 @@ import com.farmmacro.route.RouteEditor;
 import com.farmmacro.gui.FarmMacroScreen;
 import com.farmmacro.hud.FarmHud;
 import com.farmmacro.macro.MacroManager;
+import com.farmmacro.macro.MouseHold;
 import com.farmmacro.panic.PanicDetector;
 import com.farmmacro.panic.PanicOverlayRenderer;
 import com.farmmacro.panic.PanicSound;
@@ -32,7 +33,7 @@ public class FarmMacroMod implements ClientModInitializer {
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("farmmacro", "general"));
 
     public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
-            keyCamApply, keyCamNext, keyCamSave, keyEditor;
+            keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold;
 
     private static KeyMapping makeKey(String id, int defaultCode) {
         return KeyMappingHelper.registerKeyMapping(new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
@@ -59,6 +60,7 @@ public class FarmMacroMod implements ClientModInitializer {
         keyCamNext  = makeKey("key.farmmacro.cam_next",  74);  // J
         keyCamSave  = makeKey("key.farmmacro.cam_save",  72);  // H
         keyEditor   = makeKey("key.farmmacro.editor",    66);  // B
+        keyHold     = makeKey("key.farmmacro.hold",      76);  // L
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
         LOGGER.info("FarmMacro загружен");
@@ -69,6 +71,8 @@ public class FarmMacroMod implements ClientModInitializer {
         Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
+            MouseHold.INSTANCE.tick(mc);     // без игрока — выключить зажим
+            if (macro.getState() == MacroManager.State.IDLE) MacroManager.clearTransient();
             RouteEditor.tick(mc);            // сам выключится без игрока
             return;
         }
@@ -77,11 +81,9 @@ public class FarmMacroMod implements ClientModInitializer {
         while (keyPlay.consumeClick())     macro.togglePlayback(mc);
         while (keyClear.consumeClick())    macro.clearRecording(mc);
         while (keyResume.consumeClick())   macro.resumeFromSaved(mc);
-        while (keyResetPos.consumeClick()) {
-            macro.clearSavedPosition();
-            mc.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §7Точка остановки сброшена"));
-        }
+        while (keyResetPos.consumeClick()) macro.resetAll(mc);   // End — стоп и сброс всего временного
         while (keyEditor.consumeClick())   RouteEditor.toggle(mc);
+        while (keyHold.consumeClick())     MouseHold.INSTANCE.toggleManual(mc);
         Guard.run("editor/tick", () -> RouteEditor.tick(mc));
         while (keyCamApply.consumeClick()) CameraPresets.applySelected(mc);
         while (keyCamNext.consumeClick())  CameraPresets.next(mc);
@@ -99,5 +101,6 @@ public class FarmMacroMod implements ClientModInitializer {
             Guard.run("panic/stop-on-error", () -> macro.stopPlayback(mc, "§c⚠ Ошибка детекторов, макрос остановлен"));
         }
         macro.tickPlayback(mc);
+        Guard.run("hold/tick", () -> MouseHold.INSTANCE.tick(mc));
     }
 }

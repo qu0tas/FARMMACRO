@@ -51,7 +51,7 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
             public String subtitle() { return MacroManager.formatTicks(frames.size()) + " · " + frames.size() + " кадров"; }
             public String placeholder() { return "Название, например «Пшеница 3 этажа»"; }
             public boolean exists(String name) { return MacroStorage.INSTANCE.exists(name); }
-            public boolean save(String name) { return MacroStorage.INSTANCE.save(name, frames); }
+            public boolean save(String name) { return MacroStorage.INSTANCE.save(name, frames, MacroManager.INSTANCE.getSettings()); }
             public void saved(String name) { MacroManager.INSTANCE.markSaved(name); }
         }, defaultName);
     }

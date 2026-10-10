@@ -12,8 +12,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Пресеты камеры: сохранённые пары yaw/pitch (у каждой культуры свои), переключение по клавише.
- * Поворот к пресету — {@link SmoothTurn} (плавно с настраиваемой скоростью или мгновенно).
+ * Пресеты камеры: имя, yaw/pitch с любой точностью и подпись культуры; панель — вкладка «Камера» меню.
+ * Применение по клавише/кнопке работает в любой момент, кроме воспроизведения записи с «Повторять камеру».
+ * Поворот к пресету — {@link SmoothTurn} (плавно с настраиваемой скоростью или мгновенно), без случайности.
  */
 public final class CameraPresets {
     private CameraPresets() {}
@@ -35,7 +36,39 @@ public final class CameraPresets {
     }
 
     public static String describe(CamPreset p) {
-        return String.format(Locale.ROOT, "%s · yaw %.1f° · pitch %.1f°", cropLabel(p.crop), p.yaw, p.pitch);
+        return p.name + " · " + cropLabel(p.crop) + " · yaw " + deg(p.yaw) + "° · pitch " + deg(p.pitch) + "°";
+    }
+
+    /** Угол без потери введённой точности: 90 → «90.0», 12.345 → «12.345» (кратчайшая запись float). */
+    public static String deg(float v) {
+        String s = new java.math.BigDecimal(Float.toString(v)).stripTrailingZeros().toPlainString();
+        if (s.equals("-0")) s = "0";
+        return s.contains(".") ? s : s + ".0";
+    }
+
+    /** Разбор числа из поля ввода: точка или запятая, пробелы и «°» игнорируются. null — не число. */
+    public static Float parseDeg(String text) {
+        if (text == null) return null;
+        String t = text.strip().replace(',', '.').replace("°", "").replace(" ", "");
+        if (t.isEmpty()) return null;
+        try {
+            float v = Float.parseFloat(t);
+            return Float.isFinite(v) ? v : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Пресет по постоянному id или null. */
+    public static CamPreset byId(int id) {
+        for (CamPreset p : list()) if (p.id == id) return p;
+        return null;
+    }
+
+    public static int indexOf(int id) {
+        List<CamPreset> l = list();
+        for (int i = 0; i < l.size(); i++) if (l.get(i).id == id) return i;
+        return -1;
     }
 
     private static List<CamPreset> list() { return ModConfig.INSTANCE.camPresets; }
@@ -70,8 +103,9 @@ public final class CameraPresets {
         ModConfig c = ModConfig.INSTANCE;
         c.camSelected = index;
         CamPreset p = l.get(index);
-        SmoothTurn.turnTo(p.yaw, p.pitch, c.camSmooth ? c.camTurnSpeed : 0, SmoothTurn.Owner.PRESET);
-        msg(mc, "§b◎ Камера " + (index + 1) + "/" + l.size() + ": §f" + describe(p));
+        SmoothTurn.turnTo(p.yaw, p.pitch, c.camSmooth ? c.camTurnSpeed : 0);
+        msg(mc, "§b◎ Камера " + (index + 1) + "/" + l.size() + ": §f" + describe(p)
+                + (c.camSmooth ? "" : " §7(мгновенно)"));
     }
 
     /** Записать текущий взгляд в выбранный пресет (или создать первый). */
@@ -80,7 +114,7 @@ public final class CameraPresets {
         if (pl == null) return;
         ModConfig c = ModConfig.INSTANCE;
         CamPreset p = selected();
-        if (p == null) { p = new CamPreset("other", 0, 0); c.camPresets.add(p); c.camSelected = 0; }
+        if (p == null) { p = c.newCamPreset("other", 0, 0); c.camPresets.add(p); c.camSelected = 0; }
         p.yaw = Mth.wrapDegrees(pl.getYRot());
         p.pitch = pl.getXRot();
         ModConfig.save();
@@ -92,7 +126,7 @@ public final class CameraPresets {
         ModConfig c = ModConfig.INSTANCE;
         if (c.camPresets.size() >= MAX) return -1;
         LocalPlayer pl = mc.player;
-        c.camPresets.add(new CamPreset("other", pl != null ? Mth.wrapDegrees(pl.getYRot()) : 0, pl != null ? pl.getXRot() : 0));
+        c.camPresets.add(c.newCamPreset("other", pl != null ? Mth.wrapDegrees(pl.getYRot()) : 0, pl != null ? pl.getXRot() : 0));
         c.camSelected = c.camPresets.size() - 1;
         ModConfig.save();
         return c.camSelected;

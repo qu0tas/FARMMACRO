@@ -145,6 +145,15 @@ public class ModConfig {
     public boolean routeRelative         = true;
     /** Цвет ленты впереди (id пресета из visual.HatColors). */
     public String  routeColor            = "cyan";
+    /** Цвета элементов маршрута и HUD: id пресета HatColors или "default" (как раньше). */
+    public String  routePointColor       = "default";
+    public String  routeLabelColor       = "default";
+    public String  routeStartColor       = "default";
+    public String  routeStopColor        = "default";
+    public String  routeArrowColor       = "default";
+    public String  snakePreviewColor     = "default";
+    public String  hudAccentColor        = "default";
+    public String  hudBgColor            = "default";
     /** Непрозрачность ленты, 10–100 %. */
     public int     routeOpacity          = 90;
     /** Мягкое свечение вокруг ленты (вторая, широкая и прозрачная). */
@@ -153,6 +162,12 @@ public class ModConfig {
     // ── Маршрут по точкам: редактор ──────────────────────────────────────────
     /** Как далеко редактор ставит/выбирает точки, блоков. */
     public double  routeEditReach        = 32;
+    /** Сдвиг точки в блоке стрелками: шаг и мелкий шаг (с Shift), блоков. */
+    public double  routeOffsetStep       = 0.05;
+    public double  routeOffsetFineStep   = 0.01;
+    /** «Змейка»: смещение всех точек внутри блока по X/Z при построении (−0.5…0.5). */
+    public double  snakeOffsetX          = 0;
+    public double  snakeOffsetZ          = 0;
     /** «Змейка»: шаг между рядами, блоков. */
     public int     snakeStep             = 3;
     /** auto | x | z — вдоль какой оси ряды. */
@@ -162,13 +177,15 @@ public class ModConfig {
     public String  snakeTurnAction       = "none";
     /** Добавлять «змейку» в конец маршрута (иначе заменить). */
     public boolean snakeAppend           = false;
-    /** Автоход: скорость поворота камеры к следующей точке, °/с. */
-    public double  routeTurnSpeed        = 180;
     /** Автоход: точка достигнута в этом радиусе по XZ, блоков. */
     public double  routeReachRadius      = 0.3;
 
     // ── Камера: пресеты yaw/pitch ────────────────────────────────────────────
     public static class CamPreset {
+        /** Постоянный номер (на него ссылаются привязки камеры в макросах и маршрутах), 0 — ещё не выдан. */
+        public int    id    = 0;
+        /** Имя для списка; пустое — «Пресет N». */
+        public String name  = "";
         /** id культуры из camera.CameraPresets.CROPS (только подпись). */
         public String crop  = "other";
         public float  yaw   = 0f;
@@ -176,8 +193,19 @@ public class ModConfig {
         public CamPreset() {}
         public CamPreset(String crop, float yaw, float pitch) { this.crop = crop; this.yaw = yaw; this.pitch = pitch; }
     }
+    public static final int CAM_NAME_MAX = 32;
     public java.util.List<CamPreset> camPresets = new java.util.ArrayList<>();
     public int     camSelected           = 0;
+    /** Следующий свободный id пресета. */
+    public int     camNextId             = 1;
+
+    /** Новый пресет с постоянным id (в список не добавляет). */
+    public CamPreset newCamPreset(String crop, float yaw, float pitch) {
+        CamPreset p = new CamPreset(crop, yaw, pitch);
+        p.id = camNextId++;
+        p.name = "Пресет " + p.id;
+        return p;
+    }
     /** Плавный поворот к пресету (выкл — мгновенно). */
     public boolean camSmooth             = true;
     /** Скорость плавного поворота, градусов в секунду. */
@@ -191,53 +219,72 @@ public class ModConfig {
 
     /** Приводит значения к допустимым диапазонам (на случай ручной правки json). */
     public void sanitize() {
-        yawThreshold          = clamp(yawThreshold, 0.5f, 90f);
-        pitchThreshold        = clamp(pitchThreshold, 0.5f, 90f);
-        serverMoveThreshold   = clamp(serverMoveThreshold, 0.1, 64);
-        serverRotateThreshold = clamp(serverRotateThreshold, 0.5f, 180f);
-        blockDetectRadius     = clamp(blockDetectRadius, 0, 4);
-        stuckThresholdTicks   = clamp(stuckThresholdTicks, 10, 400);
-        driftThreshold        = clamp(driftThreshold, 1, 64);
+        yawThreshold          = clamp(yawThreshold, 0.001f, 180f);
+        pitchThreshold        = clamp(pitchThreshold, 0.001f, 180f);
+        serverMoveThreshold   = clamp(serverMoveThreshold, 0.001, 1024);
+        serverRotateThreshold = clamp(serverRotateThreshold, 0.001f, 180f);
+        blockDetectRadius     = clamp(blockDetectRadius, 0, 8);
+        stuckThresholdTicks   = clamp(stuckThresholdTicks, 1, 12000);
+        driftThreshold        = clamp(driftThreshold, 0.01, 1024);
         panicSoundVolume      = clamp(panicSoundVolume, 0f, 1f);
         panicSoundPitch       = clamp(panicSoundPitch, 0.5f, 2f);
-        panicSoundRepeats     = clamp(panicSoundRepeats, 1, 20);
-        panicSoundRepeatDelayTicks = clamp(panicSoundRepeatDelayTicks, 5, 200);
-        panicRedScreenTicks   = clamp(panicRedScreenTicks, 10, 400);
-        loopLimit             = clamp(loopLimit, 0, 10000);
-        timeLimitMinutes      = clamp(timeLimitMinutes, 0, 24 * 60);
-        startCountdownSeconds = clamp(startCountdownSeconds, 0, 30);
-        startPointWarnDistance = clamp(startPointWarnDistance, 0.5, 64);
+        panicSoundRepeats     = clamp(panicSoundRepeats, 1, 100);
+        panicSoundRepeatDelayTicks = clamp(panicSoundRepeatDelayTicks, 1, 1200);
+        panicRedScreenTicks   = clamp(panicRedScreenTicks, 1, 1200);
+        loopLimit             = clamp(loopLimit, 0, 1000000);
+        timeLimitMinutes      = clamp(timeLimitMinutes, 0, 7 * 24 * 60);
+        startCountdownSeconds = clamp(startCountdownSeconds, 0, 600);
+        startPointWarnDistance = clamp(startPointWarnDistance, 0.01, 1024);
         if (panicSound == null || panicSound.isBlank()) panicSound = "builtin:siren";
-        routeWidth            = clamp(routeWidth, 0.02, 0.4);
-        routeRadius           = clamp(routeRadius, 8, 256);
-        routeArrowSpacing     = clamp(routeArrowSpacing, 1, 32);
+        routeWidth            = clamp(routeWidth, 0.005, 1);
+        routeRadius           = clamp(routeRadius, 1, 1024);
+        routeArrowSpacing     = clamp(routeArrowSpacing, 0.5, 64);
         if (!"always".equals(routeMode) && !"playing".equals(routeMode)) routeMode = "always";
         if (!"off".equals(routeSeeThrough) && !"dim".equals(routeSeeThrough) && !"full".equals(routeSeeThrough)) routeSeeThrough = "dim";
         if (!com.farmmacro.visual.HatColors.isPreset(routeColor)) routeColor = "cyan";
-        routeOpacity          = clamp(routeOpacity, 10, 100);
+        routePointColor   = colorOrDefault(routePointColor);
+        routeLabelColor   = colorOrDefault(routeLabelColor);
+        routeStartColor   = colorOrDefault(routeStartColor);
+        routeStopColor    = colorOrDefault(routeStopColor);
+        routeArrowColor   = colorOrDefault(routeArrowColor);
+        snakePreviewColor = colorOrDefault(snakePreviewColor);
+        hudAccentColor    = colorOrDefault(hudAccentColor);
+        hudBgColor        = colorOrDefault(hudBgColor);
+        routeOpacity          = clamp(routeOpacity, 1, 100);
         if (camPresets == null) camPresets = new java.util.ArrayList<>();
         camPresets.removeIf(java.util.Objects::isNull);
         while (camPresets.size() > 16) camPresets.remove(camPresets.size() - 1);
+        int maxId = 0;
+        for (CamPreset p : camPresets) maxId = Math.max(maxId, p.id);
+        camNextId = Math.max(Math.max(1, camNextId), maxId + 1);
+        java.util.Set<Integer> ids = new java.util.HashSet<>();
         for (CamPreset p : camPresets) {
+            if (p.id <= 0 || !ids.add(p.id)) { p.id = camNextId++; ids.add(p.id); }   // старые пресеты (до 1.6) — без id
             p.yaw = net.minecraft.util.Mth.wrapDegrees(Float.isFinite(p.yaw) ? p.yaw : 0f);
             p.pitch = clamp(Float.isFinite(p.pitch) ? p.pitch : 0f, -90f, 90f);
             if (p.crop == null) p.crop = "other";
+            p.name = p.name == null ? "" : p.name.strip();
+            if (p.name.length() > CAM_NAME_MAX) p.name = p.name.substring(0, CAM_NAME_MAX);
+            if (p.name.isEmpty()) p.name = "Пресет " + p.id;
         }
         camSelected           = camPresets.isEmpty() ? 0 : clamp(camSelected, 0, camPresets.size() - 1);
-        camTurnSpeed          = clamp(camTurnSpeed, 20, 1080);
-        routeEditReach        = clamp(routeEditReach, 4, 96);
-        snakeStep             = clamp(snakeStep, 1, 16);
-        routeTurnSpeed        = clamp(routeTurnSpeed, 30, 1080);
-        routeReachRadius      = clamp(routeReachRadius, 0.1, 1.0);
+        camTurnSpeed          = clamp(camTurnSpeed, 1, 3600);
+        routeEditReach        = clamp(routeEditReach, 1, 128);
+        routeOffsetStep       = clamp(routeOffsetStep, 0.001, 0.5);
+        routeOffsetFineStep   = clamp(routeOffsetFineStep, 0.001, 0.5);
+        snakeOffsetX          = clamp(snakeOffsetX, -0.5, 0.5);
+        snakeOffsetZ          = clamp(snakeOffsetZ, -0.5, 0.5);
+        snakeStep             = clamp(snakeStep, 1, 64);
+        routeReachRadius      = clamp(routeReachRadius, 0.01, 2);
         if (!"auto".equals(snakeAxis) && !"x".equals(snakeAxis) && !"z".equals(snakeAxis)) snakeAxis = "auto";
         if (!java.util.List.of("none", "attack", "use").contains(snakeRowAction)) snakeRowAction = "attack";
         if (!java.util.List.of("none", "attack", "use").contains(snakeTurnAction)) snakeTurnAction = "none";
         hatOpacity            = clamp(hatOpacity, 0, 100);
-        hatRadius             = clamp(hatRadius, 0.3, 1.5);
-        hatHeight             = clamp(hatHeight, 0.05, 0.8);
-        hatOffset             = clamp(hatOffset, -0.3, 0.8);
-        hatSpeed              = clamp(hatSpeed, 0, 5);
-        hatSegments           = clamp(hatSegments, 8, 96);
+        hatRadius             = clamp(hatRadius, 0.05, 3);
+        hatHeight             = clamp(hatHeight, 0.01, 2);
+        hatOffset             = clamp(hatOffset, -1, 2);
+        hatSpeed              = clamp(hatSpeed, 0, 20);
+        hatSegments           = clamp(hatSegments, 3, 256);
         if (!"gradient".equals(hatStyle) && !"solid".equals(hatStyle) && !"rainbow".equals(hatStyle)) hatStyle = "gradient";
         if (!com.farmmacro.visual.HatColors.isPreset(hatColor1)) hatColor1 = "purple";
         if (!com.farmmacro.visual.HatColors.isPreset(hatColor2)) hatColor2 = "orange";
@@ -254,6 +301,10 @@ public class ModConfig {
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
                 detectStuck, stuckThresholdTicks, detectDrift, driftThreshold,
                 replayCamera, panicSound, panicSoundSafe, panicSoundSystem);
+    }
+
+    private static String colorOrDefault(String id) {
+        return com.farmmacro.visual.HatColors.isPreset(id) ? id : com.farmmacro.visual.HatColors.DEFAULT;
     }
 
     private static int    clamp(int v, int lo, int hi)          { return Math.max(lo, Math.min(hi, v)); }

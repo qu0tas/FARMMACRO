@@ -5,20 +5,24 @@ import java.util.Locale;
 
 /**
  * Логика автохода без зависимостей от игры (проверяется симуляцией в routeStress).
- * На входе — позиция и yaw игрока, на выходе — что нажать, куда смотреть и не пора ли паниковать.
+ * На входе — позиция и yaw игрока, на выходе — какие клавиши нажать и не пора ли паниковать.
+ * Камеру автоход НЕ поворачивает (с 1.6.0): yaw/pitch задаёт игрок или пресет камеры.
+ * Направление к цели раскладывается по осям камеры и превращается в W/A/S/D (8 направлений):
+ * при yaw вдоль ряда «змейки» это чистые W/S/A/D.
  * Детерминированно: одинаковый вход — одинаковый выход, никакой случайности.
  */
 public final class WalkCore {
 
-    /** Нажимать «вперёд», только если камера смотрит на точку точнее этого. */
-    public static final float ALIGN_DEG = 35f;
+    /** Клавиша оси нажимается, если проекция желаемого направления на ось больше sin 22.5° (сектора по 45°). */
+    public static final double AXIS_MIN = 0.383;
+    /** Поправка к линии отрезка: блоков вбок → доля направления (0.2 бл вбок уже даёт A/D). */
+    public static final double LINE_GAIN = 2.0;
 
     /** Ожидаемая скорость, блоков за тик (ходьба / спринт / присед) — для детектора «застрял». */
     public static final double WALK = 0.215, SPRINT = 0.28, SNEAK = 0.065;
 
     public static final class Out {
-        public float yaw, pitch;
-        public boolean forward, sprint, sneak, attack, use, jump;
+        public boolean forward, back, left, right, sprint, sneak, attack, use, jump;
         /** Слот 0–8 или −1 — не трогать. */
         public int slot = -1;
         /** Не null — паника с этой причиной. */
@@ -26,9 +30,8 @@ public final class WalkCore {
     }
 
     private List<RoutePoint> pts;
-    private float routePitch;
     private int target, seg = -1, pauseLeft, jumpTicks;
-    private boolean done;
+    private boolean done, pausingNow;
 
     // окно застревания: позиции за последние n тиков, пока нажат «вперёд»
     private double[] hx = new double[0], hz = new double[0], he = new double[0];
@@ -37,7 +40,6 @@ public final class WalkCore {
 
     public void start(PointRoute route, int index, int stuckTicks) {
         pts = route.points;
-        routePitch = route.pitch;
         target = Math.max(0, Math.min(pts.size() - 1, index));
         seg = target - 1;
         pauseLeft = 0; jumpTicks = 0; done = false;
@@ -49,18 +51,14 @@ public final class WalkCore {
     public int segment()    { return seg; }
     public List<RoutePoint> points() { return pts; }
 
-    private float pitchAt(int i) {
-        RoutePoint p = i >= 0 && i < pts.size() ? pts.get(i) : null;
-        return p != null && p.pitch != null ? p.pitch : routePitch;
-    }
-
     /**
      * Один тик.
      * @param stuck/drift — включены ли детекторы (и паника вообще)
      */
     public Out tick(double x, double z, float curYaw, double reachRadius,
                     boolean stuck, int stuckTicks, boolean drift, double driftMax, Out out) {
-        out.forward = out.sprint = out.sneak = out.attack = out.use = out.jump = false;
+        out.forward = out.back = out.left = out.right = false;
+        out.sprint = out.sneak = out.attack = out.use = out.jump = false;
         out.slot = -1; out.panic = null;
         if (done || pts.isEmpty()) { done = true; return out; }
 
@@ -77,14 +75,13 @@ public final class WalkCore {
         }
         RoutePoint s = seg >= 0 ? pts.get(seg) : null;
 
-        out.yaw = yawTo(x, z, t.x, t.z);
-        out.pitch = pitchAt(seg >= 0 ? seg : target);
         boolean pausing = pauseLeft > 0;
+        pausingNow = pausing;
         if (pausing) pauseLeft--;
-        float err = Math.abs(wrap(out.yaw - curYaw));
-        out.forward = !pausing && err < ALIGN_DEG;
+        if (!pausing) steer(x, z, t, curYaw, out);
+        boolean moving = out.forward || out.back || out.left || out.right;
         out.sneak = s != null && s.sneak;
-        out.sprint = out.forward && s != null && s.sprint && !out.sneak;
+        out.sprint = out.forward && !out.back && s != null && s.sprint && !out.sneak;
         out.attack = s != null && s.attack();
         out.use = s != null && s.use();
         out.jump = jumpTicks > 0 && !pausing;
@@ -92,7 +89,7 @@ public final class WalkCore {
         if (s != null && s.slot > 0) out.slot = s.slot - 1;
 
         if (stuck) {
-            if (out.forward && !out.jump) {
+            if (moving && !out.jump) {
                 double exp = out.sneak ? SNEAK : out.sprint ? SPRINT : WALK;
                 if (push(x, z, exp, stuckTicks)) {
                     double moved = Math.hypot(x - hx[head], z - hz[head]);
@@ -134,6 +131,59 @@ public final class WalkCore {
         RoutePoint a = pts.get(target - 1), b = pts.get(target);
         double vx = b.x - a.x, vz = b.z - a.z, vv = vx * vx + vz * vz;
         return vv < 1e-9 ? 1 : Math.max(0, Math.min(1, ((x - a.x) * vx + (z - a.z) * vz) / vv));
+    }
+
+    /**
+     * Желаемое направление: на первом подходе — прямо к точке, на отрезке — вдоль отрезка с поправкой к его линии
+     * (не дальше 45° от отрезка). Раскладка по осям камеры (yaw Minecraft: 0 — на +Z, 90 — на −X):
+     * вперёд f = (−sin, cos), влево l = (cos, sin).
+     */
+    private void steer(double x, double z, RoutePoint t, float yaw, Out out) {
+        double dx, dz;
+        RoutePoint a = target > 0 ? pts.get(target - 1) : null;
+        double ux = a == null ? 0 : t.x - a.x, uz = a == null ? 0 : t.z - a.z, len = Math.hypot(ux, uz);
+        if (a == null || len < 1e-6) {
+            dx = t.x - x; dz = t.z - z;
+        } else {
+            ux /= len; uz /= len;
+            // смещение от линии вдоль нормали n = (uz, −ux); поправка — против нормали, не больше 45°
+            double side = (x - a.x) * uz - (z - a.z) * ux;
+            double k = Math.max(-1, Math.min(1, side * LINE_GAIN));
+            dx = ux - k * uz; dz = uz + k * ux;
+        }
+        double n = Math.hypot(dx, dz);
+        if (n < 1e-9) return;
+        double r = Math.toRadians(yaw), sin = Math.sin(r), cos = Math.cos(r);
+        double fwd = (-sin * dx + cos * dz) / n;
+        double lft = (cos * dx + sin * dz) / n;
+        out.forward = fwd > AXIS_MIN;
+        out.back = fwd < -AXIS_MIN;
+        out.left = lft > AXIS_MIN;
+        out.right = lft < -AXIS_MIN;
+    }
+
+    /**
+     * Пересчитать W/A/S/D после того, как в этом тике камеру поставили в пресет (точка смены камеры):
+     * направление то же, оси уже новые. Остальное (действие, пауза, прыжок) не меняется.
+     */
+    public void resteer(double x, double z, float yaw, Out out) {
+        if (done || pts.isEmpty() || pausingNow) return;
+        boolean wasForward = out.forward;
+        out.forward = out.back = out.left = out.right = false;
+        steer(x, z, pts.get(target), yaw, out);
+        if (!out.forward || out.back) out.sprint = false;
+        else if (!wasForward) {
+            RoutePoint s = seg >= 0 ? pts.get(seg) : null;
+            out.sprint = s != null && s.sprint && !out.sneak;
+        }
+    }
+
+    /** Куда сдвинется игрок за тик при этих клавишах и yaw: единичный вектор (x, z) или (0, 0). */
+    public static double[] moveDir(Out o, float yaw) {
+        double f = (o.forward ? 1 : 0) - (o.back ? 1 : 0), l = (o.left ? 1 : 0) - (o.right ? 1 : 0);
+        double r = Math.toRadians(yaw), sin = Math.sin(r), cos = Math.cos(r);
+        double x = -sin * f + cos * l, z = cos * f + sin * l, n = Math.hypot(x, z);
+        return n < 1e-9 ? new double[]{0, 0} : new double[]{x / n, z / n};
     }
 
     /** Yaw Minecraft (0 — на +Z, 90 — на −X) от (x, z) к (tx, tz). */

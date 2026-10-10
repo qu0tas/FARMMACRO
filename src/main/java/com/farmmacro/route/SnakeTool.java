@@ -71,8 +71,10 @@ public final class SnakeTool {
         ModConfig c = ModConfig.INSTANCE;
         Level level = mc.level;
         int hint = Math.max(a[1], b[1]) + 1;
-        return SnakeBuilder.build(a[0], a[2], b[0], b[2], c.snakeStep, c.snakeAxis, c.snakeRowAction, c.snakeTurnAction,
+        List<RoutePoint> pts = SnakeBuilder.build(a[0], a[2], b[0], b[2], c.snakeStep, c.snakeAxis, c.snakeRowAction, c.snakeTurnAction,
                 (x, z) -> level == null ? hint : RouteEditor.topOf(level, new BlockPos(x, hint, z)).y);
+        if (c.snakeOffsetX != 0 || c.snakeOffsetZ != 0) for (RoutePoint p : pts) p.setOffset(c.snakeOffsetX, c.snakeOffsetZ);
+        return pts;
     }
 
     /** Живое превью до второго угла. */

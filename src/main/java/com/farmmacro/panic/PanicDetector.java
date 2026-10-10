@@ -102,7 +102,8 @@ public class PanicDetector {
         if (!armed() || !ModConfig.INSTANCE.detectGuiOpen || screen == null) return;
         if (screen instanceof PauseScreen || screen instanceof ChatScreen
                 || screen instanceof FarmMacroScreen || screen instanceof SaveMacroScreen
-                || screen instanceof com.farmmacro.gui.PointEditScreen) return;
+                || screen instanceof com.farmmacro.gui.PointEditScreen
+                || screen instanceof com.farmmacro.gui.MacroSettingsScreen) return;
         flag("Открылось окно: " + screen.getTitle().getString()
                 + " (" + screen.getClass().getSimpleName() + ")");
     }
@@ -128,7 +129,7 @@ public class PanicDetector {
         if (dist >= c.serverMoveThreshold) {
             flag(String.format(Locale.ROOT, "Сервер телепортировал (%.1f бл)", dist));
         } else if (rot >= c.serverRotateThreshold) {
-            flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.1f° ≥ %.1f°)", rot, c.serverRotateThreshold));
+            flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.3f° ≥ %.3f°)", rot, c.serverRotateThreshold));
         }
         // Поворот от сервера — не движение мыши: детектор мыши сравнивает с уже повёрнутой камерой,
         // иначе мелкий серверный поворот (ниже порога сервера) засчитывался бы как «Камера повернулась».
@@ -194,9 +195,9 @@ public class PanicDetector {
             float dy = angleDiff(p.getYRot(), prevYaw);
             float dp = Math.abs(p.getXRot() - prevPitch);
             if (dy > c.yawThreshold)
-                reason = String.format(Locale.ROOT, "Камера повернулась (yaw %.1f° > %.1f°)", dy, c.yawThreshold);
+                reason = String.format(Locale.ROOT, "Камера повернулась (yaw %.3f° > %.3f°)", dy, c.yawThreshold);
             else if (dp > c.pitchThreshold)
-                reason = String.format(Locale.ROOT, "Камера повернулась (pitch %.1f° > %.1f°)", dp, c.pitchThreshold);
+                reason = String.format(Locale.ROOT, "Камера повернулась (pitch %.3f° > %.3f°)", dp, c.pitchThreshold);
         }
 
         if (reason == null && c.detectSlotChange) {

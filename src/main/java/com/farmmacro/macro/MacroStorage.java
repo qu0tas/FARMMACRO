@@ -21,8 +21,10 @@ import java.util.stream.Stream;
 
 /**
  * Именованные макросы: один файл .json на макрос в config/farmmacro_macros/.
- * Формат: {"name":"...","version":2,"createdAt":ms,"frameCount":N,"frames":[...]}.
- * Файлы версии 1 (только name + frames) читаются как раньше.
+ * Формат: {"name":"...","version":4,"createdAt":ms,"frameCount":N,"settings":{...},"frames":[...]}.
+ * Версия 4 (1.7.0): все настройки макроса в {@code settings} ({@link MacroSettings}).
+ * Версия 3 (1.6.0) хранила привязку камеры в {@code camera} — при чтении переносится в settings.camera.
+ * Файлы версий 1 (только name + frames) и 2 (без camera) читаются как раньше, настройки — по умолчанию.
  * Список кешируется по времени изменения файла, чтобы меню не перечитывало большие файлы.
  */
 public class MacroStorage {
@@ -32,12 +34,23 @@ public class MacroStorage {
     private static final Gson GSON = new GsonBuilder().create();
     public static final Path MACRO_DIR = FabricLoader.getInstance().getConfigDir().resolve("farmmacro_macros");
 
+    public static final int VERSION = 4;
+
     public static class SavedMacro {
         public String name;
-        public int version = 2;
+        public int version = VERSION;
         public long createdAt;
         public int frameCount;
+        public MacroSettings settings;
+        /** Только чтение файлов v3; новые файлы это поле не пишут (null). */
+        public com.farmmacro.camera.CameraBinding camera;
         public List<MacroFrame> frames;
+
+        /** После чтения: перенос старого поля camera, проверка значений. */
+        public void sanitize() {
+            settings = MacroSettings.fromFile(settings, camera);
+            camera = null;
+        }
     }
 
     public record MacroInfo(String name, int frameCount, String filename, long modified) {}
@@ -66,16 +79,35 @@ public class MacroStorage {
         }
     }
 
-    public boolean save(String name, List<MacroFrame> frames) {
+    public boolean save(String name, List<MacroFrame> frames, MacroSettings settings) {
         Path file = fileFor(name);
         if (file == null || frames.isEmpty()) return false;
+        SavedMacro m = new SavedMacro();
+        m.name = name.trim();
+        m.createdAt = System.currentTimeMillis();
+        m.frames = new ArrayList<>(frames);
+        return write(file, m, settings);
+    }
+
+    /**
+     * Записать новые настройки в существующий файл (⚙ у сохранённого макроса): кадры, имя и дата — как были.
+     * @return false — файл не читается или не записался
+     */
+    public boolean saveSettings(String filename, MacroSettings settings) {
+        Path file = resolve(filename);
+        SavedMacro m = load(filename);
+        if (file == null || m == null) return false;
+        return write(file, m, settings);
+    }
+
+    private boolean write(Path file, SavedMacro m, MacroSettings settings) {
         try {
             Files.createDirectories(MACRO_DIR);
-            SavedMacro m = new SavedMacro();
-            m.name = name.trim();
-            m.createdAt = System.currentTimeMillis();
-            m.frameCount = frames.size();
-            m.frames = new ArrayList<>(frames);
+            m.version = VERSION;
+            m.frameCount = m.frames.size();
+            m.settings = settings == null ? new MacroSettings() : settings.copy();
+            m.settings.refresh();
+            m.camera = null;
             Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
             try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
                 GSON.toJson(m, w);
@@ -84,7 +116,7 @@ public class MacroStorage {
             LOGGER.info("Сохранён макрос «{}» ({} кадров) -> {}", m.name, m.frameCount, file.getFileName());
             return true;
         } catch (Exception e) {
-            LOGGER.error("Не удалось сохранить макрос «{}»", name, e);
+            LOGGER.error("Не удалось сохранить макрос «{}»", m.name, e);
             return false;
         }
     }
@@ -147,13 +179,17 @@ public class MacroStorage {
 
     // ── Загрузка / удаление ──────────────────────────────────────────────────
 
-    /** @return кадры или null, если файл не читается */
-    public List<MacroFrame> load(String filename) {
+    /** @return макрос (кадры не пустые, settings не null) или null, если файл не читается */
+    public SavedMacro load(String filename) {
         Path file = resolve(filename);
         if (file == null) return null;
         try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             SavedMacro m = GSON.fromJson(r, SavedMacro.class);
-            if (m != null && m.frames != null && !m.frames.isEmpty()) return m.frames;
+            if (m != null && m.frames != null && !m.frames.isEmpty()) {
+                if (m.version > VERSION) LOGGER.warn("Макрос {} новее мода (версия {}), читаю что понимаю", filename, m.version);
+                m.sanitize();
+                return m;
+            }
             LOGGER.warn("В файле {} нет кадров", filename);
         } catch (Exception e) {
             LOGGER.error("Не удалось загрузить макрос {}", filename, e);

@@ -5,11 +5,12 @@
   "key.farmmacro.clear": "FarmMacro: Очистить запись",
   "key.farmmacro.gui": "FarmMacro: Открыть GUI",
   "key.farmmacro.resume": "FarmMacro: Возобновить с места остановки",
-  "key.farmmacro.resetpos": "FarmMacro: Сбросить сохранённую позицию",
+  "key.farmmacro.resetpos": "FarmMacro: Стоп и сброс (точка остановки, указатели, зажим)",
   "subtitles.farmmacro.panic": "FarmMacro: паника",
   "subtitles.farmmacro.done": "FarmMacro: макрос завершён",
-  "key.farmmacro.cam_apply": "FarmMacro: Камера — повернуть к пресету",
+  "key.farmmacro.cam_apply": "FarmMacro: Камера — применить пресет",
   "key.farmmacro.cam_next": "FarmMacro: Камера — следующий пресет",
   "key.farmmacro.cam_save": "FarmMacro: Камера — запомнить текущий взгляд",
-  "key.farmmacro.editor": "FarmMacro: Редактор маршрута"
+  "key.farmmacro.editor": "FarmMacro: Редактор маршрута",
+  "key.farmmacro.hold": "FarmMacro: Зажим ЛКМ вкл/выкл"
 }

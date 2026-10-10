@@ -51,12 +51,30 @@ public final class RouteStorage {
     public boolean save(String name, PointRoute route) {
         Path file = fileFor(name);
         if (file == null || route == null || route.points.isEmpty()) return false;
+        PointRoute r = route.copy();
+        r.name = name.trim();
+        if (r.createdAt == 0) r.createdAt = System.currentTimeMillis();
+        return write(file, r);
+    }
+
+    /**
+     * Записать новые настройки в существующий файл (⚙ у сохранённого маршрута): точки, имя и дата — как были.
+     * @return false — файл не читается или не записался
+     */
+    public boolean saveSettings(String filename, com.farmmacro.macro.MacroSettings settings) {
+        Path f = resolve(filename);
+        PointRoute r = f == null ? null : load(filename);
+        if (r == null) return false;
+        r.settings = settings == null ? new com.farmmacro.macro.MacroSettings() : settings.copy();
+        return write(f, r);
+    }
+
+    private boolean write(Path file, PointRoute r) {
         try {
             Files.createDirectories(DIR);
-            PointRoute r = route.copy();
             r.version = PointRoute.VERSION;
-            r.name = name.trim();
-            if (r.createdAt == 0) r.createdAt = System.currentTimeMillis();
+            r.settings.refresh();
+            r.camera = null;
             Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
             try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
                 GSON.toJson(r, w);
@@ -69,7 +87,7 @@ public final class RouteStorage {
             LOGGER.info("Сохранён маршрут «{}» ({} точек) -> {}", r.name, r.points.size(), file.getFileName());
             return true;
         } catch (Exception e) {
-            LOGGER.error("Не удалось сохранить маршрут «{}»", name, e);
+            LOGGER.error("Не удалось сохранить маршрут «{}»", r.name, e);
             return false;
         }
     }

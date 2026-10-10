@@ -18,6 +18,10 @@ public final class RouteStress {
         report("Хаотичная прогулка (поворот каждые 1–3 с, прыжки) — худший случай", wander(n), 48);
         snake();
         com.farmmacro.route.WalkSim.main();
+        com.farmmacro.camera.CameraBindingCheck.main();
+        com.farmmacro.macro.HoldCheck.main();
+        com.farmmacro.gui.NumberInputCheck.main();
+        com.farmmacro.route.OffsetCheck.main();
     }
 
     /** «Змейка» по точкам: проверка рядов и геометрии маршрута по точкам. */
