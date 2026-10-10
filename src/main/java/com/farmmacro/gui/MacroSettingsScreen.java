@@ -93,15 +93,22 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
 
     private void build() {
         rows.clear();
+        Rows.searching = false;
         buildCamera();
         buildHold();
         buildHuman();
+        rows.add(new Rows.End());
+        rows.add(new Rows.MoreToggle(() -> Rows.hiddenAdvanced(rows), () -> {
+            cfg().uiAdvanced = !cfg().uiAdvanced;
+            ModConfig.save();
+        }));
         rows.add(new Rows.Note(() -> {
             String n = t.note();
             return n == null ? "" : n;
         }, Ui.SUB));
         rows.add(new Rows.Spacer(4));
         rows.add(new Rows.Buttons(new Rows.Btn("Готово", Rows.Style.PRIMARY, this::onClose)));
+        Rows.link(rows);
     }
 
     // ── Камера ───────────────────────────────────────────────────────────────
@@ -453,13 +460,13 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
 
         int cx = cX(), cy = cY(), cw = cW(), ch = cH();
         int total = 0;
-        for (Rows.Row r : rows) total += r.height(this, cw);
+        for (Rows.Row r : rows) total += r.h(this, cw);
         scroll = Math.max(0, Math.min(Math.max(0, total - ch), scroll));
         boolean in = Ui.inside(mx, my, cx, cy, cw, ch);
         g.enableScissor(cx - 2, cy, cx + cw + 2, cy + ch);
         int ry = cy - (int) scroll;
         for (Rows.Row r : rows) {
-            int rh = r.height(this, cw);
+            int rh = r.h(this, cw);
             r.lastX = cx; r.lastY = ry; r.lastW = cw; r.lastH = rh;
             if (rh > 0 && ry + rh > cy && ry < cy + ch)
                 r.render(this, g, cx, ry, cw, in ? mx : -1, in ? my : -1, in && my >= ry && my < ry + rh);

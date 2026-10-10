@@ -34,6 +34,11 @@ public final class RouteWalker implements PlaybackSource {
     private boolean started;
     /** «Случайность» прохода (null — выкл). */
     private com.farmmacro.macro.Humanizer.RouteShaper shaper;
+    /** v1.11 «Аномалия скорости». */
+    private final VelocityCheck velocity = new VelocityCheck();
+    private boolean lastOnGround, lastJump;
+    /** Куда автоход вёл в последний тик (единичный вектор x, z) или null — стоит / не играет. */
+    private double[] moveDir;
 
     private RouteWalker() {}
 
@@ -64,6 +69,8 @@ public final class RouteWalker implements PlaybackSource {
         shaper = human != null ? human.routeShaper(r.points.size()) : null;
         camera = r.settings.camera;
         camTracker.reset();
+        velocity.reset();
+        lastJump = false; lastOnGround = mc.player != null && mc.player.onGround(); moveDir = null;
         int from = Math.max(0, core.segment());
         camTracker.update(mc, camera, from, "старт, точка " + (from + 1));
         started = true;
@@ -80,6 +87,22 @@ public final class RouteWalker implements PlaybackSource {
     public void stop(Minecraft mc) {
         started = false;
         shaper = null;
+        moveDir = null;
+    }
+
+    /** Для детектора «Препятствие впереди»: направление хода автохода (x, z) или null. */
+    public double[] moveDir() { return started ? moveDir : null; }
+
+    /** Модель скорости не годится: в воздухе, прыжок, вода, лёд/песок душ, толчок/телепорт сервера, спуск, стена. */
+    private boolean velocityExcused(LocalPlayer p) {
+        if (!p.onGround() || !lastOnGround || lastJump || p.horizontalCollision || p.isInWater() || p.isInLava()
+                || p.isPassenger() || p.getAbilities().flying || p.isFallFlying() || p.isUsingItem() || p.isInPowderSnow
+                || p.onClimbable() || core.dropPhase() != WalkCore.D_NONE || PanicDetector.INSTANCE.pushExcused()) return true;
+        var lvl = p.level();
+        var below = lvl.getBlockState(p.getBlockPosBelowThatAffectsMyMovement()).getBlock();
+        var at = lvl.getBlockState(p.blockPosition()).getBlock();
+        return Math.abs(below.getFriction() - 0.6f) > 1e-4 || Math.abs(below.getSpeedFactor() - 1f) > 1e-4
+                || Math.abs(at.getSpeedFactor() - 1f) > 1e-4;
     }
 
     /** Для RouteRenderer: (target − 1 + доля пройденного отрезка) × FRAME_SCALE. */
@@ -101,6 +124,12 @@ public final class RouteWalker implements PlaybackSource {
         // «Случайность»: встать посреди пути / заминка — до решения WalkCore (он сам не жмёт клавиши и не ждёт «Застрял»)
         if (shaper != null) core.pauseExternal(shaper.stopNow(core.target(), core.dropPhase(), p.onGround(), core.pausing()));
         com.farmmacro.camera.SmoothTurn.look(human, p, core.externalPause() > 0 ? core.externalPause() + 1 : 0);
+        boolean velOn = on && c.detectVelocity;
+        String vel = velocity.observe(p.getX(), p.getZ(), !velOn || velocityExcused(p), c.velocityAnomaly);
+        if (vel != null) {
+            PanicDetector.INSTANCE.triggerPanic(mc, vel);
+            return true;
+        }
         core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), c.routeReachRadius,
                 on && c.detectStuck, c.stuckThresholdTicks, on && c.detectDrift, c.driftThreshold, on && c.detectFloor, out);
         if (core.dropPhase() != WalkCore.D_NONE) PanicDetector.INSTANCE.allowFall(10);  // урон от спуска — не паника
@@ -128,6 +157,15 @@ public final class RouteWalker implements PlaybackSource {
         if (out.slot >= 0) applySlot(p, out.slot);
         int hs = core.segment();
         com.farmmacro.macro.MouseHold.INSTANCE.position(core.target(), hs >= 0 && hs < core.points().size() && core.points().get(hs).hold);
+        // v1.11: в воде упёрся в бортик, а точка выше — держать прыжок, чтобы выплыть (канал у грядок)
+        int tgt = core.target();
+        if (!out.jump && (out.forward || out.back || out.left || out.right) && p.isInWater() && p.horizontalCollision
+                && core.dropPhase() == WalkCore.D_NONE && tgt >= 0 && tgt < core.points().size()
+                && core.points().get(tgt).y > p.getY() + 0.4) out.jump = true;
+        velocity.command(out, p.getYRot());
+        lastJump = out.jump; lastOnGround = p.onGround();
+        boolean keys = out.forward || out.back || out.left || out.right;
+        moveDir = keys ? WalkCore.moveDir(out, p.getYRot()) : null;
         MacroManager.press(o.keyUp, out.forward);
         MacroManager.press(o.keyDown, out.back);
         MacroManager.press(o.keyLeft, out.left);

@@ -52,6 +52,53 @@ public class ModConfig {
      * Откат античита («moved too quickly») тоже считается.
      */
     public boolean serverMoveAny       = true;
+    /**
+     * v1.11 «Синхронизация»: сервер поправил позицию/взгляд больше эпсилона (меньше порогов телепорта/поворота).
+     * Ниже эпсилона — только строка в логе. «Любой пакет телепорта» — отдельный переключатель.
+     */
+    public boolean detectServerSync    = true;
+    /** Эпсилон позиции, блоков. */
+    public double  serverPosEpsilon    = 0.03;
+    /** Эпсилон взгляда (yaw и pitch отдельно), градусов. */
+    public float   serverRotEpsilon    = 0.05f;
+    /** v1.11 «Параметры движения»: сервер изменил скорость, прыжок, гравитацию, шаг, размер, скорость ходьбы/полёта. */
+    public boolean detectMoveAttrs     = true;
+    /** Допуск изменения параметра движения, % от прежнего значения. */
+    public double  attrEpsilon         = 1.0;
+    /** v1.11 «Препятствие впереди»: по взгляду или по ходу автохода сервер поставил твёрдый блок. */
+    public boolean detectObstacle      = true;
+    /** Длина луча, блоков. */
+    public double  obstacleRange       = 4.0;
+    /** v1.11 «Аномалия скорости» (только маршрут по точкам): фактическая скорость разошлась с ожидаемой. */
+    public boolean detectVelocity      = true;
+    /** Допуск, блоков за тик (ходьба ≈ 0.22, бег ≈ 0.28). */
+    public double  velocityAnomaly     = 0.25;
+    /**
+     * v1.11 «Подозрительность»: мелкие события ниже порогов дают очки с весом, очки затухают (полураспад);
+     * сумма ≥ лимита — паника «Много мелких аномалий». Косвенное «внешнее наблюдение».
+     */
+    public boolean suspicionEnabled    = true;
+    public double  suspicionLimit      = 10;
+    /** Полураспад очков, секунд: через столько вклад события вдвое меньше. */
+    public double  suspicionHalfLifeSec = 60;
+    /** Веса: пакет телепорта/поворота ниже эпсилона (или без сдвига). */
+    public double  suspWeightSync      = 1;
+    /** Лаг-откат: сдвиг больше эпсилона, но меньше «Мин. сдвиг» (когда «Синхронизация» выкл). */
+    public double  suspWeightRollback  = 2;
+    /** Толчок слабее «Мин. толчок». */
+    public double  suspWeightKnock     = 2;
+    /** Новый игрок в прорисовке, но дальше радиуса «Игрок рядом» (раз за запуск на игрока). */
+    public double  suspWeightPlayerFar = 2;
+    /** Слово из списка в чате без ника (только если «Слова без ника — в подозрительность»). */
+    public double  suspWeightChatWord  = 4;
+    /** Новая надпись над хотбаром без ника/слова (цифры не различаются — таймеры не копятся). */
+    public double  suspWeightActionBar = 0.5;
+    /** Слово из списка без ника — очки подозрительности вместо мгновенной паники. Ник — всегда паника. */
+    public boolean chatWordsSoft       = false;
+    /** Полоска «ПОДОЗР. N/10» в HUD, пока играет макрос. */
+    public boolean suspicionHud        = true;
+    /** v1.11 «Журнал событий»: config/farmmacro/logs/events-ГГГГ-ММ-ДД.log (фоновый поток, ротация 5 МБ). */
+    public boolean eventLogEnabled     = true;
     /** Сервер толкнул: пакет скорости игрока (отдача, удочка, плагины) или отдача взрыва. */
     public boolean detectKnockback     = true;
     /** Минимальная скорость толчка, блоков за тик. */
@@ -226,6 +273,29 @@ public class ModConfig {
     /** Автоход: точка достигнута в этом радиусе по XZ, блоков. */
     public double  routeReachRadius      = 0.3;
 
+    // ── v1.11 «Авто-маршрут» (редактор: Ctrl+Shift+ЛКМ по двум углам). Ось, шаг, действия, «добавлять в конец»
+    //    и смещение — общие со «змейкой» (snakeAxis, snakeStep, snakeRowAction, snakeTurnAction, snakeAppend, snakeOffset*) ──
+    /** Шаг рядов «авто»: по проходам / периоду урожая; выкл — snakeStep. */
+    public boolean autoStepAuto          = true;
+    /** На сколько блоков ниже нижнего угла искать этажи. */
+    public int     autoRouteDepth        = 8;
+    /** Урожай только на: auto | farmland | sand | soul_sand. */
+    public String  autoSurface           = "auto";
+    /** Авто-маршрут: где идти — auto (по культуре) / low (ниже грядок, по воде) / level (на уровне культур). */
+    public String  autoWalk              = "auto";
+    /** Последняя точка ведёт обратно к старту (круги без ручной перестановки). */
+    public boolean autoReturnToStart     = true;
+    /** Пауза на концах рядов, тиков. */
+    public int     autoEndPause          = 0;
+    /** Сканирование: колонок за тик (больше — быстрее, но может подлагивать). */
+    public int     autoRouteColumnsPerTick = 512;
+
+    // ── v1.11 меню: простой/расширенный режим и свёрнутые разделы (не входят в профили «Конфиги») ──
+    /** Показывать тонкие настройки (пороги, веса, цвета, служебные шаги). */
+    public boolean uiAdvanced            = false;
+    /** Раздел меню → развёрнут (true) / свёрнут (false); нет ключа — как задано по умолчанию. */
+    public java.util.Map<String, Boolean> uiSections = new java.util.LinkedHashMap<>();
+
     // ── Камера: пресеты yaw/pitch ────────────────────────────────────────────
     public static class CamPreset {
         /** Постоянный номер (на него ссылаются привязки камеры в макросах и маршрутах), 0 — ещё не выдан. */
@@ -274,6 +344,19 @@ public class ModConfig {
         driftThreshold        = clamp(driftThreshold, 0.01, 1024);
         knockbackThreshold    = clamp(knockbackThreshold, 0.001, 10);
         playerNearRadius      = clamp(playerNearRadius, 1, 128);
+        serverPosEpsilon      = clamp(serverPosEpsilon, 0.0001, 16);
+        serverRotEpsilon      = clamp(serverRotEpsilon, 0.0001f, 180f);
+        attrEpsilon           = clamp(attrEpsilon, 0.01, 100);
+        obstacleRange         = clamp(obstacleRange, 1, 16);
+        velocityAnomaly       = clamp(velocityAnomaly, 0.01, 5);
+        suspicionLimit        = clamp(suspicionLimit, 0.1, 1000);
+        suspicionHalfLifeSec  = clamp(suspicionHalfLifeSec, 1, 3600);
+        suspWeightSync        = clamp(suspWeightSync, 0, 100);
+        suspWeightRollback    = clamp(suspWeightRollback, 0, 100);
+        suspWeightKnock       = clamp(suspWeightKnock, 0, 100);
+        suspWeightPlayerFar   = clamp(suspWeightPlayerFar, 0, 100);
+        suspWeightChatWord    = clamp(suspWeightChatWord, 0, 100);
+        suspWeightActionBar   = clamp(suspWeightActionBar, 0, 100);
         if (chatKeywords == null) chatKeywords = "";
         if (chatKeywords.length() > 1000) chatKeywords = chatKeywords.substring(0, 1000);
         humanGlobal           = com.farmmacro.macro.HumanSettings.sanitize(humanGlobal);
@@ -333,6 +416,13 @@ public class ModConfig {
         if (!"auto".equals(snakeAxis) && !"x".equals(snakeAxis) && !"z".equals(snakeAxis)) snakeAxis = "auto";
         if (!java.util.List.of("none", "attack", "use").contains(snakeRowAction)) snakeRowAction = "attack";
         if (!java.util.List.of("none", "attack", "use").contains(snakeTurnAction)) snakeTurnAction = "none";
+        autoRouteDepth        = clamp(autoRouteDepth, 0, 40);
+        autoEndPause          = clamp(autoEndPause, 0, 200);
+        autoRouteColumnsPerTick = clamp(autoRouteColumnsPerTick, 16, 8192);
+        if (!com.farmmacro.route.AutoRoute.SURFACES.contains(autoSurface)) autoSurface = "auto";
+        if (!com.farmmacro.route.AutoRoute.WALKS.contains(autoWalk)) autoWalk = "auto";
+        if (uiSections == null) uiSections = new java.util.LinkedHashMap<>();
+        if (uiSections.size() > 200) uiSections.clear();
         hatOpacity            = clamp(hatOpacity, 0, 100);
         hatRadius             = clamp(hatRadius, 0.05, 3);
         hatHeight             = clamp(hatHeight, 0.01, 2);
@@ -350,14 +440,22 @@ public class ModConfig {
                 "паника=%s | поворот=%s yaw>%.2f° pitch>%.2f° | сервер=%s сдвиг>=%.2f бл поворот>=%.2f° | "
                         + "блок=%s %.2f бл | слот=%s окно=%s урон=%s эффекты=%s | застрял=%s %d т | сход=%s %.1f бл | "
                         + "повтор камеры=%s | звук=%s безопасный=%s системный=%s | любой телепорт=%s толчок=%s %.3f | "
-                        + "чат=%s ник=%s титр=%s режим=%s игрок рядом=%s %.0f бл наблюдатель=%s вход/выход=%s предмет=%s",
+                        + "чат=%s ник=%s титр=%s режим=%s игрок рядом=%s %.0f бл наблюдатель=%s вход/выход=%s предмет=%s | "
+                        + "синхр=%s %.4f бл %.4f° | параметры=%s %.2f%% | препятствие=%s %.1f бл | скорость=%s %.3f бл/т | "
+                        + "подозр=%s %.1f/%.0f с веса %.1f/%.1f/%.1f/%.1f/%.1f/%.1f слова мягко=%s | журнал=%s | "
+                        + "авто-маршрут шаг=%s поверхность=%s идти=%s к старту=%s пауза=%d т глубина=%d",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
                 detectStuck, stuckThresholdTicks, detectDrift, driftThreshold,
                 replayCamera, panicSound, panicSoundSafe, panicSoundSystem, serverMoveAny, detectKnockback, knockbackThreshold,
                 detectChat, chatMentionName, detectTitle, detectGameMode, detectPlayerNear, playerNearRadius,
-                detectSpectator, detectPlayerJoin, detectHeldItem);
+                detectSpectator, detectPlayerJoin, detectHeldItem,
+                detectServerSync, serverPosEpsilon, serverRotEpsilon, detectMoveAttrs, attrEpsilon,
+                detectObstacle, obstacleRange, detectVelocity, velocityAnomaly,
+                suspicionEnabled, suspicionLimit, suspicionHalfLifeSec, suspWeightSync, suspWeightRollback, suspWeightKnock,
+                suspWeightPlayerFar, suspWeightChatWord, suspWeightActionBar, chatWordsSoft, eventLogEnabled,
+                autoStepAuto ? "авто" : String.valueOf(snakeStep), autoSurface, autoWalk, autoReturnToStart, autoEndPause, autoRouteDepth);
     }
 
     private static String colorOrDefault(String id) {

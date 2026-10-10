@@ -98,6 +98,7 @@ public final class ConfigProfiles {
         loaded.camPresets = cur.camPresets;
         loaded.camSelected = cur.camSelected;
         loaded.camNextId = cur.camNextId;
+        loaded.uiAdvanced = cur.uiAdvanced; loaded.uiSections = cur.uiSections;    // вид меню — не часть профиля
         loaded.keyRecord = cur.keyRecord; loaded.keyPlay = cur.keyPlay; loaded.keyClear = cur.keyClear; loaded.keyOpenGui = cur.keyOpenGui;
         loaded.sanitize();
         ModConfig.INSTANCE = loaded;
@@ -152,6 +153,14 @@ public final class ConfigProfiles {
         c.detectSpectator = true; c.detectPlayerJoin = true; c.detectHeldItem = true;
         c.detectBlockInFace = true; c.detectSlotChange = true; c.detectGuiOpen = true; c.detectDamage = true;
         c.detectPotionEffect = true; c.detectStuck = true; c.detectFloor = true;
+        c.detectServerSync = true; c.serverPosEpsilon = 0.03; c.serverRotEpsilon = 0.05f;
+        c.detectMoveAttrs = true; c.attrEpsilon = 1.0;
+        c.detectObstacle = true; c.obstacleRange = 4.0;
+        c.detectVelocity = true; c.velocityAnomaly = 0.25;
+        c.suspicionEnabled = true; c.suspicionLimit = 10; c.suspicionHalfLifeSec = 60;
+        c.suspWeightSync = 1; c.suspWeightRollback = 2; c.suspWeightKnock = 2;
+        c.suspWeightPlayerFar = 2; c.suspWeightChatWord = 4; c.suspWeightActionBar = 0.5;
+        c.chatWordsSoft = false;
     }
 
     /** Применить готовый набор к текущим настройкам (визуал, HUD, звук, маршрут — не трогает) и сохранить. */
@@ -166,6 +175,8 @@ public final class ConfigProfiles {
             case "careful" -> {
                 allDetectors(c);
                 c.playerNearRadius = 24;
+                c.obstacleRange = 5.0; c.velocityAnomaly = 0.2;
+                c.suspicionLimit = 8; c.suspicionHalfLifeSec = 90;
                 HumanSettings h = humanRecommended();
                 h.hesitateChance = 12; h.perfectLapChance = 5;
                 h.midStopChance = 20; h.midStopMin = 20; h.midStopMax = 80;
@@ -177,6 +188,9 @@ public final class ConfigProfiles {
                 allDetectors(c);
                 c.serverMoveAny = false; c.detectPlayerJoin = false; c.chatKeywords = "";
                 c.knockbackThreshold = 0.2; c.playerNearRadius = 6;
+                c.serverPosEpsilon = 0.5; c.serverRotEpsilon = 1.0f; c.attrEpsilon = 5.0;
+                c.obstacleRange = 3.0; c.velocityAnomaly = 0.4;
+                c.suspicionLimit = 16; c.suspicionHalfLifeSec = 45; c.suspWeightActionBar = 0;
             }
             case "plain" -> c.humanMaster = false;
             default -> { return; }

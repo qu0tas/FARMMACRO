@@ -37,13 +37,63 @@ public final class Rows {
     /** Сбросить фокус колёсика (клик мимо поля, смена вкладки, закрытие меню). */
     public static void clearWheelFocus() { wheelFocus = null; }
 
+    // ── v1.11: что показывать (простой/расширенный режим, свёрнутые разделы, поиск) ──
+
+    /** Расширенный режим меню: видны строки, помеченные {@link Row#adv()}. */
+    public static BooleanSupplier advanced = () -> com.farmmacro.config.ModConfig.INSTANCE.uiAdvanced;
+    /** Идёт поиск: видно всё найденное, без учёта режима и свёрнутых разделов. */
+    public static boolean searching;
+
+    /** Привязать строки к разделам (строка → ближайший Section выше). Вызывать после сборки списка. */
+    public static void link(List<Row> rows) {
+        Section cur = null;
+        for (Row r : rows) {
+            if (r instanceof Section s) { cur = s; s.children.clear(); continue; }
+            if (r instanceof End) { cur = null; continue; }
+            r.section = cur;
+            if (cur != null) cur.children.add(r);
+        }
+    }
+
+    /** Сколько строк скрыто только потому, что выключен расширенный режим. */
+    public static int hiddenAdvanced(List<Row> rows) {
+        if (advanced.getAsBoolean()) return 0;
+        int n = 0;
+        for (Row r : rows) if (r.adv && !(r instanceof Section) && !(r instanceof Note) && r.visible.getAsBoolean()
+                && (r.section == null || r.section.visible.getAsBoolean())) n++;
+        return n;
+    }
+
     public abstract static class Row {
         /** Позиция с последней отрисовки (для кликов). */
         int lastX, lastY, lastW, lastH;
         BooleanSupplier enabled = () -> true;
+        BooleanSupplier visible = () -> true;
+        boolean adv;
+        Section section;
 
         public Row enabledIf(BooleanSupplier s) { this.enabled = s; return this; }
+        /** Показывать только при условии (например, пока включён «родительский» переключатель). */
+        public Row showIf(BooleanSupplier s) { this.visible = s; return this; }
+        /** Тонкая настройка: только в расширенном режиме (и в поиске). */
+        public Row adv() { adv = true; return this; }
+        /** enabledIf + showIf одним условием. */
+        public Row under(BooleanSupplier s) { enabled = s; visible = s; return this; }
         boolean on() { return enabled.getAsBoolean(); }
+        public boolean isAdv() { return adv; }
+
+        /** Видна ли сама строка (без учёта свёрнутого раздела). */
+        boolean selfShown() {
+            return visible.getAsBoolean() && (!adv || advanced.getAsBoolean()) && (section == null || section.selfShown());
+        }
+        public boolean shown() {
+            if (searching) return true;
+            return selfShown() && (section == null || section.open());
+        }
+        /** Высота с учётом видимости — её используют экраны при раскладке. */
+        public int h(Ctx c, int w) { return shown() ? height(c, w) : 0; }
+        /** Текст для поиска (подпись и подсказка). */
+        public String searchText() { return ""; }
 
         abstract int height(Ctx c, int w);
         abstract void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover);
@@ -54,15 +104,122 @@ public final class Rows {
     // ── Заголовок раздела ────────────────────────────────────────────────────
 
     public static final class Section extends Row {
-        private final String title;
-        public Section(String title) { this.title = title; }
+        final String title;
+        final List<Row> children = new java.util.ArrayList<>();
+        private String key;
+        private boolean defaultOpen = true;
+        private Runnable onClick;
+        public Section(String title) { this.title = title; this.key = title; }
+
+        public String title() { return title; }
+        /** Ключ состояния «свёрнут» (по умолчанию — заголовок). */
+        public Section key(String k) { key = k; return this; }
+        public String key() { return key; }
+        /** Свёрнут, пока пользователь не развернёт. */
+        public Section closed() { defaultOpen = false; return this; }
+        /** Клик по заголовку вместо сворачивания (результаты поиска — перейти к разделу). */
+        public Section onClick(Runnable r) { onClick = r; return this; }
+
+        boolean collapsible() { return onClick == null && !children.isEmpty() && !searching; }
+        public boolean open() {
+            if (!collapsible()) return true;
+            Boolean v = com.farmmacro.config.ModConfig.INSTANCE.uiSections.get(key);
+            return v != null ? v : defaultOpen;
+        }
+        public void setOpen(boolean v) {
+            com.farmmacro.config.ModConfig.INSTANCE.uiSections.put(key, v);
+            com.farmmacro.config.ModConfig.save();
+        }
+
+        @Override boolean selfShown() {
+            if (!visible.getAsBoolean() || (adv && !advanced.getAsBoolean())) return false;
+            if (children.isEmpty()) return true;
+            for (Row r : children)
+                if (r.visible.getAsBoolean() && (!r.adv || advanced.getAsBoolean()) && !(r instanceof Note n && n.empty())) return true;
+            return false;
+        }
+
+        @Override public String searchText() { return title; }
+
         int height(Ctx c, int w) { return 20; }
         void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
-            String t = title.toUpperCase();
-            Ui.text(g, c.font(), t, x + 2, y + 9, Ui.ACCENT_HI);
+            boolean col = collapsible(), op = open();
+            String t = (col ? (op ? "▾ " : "▸ ") : onClick != null ? "› " : "") + title.toUpperCase();
+            boolean hot = hover && (col || onClick != null);
+            Ui.text(g, c.font(), t, x + 2, y + 9, hot ? Ui.TEXT : Ui.ACCENT_HI);
+            // справа: сколько переключателей включено (и сколько строк спрятано, если свёрнут)
+            String right = null;
+            if (col) {
+                int on = 0, all = 0, rows = 0;
+                for (Row r : children) {
+                    if (!r.visible.getAsBoolean() || (r.adv && !advanced.getAsBoolean()) || r instanceof Note) continue;
+                    rows++;
+                    if (r instanceof Toggle tg) { all++; if (tg.value()) on++; }
+                }
+                if (all > 0) right = on + "/" + all + " вкл";
+                if (!op) right = (right != null ? right + " · " : "") + rows + " " + plural(rows);
+            } else if (onClick != null) right = "перейти";
             int lx = x + 8 + c.font().width(t);
-            g.fill(lx, y + 13, x + w, y + 14, Ui.BORDER);
+            int rx = x + w;
+            if (right != null) {
+                int rw = c.font().width(right);
+                Ui.text(g, c.font(), right, x + w - rw - 2, y + 9, hot ? Ui.SUB : Ui.DIM);
+                rx = x + w - rw - 8;
+            }
+            if (rx > lx) g.fill(lx, y + 13, rx, y + 14, Ui.BORDER);
+            if (hot) { c.hand(); c.tooltip(onClick != null ? "Открыть вкладку с этим разделом" : op ? "Свернуть раздел" : "Развернуть раздел"); }
         }
+
+        boolean click(Ctx c, double mx, double my, int button) {
+            if (button != 0) return false;
+            if (onClick != null) { c.clickSound(); onClick.run(); return true; }
+            if (!collapsible()) return false;
+            c.clickSound();
+            setOpen(!open());
+            return true;
+        }
+
+        private static String plural(int n) {
+            int m10 = n % 10, m100 = n % 100;
+            if (m10 == 1 && m100 != 11) return "настройка";
+            if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return "настройки";
+            return "настроек";
+        }
+    }
+
+    /**
+     * Переключатель «показать ещё N тонких настроек / скрыть» (простой/расширенный режим) в конце вкладки или окна.
+     */
+    public static final class MoreToggle extends Row {
+        private final java.util.function.IntSupplier hidden;
+        private final Runnable toggle;
+        public MoreToggle(java.util.function.IntSupplier hidden, Runnable toggle) { this.hidden = hidden; this.toggle = toggle; }
+        private String text() {
+            if (advanced.getAsBoolean()) return "▴ Скрыть тонкие настройки (простой режим)";
+            int n = hidden.getAsInt();
+            return n <= 0 ? "" : "▾ Ещё " + n + " " + Section.plural(n) + " — показать все (расширенный режим)";
+        }
+        @Override public boolean shown() { return !searching && !text().isEmpty(); }
+        int height(Ctx c, int w) { return 20; }
+        void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            String t = text();
+            Ui.round(g, x, y + 2, w, 15, 4, hover ? Ui.CARD_HOVER : Ui.alpha(Ui.ACCENT, 0.08f));
+            Ui.textCentered(g, c.font(), Ui.ellipsize(c.font(), t, w - 12), x + w / 2, y + 6, hover ? Ui.TEXT : Ui.ACCENT_HI);
+            if (hover) { c.hand(); c.tooltip("Пороги, веса, цвета и служебные шаги. Тот же переключатель — вверху окна"); }
+        }
+        boolean click(Ctx c, double mx, double my, int button) {
+            if (button != 0) return false;
+            c.clickSound();
+            toggle.run();
+            return true;
+        }
+    }
+
+    /** Конец раздела: строки ниже не принадлежат предыдущему Section (не сворачиваются с ним). Высота 0. */
+    public static final class End extends Row {
+        @Override public boolean shown() { return false; }
+        int height(Ctx c, int w) { return 0; }
+        void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {}
     }
 
     // ── Базовая «карточка» с подписью и подсказкой ───────────────────────────
@@ -70,6 +227,8 @@ public final class Rows {
     abstract static class Labeled extends Row {
         final String label, hint;
         Labeled(String label, String hint) { this.label = label; this.hint = hint; }
+
+        @Override public String searchText() { return label + (hint != null ? " " + hint : ""); }
 
         int height(Ctx c, int w) { return hintNow() == null ? 22 : 30; }
 
@@ -110,6 +269,8 @@ public final class Rows {
         }
 
         int controlWidth(Ctx c) { return 24; }
+
+        public boolean value() { return get.getAsBoolean(); }
 
         void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
             int h = height(c, w);
@@ -186,7 +347,18 @@ public final class Rows {
         /** Только целые (поле в настройках — int). */
         public Number integer() { integer = true; return this; }
 
-        int controlWidth(Ctx c) { return 92; }
+        /** Встроен в {@link Range}: поле рисуется в заданном месте, без своей карточки. */
+        int ex = Integer.MIN_VALUE, ey, ew;
+        boolean embedded() { return ex != Integer.MIN_VALUE; }
+
+        int controlWidth(Ctx c) { return embedded() ? ew : 92; }
+
+        /** {x, y, ширина} поля. */
+        private int[] box(Ctx c) {
+            if (embedded()) return new int[]{ex, ey, ew};
+            int h = height(c, lastW), cw = controlWidth(c);
+            return new int[]{lastX + lastW - cw - 6, lastY + (h - 3 - 14) / 2, cw};
+        }
 
         int maxLen() { return 16; }
         boolean allowed(String ch) { return ch.matches("[0-9.,+\\- ]"); }
@@ -201,10 +373,9 @@ public final class Rows {
         String editTip() { return "Enter — принять, Esc — отменить · от " + num(min) + " до " + num(max) + (integer ? ", целое" : ""); }
 
         void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
-            int h = height(c, w);
-            drawCard(c, g, x, y, w, h, hover, false);
-            int cw = controlWidth(c);
-            int cx = x + w - cw - 6, cy = y + (h - 3 - 14) / 2;
+            if (!embedded()) drawCard(c, g, x, y, w, height(c, w), hover, false);
+            int[] bx = box(c);
+            int cw = bx[2], cx = bx[0], cy = bx[1];
             boolean en = on();
             if (!en && focused()) textFocus = null;
             if (focused()) { drawEditing(c, g, cx, cy, cw, hover); return; }
@@ -243,8 +414,8 @@ public final class Rows {
 
         boolean click(Ctx c, double mx, double my, int button) {
             if (!on() || button != 0) return false;
-            int h = height(c, lastW), cw = controlWidth(c);
-            int cx = lastX + lastW - cw - 6, cy = lastY + (h - 3 - 14) / 2;
+            int[] bx = box(c);
+            int cx = bx[0], cy = bx[1], cw = bx[2];
             if (!Ui.inside(mx, my, cx, cy, cw, 14)) return false;
             if (focused()) { placeCursor(c, mx, cx); return true; }
             wheelFocus = this;
@@ -256,11 +427,95 @@ public final class Rows {
 
         boolean scroll(Ctx c, double mx, double my, double amount) {
             if (!on() || wheelFocus != this) return false;
-            int h = height(c, lastW), cw = controlWidth(c);
-            int cx = lastX + lastW - cw - 6, cy = lastY + (h - 3 - 14) / 2;
-            if (!Ui.inside(mx, my, cx, cy, cw, 14)) return false;
+            int[] bx = box(c);
+            if (!Ui.inside(mx, my, bx[0], bx[1], bx[2], 14)) return false;
             if (focused()) return true;                            // пока печатаем, колёсико значение не трогает
             change(c, amount > 0 ? 1 : -1);
+            return true;
+        }
+    }
+
+    /** v1.11: «от – до» в одной строке (два числовых поля). Вместо двух строк «…: от» и «…: до». */
+    public static final class Range extends Labeled {
+        private final Number lo, hi;
+        public Range(String label, String hint, Number lo, Number hi) { super(label, hint); this.lo = lo; this.hi = hi; }
+
+        private int fieldW() { return Math.max(60, Math.min(84, (lastW / 2 - 22) / 2)); }
+        int controlWidth(Ctx c) { return fieldW() * 2 + 12; }
+
+        private void place(Ctx c) {
+            int h = height(c, lastW), fw = fieldW();
+            int cy = lastY + (h - 3 - 14) / 2, right = lastX + lastW - 6;
+            hi.ex = right - fw; hi.ey = cy; hi.ew = fw;
+            lo.ex = right - fw * 2 - 12; lo.ey = cy; lo.ew = fw;
+            for (Number n : new Number[]{lo, hi}) { n.enabled = enabled; n.lastX = lastX; n.lastY = lastY; n.lastW = lastW; n.lastH = lastH; }
+        }
+
+        void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            drawCard(c, g, x, y, w, height(c, w), hover, false);
+            place(c);
+            lo.render(c, g, x, y, w, mx, my, hover);
+            hi.render(c, g, x, y, w, mx, my, hover);
+            Ui.textCentered(g, c.font(), "–", lo.ex + lo.ew + 6, lo.ey + 3, on() ? Ui.SUB : Ui.DIM);
+        }
+
+        boolean click(Ctx c, double mx, double my, int button) {
+            place(c);
+            return lo.click(c, mx, my, button) || hi.click(c, mx, my, button);
+        }
+
+        boolean scroll(Ctx c, double mx, double my, double amount) {
+            place(c);
+            return lo.scroll(c, mx, my, amount) || hi.scroll(c, mx, my, amount);
+        }
+    }
+
+    /** v1.11: поиск по всем настройкам (фильтр на лету, пока печатаешь). */
+    public static final class Search extends Input {
+        private final Consumer<String> onChange;
+        private String query = "";
+
+        public Search(Consumer<String> onChange) { super("Поиск", null); this.onChange = onChange; }
+
+        public String query() { return query; }
+        public void clear() { if (textFocus == this) textFocus = null; set(""); }
+        private void set(String q) { if (!q.equals(query)) { query = q; onChange.accept(q); } }
+
+        @Override public boolean shown() { return true; }
+        int height(Ctx c, int w) { return 22; }
+        int controlWidth(Ctx c) { return lastW - 12; }
+        int maxLen() { return 40; }
+        boolean allowed(String ch) { return true; }
+        String initialText() { return query; }
+        String commitText(String text) { set(text.strip()); return null; }
+        String editTip() { return "Ищет по названиям и подсказкам во всех вкладках · Esc — выйти из поля, ✕ — очистить"; }
+
+        void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
+            int cx = x + 2, cy = y + 3, cw = w - 4;
+            if (focused()) {
+                if (!buf.strip().equals(query)) set(buf.strip());
+                drawEditing(c, g, cx, cy, cw, hover);
+                return;
+            }
+            boolean hf = Ui.inside(mx, my, cx, cy, cw, 14);
+            Ui.round(g, cx, cy, cw, 14, 4, hf ? Ui.CARD_HOVER : Ui.FIELD);
+            if (query.isEmpty()) Ui.text(g, c.font(), "⌕ Поиск по всем настройкам…", cx + 6, cy + 3, Ui.DIM);
+            else {
+                Ui.text(g, c.font(), Ui.ellipsize(c.font(), "⌕ " + query, cw - 30), cx + 6, cy + 3, Ui.TEXT);
+                boolean hx = Ui.inside(mx, my, cx + cw - 16, cy, 16, 14);
+                Ui.textCentered(g, c.font(), "✕", cx + cw - 8, cy + 3, hx ? Ui.DANGER : Ui.SUB);
+                if (hx) c.tooltip("Очистить поиск");
+            }
+            if (hf) c.hand();
+        }
+
+        boolean click(Ctx c, double mx, double my, int button) {
+            if (button != 0) return false;
+            int cx = lastX + 2, cy = lastY + 3, cw = lastW - 4;
+            if (!Ui.inside(mx, my, cx, cy, cw, 14)) return false;
+            if (!focused() && !query.isEmpty() && Ui.inside(mx, my, cx + cw - 16, cy, 16, 14)) { c.clickSound(); clear(); return true; }
+            if (!focused()) focus(c);
+            else placeCursor(c, mx, cx);
             return true;
         }
     }
@@ -376,6 +631,12 @@ public final class Rows {
         private final Btn[] buttons;
         public Buttons(Btn... buttons) { this.buttons = buttons; }
 
+        @Override public String searchText() {
+            StringBuilder b = new StringBuilder();
+            for (Btn x : buttons) { b.append(x.label.get()).append(' '); if (x.tip != null) b.append(x.tip).append(' '); }
+            return b.toString();
+        }
+
         int height(Ctx c, int w) { return 22; }
 
         private int bw(int w) { return (w - (buttons.length - 1) * 4) / buttons.length; }
@@ -414,6 +675,9 @@ public final class Rows {
         private final int color;
         public Note(String text, int color) { this(() -> text, color); }
         public Note(Supplier<String> text, int color) { this.text = text; this.color = color; }
+
+        boolean empty() { String t = text.get(); return t == null || t.isEmpty(); }
+        @Override public String searchText() { String t = text.get(); return t == null ? "" : t; }
 
         int height(Ctx c, int w) {
             String t = text.get();

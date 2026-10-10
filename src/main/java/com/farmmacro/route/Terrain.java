@@ -18,6 +18,8 @@ public final class Terrain {
     public static final double STEP = 0.6;
     /** Ниже этого — «другой этаж» (падение, а не ступенька). */
     public static final double FLOOR_GAP = 0.6;
+    /** v1.11: сойти вниз без «Спуска» можно на блок (с бортика в воду, с грядки на дорожку). */
+    public static final double STEP_DOWN = 1.0;
 
     public enum Issue {
         OK(null),
@@ -90,7 +92,7 @@ public final class Terrain {
             double[] d = dropDir(pts, i);
             return Double.isNaN(dropDepth(w, a, d[0], d[1])) ? Issue.NO_EDGE : Issue.OK;
         }
-        if (a.y - b.y > FLOOR_GAP) return Issue.NEED_DROP;
+        if (a.y - b.y > STEP_DOWN + 1e-9) return Issue.NEED_DROP;     // до блока вниз — просто сходим (в канал с водой)
         double dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
         int n = (int) Math.min(2000, Math.ceil(len / 0.1));
         for (int k = 1; k < n; k++) {
@@ -98,7 +100,7 @@ public final class Terrain {
             double y = a.y + Math.max(0, b.y - a.y) * t;      // подъём — постепенно (ступеньки/прыжок)
             if (blockedAt(w, x, y, z)) return Issue.BLOCKED;
             double f = floorY(w, x, y, z, 3);
-            if (Double.isNaN(f) || f < Math.min(y, b.y) - FLOOR_GAP) return Issue.CLIFF;
+            if (Double.isNaN(f) || f < Math.min(a.y, b.y) - FLOOR_GAP) return Issue.CLIFF;   // не ниже нижнего конца
         }
         return Issue.OK;
     }

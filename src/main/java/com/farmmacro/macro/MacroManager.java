@@ -252,6 +252,10 @@ public class MacroManager {
         MouseHold.INSTANCE.begin(human != null ? human.shapeHold(ms.hold) : ms.hold, source != recordingSource);
         if (human != null) LOGGER.info("Случайность: сид {}", human.seed);
         PanicDetector.INSTANCE.beginRun();
+        lastMidStops = 0; lastAfks = 0;
+        com.farmmacro.panic.EventLog.log("START", (source == recordingSource ? "запись " + (loadedName != null ? loadedName : "(буфер)")
+                : "маршрут " + com.farmmacro.route.RouteBuffer.INSTANCE.route().name)
+                + ", с " + (pendingStartIndex + 1) + (human != null ? ", случайность, сид " + human.seed : ", без случайности"));
         startPass(mc, pendingStartIndex);
         if (ModConfig.INSTANCE.mouseLockOnStart) com.farmmacro.camera.MouseLock.lock(mc, "старт макроса");
         LOGGER.info("Старт ({}), пороги: {}", source == recordingSource ? "запись" : "маршрут",
@@ -268,6 +272,10 @@ public class MacroManager {
         if (human != null) {
             boolean perfect = human.beginLap();
             LOGGER.debug("Круг {}: {}", human.laps, perfect ? "идеальный" : "со случайностью");
+            com.farmmacro.panic.EventLog.log("LAP", "круг " + (loopsDone + 1) + ": " + (perfect ? "идеальный" : "со случайностью")
+                    + " (всего: идеальных " + human.perfectLaps + ", встал " + human.midStops + ", протупил " + human.afks + ")");
+        } else {
+            com.farmmacro.panic.EventLog.log("LAP", "круг " + (loopsDone + 1) + ": без случайности");
         }
         MouseHold.INSTANCE.suspend(false);
         source.startPass(mc, index);
@@ -312,7 +320,15 @@ public class MacroManager {
 
         MouseHold.INSTANCE.tickRun();
         source.tick(mc, c);          // паника из источника сама остановит макрос
+        Humanizer h = Humanizer.ACTIVE;
+        if (h != null) {
+            if (h.midStops != lastMidStops) { lastMidStops = h.midStops; com.farmmacro.panic.EventLog.log("HUMAN", "встал посреди пути"); }
+            if (h.afks != lastAfks) { lastAfks = h.afks; com.farmmacro.panic.EventLog.log("HUMAN", "протупить (долгая остановка)"); }
+        }
     }
+
+    /** Счётчики остановок «Случайности», уже записанные в журнал. */
+    private int lastMidStops, lastAfks;
 
     /** Запись по кадрам: каждый тик — очередной кадр (логика 1.0–1.4 без изменений). */
     private final class RecordingSource implements PlaybackSource {
@@ -453,6 +469,7 @@ public class MacroManager {
     /** Штатное окончание (конец записи/лимит). keepResume — можно продолжить с этого места. */
     private void finish(Minecraft mc, String message, boolean keepResume) {
         boolean wasPlaying = state == State.PLAYING;
+        com.farmmacro.panic.EventLog.log("STOP", stripCodes(message) + " (кругов " + loopsDone + ")");
         stopInternal(mc, keepResume);
         msg(mc, message);
         if (wasPlaying && ModConfig.INSTANCE.finishSoundEnabled) PanicSound.playDone();
@@ -461,12 +478,16 @@ public class MacroManager {
     /** Остановка (вручную или паникой). Точка остановки запоминается для «возобновить». */
     public void stopPlayback(Minecraft mc, String message) {
         if (state != State.PLAYING && state != State.COUNTDOWN) return;
+        com.farmmacro.panic.EventLog.log("STOP", stripCodes(message) + " (кругов " + loopsDone + ")");
         stopInternal(mc, true);
         msg(mc, message);
     }
 
     /** Аварийная остановка без сообщений и точки возобновления (если обычная остановка упала). */
+    private static String stripCodes(String s) { return s == null ? "" : s.replaceAll("§.", ""); }
+
     public void forceStop(Minecraft mc) {
+        com.farmmacro.panic.EventLog.log("STOP", "аварийная остановка");
         Humanizer.ACTIVE = null;
         state = State.IDLE;
         playbackIndex = 0;

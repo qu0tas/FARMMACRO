@@ -38,6 +38,7 @@ public final class FarmHud {
                 y = drawHold(g, mc, y);
                 y = drawMouseLock(g, mc, y);
                 y = drawHuman(g, mc, y);
+                y = drawSuspicion(g, mc, y);
                 drawNavigator(g, mc, y, t);
                 drawCrosshairArrow(g, mc, t);
             }
@@ -148,7 +149,7 @@ public final class FarmHud {
 
     private static final String[] EDITOR_HINTS = {
             "ЛКМ — точка · зажать — двигать", "Shift+ЛКМ — вставить", "ПКМ — удалить",
-            "Shift+ПКМ — параметры", "Ctrl+ЛКМ — углы «змейки»", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
+            "Shift+ПКМ — параметры", "Ctrl+ЛКМ — углы «змейки»", "Ctrl+Shift+ЛКМ — авто-маршрут", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
             "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+D — спуск на этаж ниже", "Ctrl+Z — отменить"};
 
     private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int y) {
@@ -157,7 +158,8 @@ public final class FarmHud {
         int sw = mc.getWindow().getGuiScaledWidth();
         int w = PANEL_W + 20, x = sw - w - MARGIN;
         var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
-        String snake = com.farmmacro.route.SnakeTool.status();
+        String snake = com.farmmacro.route.AutoRouteTool.status();
+        if (snake == null) snake = com.farmmacro.route.SnakeTool.status();
         String issue = com.farmmacro.visual.RouteRenderer.editorIssue;
         if (issue != null && com.farmmacro.visual.RouteRenderer.editorIssueCount > 1)
             issue += " (+" + (com.farmmacro.visual.RouteRenderer.editorIssueCount - 1) + ")";
@@ -212,6 +214,26 @@ public final class FarmHud {
         g.fill(x, y + 3, x + 2, y + h2 - 3, col);
         Ui.text(g, f, Ui.ellipsize(f, "СЛУЧАЙНОСТЬ · " + h.status() + " · сид " + h.seed, w - 14), x + 8, y + 4, col);
         return y + h2 + 4;
+    }
+
+    /** v1.11: полоска «ПОДОЗР. N/10» — очки «Подозрительности», пока играет макрос. */
+    private static int drawSuspicion(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        ModConfig c = ModConfig.INSTANCE;
+        if (!c.suspicionEnabled || !c.suspicionHud || !c.panicEnabled || !MacroManager.INSTANCE.isPlaying()) return y;
+        double s = com.farmmacro.panic.PanicDetector.INSTANCE.suspicionScore(), lim = c.suspicionLimit;
+        double frac = Math.max(0, Math.min(1, s / lim));
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
+        int col = frac < 0.5 ? Ui.ON : frac < 0.8 ? Ui.WARN : Ui.DANGER;
+        Ui.round(g, x, y, w, h, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        String text = String.format(java.util.Locale.ROOT, "ПОДОЗР. %.1f/%.0f", s, lim);
+        Ui.text(g, f, text, x + 8, y + 4, col);
+        int bx = x + 8 + f.width(text) + 6, bw = Math.max(10, x + w - 8 - bx), by = y + 6;
+        Ui.pill(g, bx, by, bw, 4, 0xFF2A3245);
+        if (frac > 0) Ui.pill(g, bx, by, Math.max(4, (int) Math.round(bw * frac)), 4, col);
+        return y + h + 4;
     }
 
     /** Плашка «МЫШЬ ЗАБЛОК.» — блокировка мыши (клавиша M). */

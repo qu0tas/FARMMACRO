@@ -24,6 +24,10 @@ public final class RouteStress {
         com.farmmacro.route.OffsetCheck.main();
         com.farmmacro.route.DropCheck.main();
         com.farmmacro.macro.HumanizerCheck.main();
+        com.farmmacro.panic.SyncCheck.main();
+        com.farmmacro.route.VelocitySim.main();
+        com.farmmacro.route.AutoRouteCheck.main();
+        try { com.farmmacro.panic.SuspicionCheck.main(); } catch (Exception e) { throw new IllegalStateException(e); }
     }
 
     /** «Змейка» по точкам: проверка рядов и геометрии маршрута по точкам. */

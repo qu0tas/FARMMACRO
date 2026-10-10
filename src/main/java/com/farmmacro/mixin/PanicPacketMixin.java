@@ -142,7 +142,14 @@ public class PanicPacketMixin {
 
     @Inject(method = "handlePlayerAbilities", at = @At("HEAD"))
     private void farmmacro$onAbilities(ClientboundPlayerAbilitiesPacket packet, CallbackInfo ci) {
-        if (farmmacro$main()) PanicDetector.INSTANCE.onAbilities(packet.isFlying(), packet.canFly());
+        if (farmmacro$main())
+            PanicDetector.INSTANCE.onAbilities(packet.isFlying(), packet.canFly(), packet.getWalkingSpeed(), packet.getFlyingSpeed());
+    }
+
+    // v1.11: «Параметры движения» — атрибуты игрока от сервера (скорость, прыжок, гравитация, шаг, размер)
+    @Inject(method = "handleUpdateAttributes", at = @At("HEAD"))
+    private void farmmacro$onAttributes(ClientboundUpdateAttributesPacket packet, CallbackInfo ci) {
+        if (farmmacro$main()) PanicDetector.INSTANCE.onAttributes(packet.getEntityId(), packet.getValues());
     }
 
     @Inject(method = "handleRespawn", at = @At("HEAD"))

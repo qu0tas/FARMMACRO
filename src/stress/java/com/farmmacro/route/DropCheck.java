@@ -39,9 +39,9 @@ public final class DropCheck {
     record Sim(int ticks, String panic, double fall, int landWait, boolean done) {}
 
     /** Простая кинематика: XZ — как в WalkSim, Y — гравитация MC (−0.08, ×0.98), опора — Terrain.floorY. */
-    static Sim sim(Grid g, List<RoutePoint> pts, float yaw, int maxTicks) { return sim(g, pts, yaw, maxTicks, null); }
+    static Sim sim(Terrain.Cells g, List<RoutePoint> pts, float yaw, int maxTicks) { return sim(g, pts, yaw, maxTicks, null); }
 
-    static Sim sim(Grid g, List<RoutePoint> pts, float yaw, int maxTicks, com.farmmacro.macro.Humanizer human) {
+    static Sim sim(Terrain.Cells g, List<RoutePoint> pts, float yaw, int maxTicks, com.farmmacro.macro.Humanizer human) {
         PointRoute r = new PointRoute();
         for (RoutePoint p : pts) r.points.add(p.copy());
         WalkCore core = new WalkCore();
@@ -73,7 +73,13 @@ public final class DropCheck {
             double air = onGround ? 0.45 : 0.1;                  // в воздухе управление слабее
             vx = vx * (1 - air) + dir[0] * speed * air; vz = vz * (1 - air) + dir[1] * speed * air;
             double nx = x + vx, nz = z + vz;
-            if (Terrain.blockedAt(g, nx, y, nz)) { vx = 0; vz = 0; nx = x; nz = z; }
+            if (Terrain.blockedAt(g, nx, y, nz)) {
+                // в воде у бортика до блока — выплываем (в игре автоход держит прыжок)
+                double up = Terrain.floorY(g, nx, y + 1.0, nz, 2);
+                boolean wet = g instanceof FarmGrid fg && fg.tag((int) Math.floor(x), (int) Math.floor(y + 0.01), (int) Math.floor(z)) == FarmGrid.WATER;
+                if (wet && onGround && !Double.isNaN(up) && up > y && !Terrain.blockedAt(g, nx, up, nz)) { y = up; }
+                else { vx = 0; vz = 0; nx = x; nz = z; }
+            }
             x = nx; z = nz;
             double f = support(g, x, y, z);
             if (!Double.isNaN(f) && y - f < 1e-6 && vy <= 0) { y = f; vy = 0; onGround = true; }
@@ -89,7 +95,7 @@ public final class DropCheck {
     }
 
     /** Опора хитбокса 0.6×0.6: самая высокая под любым из углов (как в игре — не падаешь, пока край под ногой). */
-    static double support(Grid g, double x, double y, double z) {
+    static double support(Terrain.Cells g, double x, double y, double z) {
         double best = Double.NaN;
         for (double ox : new double[]{-0.299, 0.299}) for (double oz : new double[]{-0.299, 0.299}) {
             double f = Terrain.floorY(g, x + ox, y, z + oz, 64);

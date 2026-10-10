@@ -25,7 +25,7 @@ import java.util.List;
  *
  *  ЛКМ по блоку — точка в центре верхней грани; ЛКМ по точке — выбрать, зажать и вести — передвинуть;
  *  Shift+ЛКМ — вставить в ближайший отрезок; ПКМ по точке — удалить; Shift+ПКМ по точке — параметры;
- *  Ctrl+ЛКМ — угол выделения «змейки» (два угла → маршрут по рядам); Ctrl+Z — отменить;
+ *  Ctrl+ЛКМ — угол выделения «змейки» (два угла → маршрут по рядам); Ctrl+Shift+ЛКМ — углы авто-маршрута; Ctrl+Z — отменить;
  *  Ctrl+D — «Спуск» у выбранной/наведённой точки (если следующая ниже и по линии есть обрыв — вставить спуск на краю).
  */
 public final class RouteEditor {
@@ -56,16 +56,17 @@ public final class RouteEditor {
         active = on;
         hover = -1; dragIndex = -1;
         SnakeTool.reset();
+        AutoRouteTool.reset();
         RouteRenderer.editorActive = on;
         RouteRenderer.editorHover = -1;
         if (on) {
             MacroManager.INSTANCE.useRouteSource();
-            msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+ЛКМ — «змейка», Ctrl+D — спуск, "
+            msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+ЛКМ — «змейка», Ctrl+Shift+ЛКМ — авто-маршрут, Ctrl+D — спуск, "
                     + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход");
         } else {
             RouteBuffer.INSTANCE.select(-1);         // подсветка выбранной точки — только в редакторе
             msg(mc, "§7Редактор закрыт: " + RouteBuffer.INSTANCE.size() + " точек"
-                    + (RouteBuffer.INSTANCE.isDirty() ? " §e(не сохранено — меню → Макросы → Маршруты)" : ""));
+                    + (RouteBuffer.INSTANCE.isDirty() ? " §e(не сохранено — меню → Маршруты)" : ""));
         }
     }
 
@@ -82,10 +83,11 @@ public final class RouteEditor {
             msg(mc, "§7Выделено точек: " + RouteBuffer.INSTANCE.selection().size() + " · стрелки — сдвиг в блоке");
             return;
         }
-        if (ctrl) {                              // угол выделения
+        if (ctrl || AutoRouteTool.pending()) {   // угол выделения (авто-маршрут ждёт угол — хватит ЛКМ)
             Vec3 at = targetPoint(mc);
             if (at == null) { msg(mc, "§7Наведи прицел на блок"); return; }
-            SnakeTool.corner(mc, at);
+            if (AutoRouteTool.wantsCorner(shift)) AutoRouteTool.corner(mc, at);   // Ctrl+Shift+ЛКМ — авто-маршрут
+            else SnakeTool.corner(mc, at);
             return;
         }
         int h = pickPoint(mc);
@@ -155,7 +157,8 @@ public final class RouteEditor {
         boolean z = mc.screen == null && mc.hasControlDown()
                 && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_Z);
         if (z && !undoWasDown) {
-            if (SnakeTool.cancelIfPending()) msg(mc, "§7Выделение отменено");
+            if (AutoRouteTool.cancelIfPending()) msg(mc, "§7Авто-маршрут отменён");
+            else if (SnakeTool.cancelIfPending()) msg(mc, "§7Выделение отменено");
             else msg(mc, RouteBuffer.INSTANCE.undo() ? "§7Отменено · точек: " + RouteBuffer.INSTANCE.size() : "§7Нечего отменять");
         }
         undoWasDown = z;
@@ -181,6 +184,7 @@ public final class RouteEditor {
         hover = dragIndex >= 0 ? dragIndex : pickPoint(mc);
         RouteRenderer.editorHover = hover;
         SnakeTool.tick(mc);
+        AutoRouteTool.tick(mc);
     }
 
     // ── Спуск ────────────────────────────────────────────────────────────────
