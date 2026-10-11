@@ -24,6 +24,8 @@ public final class RouteStress {
         com.farmmacro.route.OffsetCheck.main();
         com.farmmacro.route.DropCheck.main();
         com.farmmacro.macro.HumanizerCheck.main();
+        com.farmmacro.macro.HumanizeGaussCheck.main();
+        com.farmmacro.macro.ViewCheck.main();
         com.farmmacro.panic.SyncCheck.main();
         com.farmmacro.route.VelocitySim.main();
         com.farmmacro.camera.CropPresetsCheck.main();

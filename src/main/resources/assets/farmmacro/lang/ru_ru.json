@@ -13,5 +13,8 @@
   "key.farmmacro.cam_save": "FarmMacro: Камера — запомнить текущий взгляд",
   "key.farmmacro.editor": "FarmMacro: Редактор маршрута",
   "key.farmmacro.hold": "FarmMacro: Зажим ЛКМ вкл/выкл",
-  "key.farmmacro.mouselock": "FarmMacro: Блокировка мыши вкл/выкл"
+  "key.farmmacro.mouselock": "FarmMacro: Блокировка мыши вкл/выкл",
+  "key.farmmacro.freelook": "FarmMacro: Freelook (смотреть на себя со стороны)",
+  "key.farmmacro.lowrender": "FarmMacro: Low render (прорисовка рядом с игроком)",
+  "key.farmmacro.startfrom": "FarmMacro: Продолжить маршрут с места"
 }

@@ -626,6 +626,8 @@ public class PanicDetector {
 
         // 0. Мышь — сразу свободна (блокировка мыши), чтобы игрок мог реагировать сам.
         Guard.run("panic/unlock-mouse", () -> com.farmmacro.camera.MouseLock.unlock(mc, "паника"));
+        // v1.12: freelook — обратно в свой вид, чтобы видеть то же, что и сервер (по настройке)
+        if (c.freelookOffOnPanic) Guard.run("panic/freelook-off", () -> com.farmmacro.camera.Freelook.off(mc, "паника"));
 
         // 1. Остановка — главное. Если обычная остановка упала, отпускаем клавиши аварийно.
         if (!Guard.run("panic/stop", () -> MacroManager.INSTANCE.stopPlayback(mc, "§c⚠ Паника: " + reason)))

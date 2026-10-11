@@ -24,7 +24,7 @@ public final class ConfigSweep {
 
     record Stats(HumanSettings h, double score, boolean ok, String why, double cv, double perfectShare, double overhead,
                  double stopsPer10min, double afkPerHour, double stoodShare, double maxOff, int dupLaps, int laps,
-                 double cornerVar, double maxPerfectRun, String worstFarm) {}
+                 double cornerVar, double maxPerfectRun, String worstFarm, int seqDup) {}
 
     static Farm farm(String name, int w, int d, int step, boolean pauses, boolean sprint, float yaw) {
         PointRoute r = new PointRoute();
@@ -43,7 +43,7 @@ public final class ConfigSweep {
         if (shapeH != null) shapeH.shapeRoute(r);
         core.start(r, 0, stuck);
         if (shapeH != null) core.setReach(shapeH.reachRadii(r.points.size(), 0.3));
-        Humanizer.RouteShaper sh = shapeH != null ? shapeH.routeShaper(r.points.size()) : null;
+        Humanizer.RouteShaper sh = shapeH != null ? shapeH.routeShaper(r.points.size()).route(r.points) : null;
         RoutePoint p0 = r.points.get(0);
         double x = p0.x, z = p0.z, vx = 0, vz = 0, maxOff = 0;
         long hash = 1469598103934665603L;
@@ -52,7 +52,7 @@ public final class ConfigSweep {
             if (sh != null) core.pauseExternal(sh.stopNow(core.target(), core.dropPhase(), true, core.pausing()));
             core.tick(x, 64, z, true, f.yaw, 0.3, true, stuck, true, 4.0, true, out);
             if (out.panic != null) return new Lap(t, perfect, out.panic, maxOff, stood, 0, 0, hash);
-            if (core.done()) return new Lap(t, perfect, null, maxOff, stood, sh == null ? 0 : sh.stops, sh == null ? 0 : sh.afkStops, hash);
+            if (core.done()) return new Lap(t + (sh != null ? shapeH.lapTail(t) : 0), perfect, null, maxOff, stood, sh == null ? 0 : sh.stops, sh == null ? 0 : sh.afkStops, hash);
             if (core.stoppedNow()) stood++;
             if (sh != null) { sh.tick(out, x, z, core.target(), core.dropPhase(), false); if (sh.idleNow) core.resetStuckWindow(); }
             int m = (out.forward ? 1 : 0) | (out.back ? 2 : 0) | (out.left ? 4 : 0) | (out.right ? 8 : 0) | (out.sprint ? 16 : 0);
@@ -82,7 +82,7 @@ public final class ConfigSweep {
     /** Сессия из laps кругов на ферме; одна случайность на всю сессию, как в игре (beginLap перед кругом). */
     static Stats session(HumanSettings hs, List<Farm> farms, int laps, long seed, int stuck) {
         double sumCv = 0, perfect = 0, overhead = 0, stopsPerMin = 0, afkPerHour = 0, stoodShare = 0, maxOff = 0, corner = 0;
-        int dup = 0, total = 0, maxRun = 0;
+        int dup = 0, total = 0, maxRun = 0, seqDup = 0;
         String fail = null, worst = "";
         for (Farm f : farms) {
             int base = plain(f);
@@ -90,7 +90,8 @@ public final class ConfigSweep {
             double[] t = new double[laps];
             Set<Long> seen = new HashSet<>();
             long ticks = 0, stood = 0;
-            int stops = 0, afks = 0, perf = 0, run = 0;
+            int stops = 0, afks = 0, perf = 0, run = 0, prevTicks = -1;
+            boolean prevPerfect = true;
             double nonPerfSum = 0; int nonPerf = 0;
             for (int i = 0; i < laps; i++) {
                 boolean p = h.beginLap();
@@ -98,6 +99,8 @@ public final class ConfigSweep {
                 if (l.panic != null) { fail = f.name + ": " + l.panic; break; }
                 t[i] = l.ticks; ticks += l.ticks; stood += l.stood; stops += l.stops; afks += l.afks;
                 if (l.maxOff > maxOff) { maxOff = l.maxOff; worst = f.name; }
+                if (!p && !prevPerfect && l.ticks == prevTicks) seqDup++;   // два неидеальных круга подряд одной длины
+                prevPerfect = p; prevTicks = l.ticks;
                 if (p) { perf++; run++; maxRun = Math.max(maxRun, run); } else {
                     run = 0;
                     if (!seen.add(l.keyHash)) dup++;
@@ -117,14 +120,15 @@ public final class ConfigSweep {
             total += laps;
         }
         int n = farms.size();
-        if (fail != null) return new Stats(hs, 1e9, false, fail, 0, 0, 0, 0, 0, 0, maxOff, dup, total, 0, maxRun, worst);
+        if (fail != null) return new Stats(hs, 1e9, false, fail, 0, 0, 0, 0, 0, 0, maxOff, dup, total, 0, maxRun, worst, seqDup);
         double cv = sumCv / n, ps = perfect / n, oh = overhead / n, s10 = stopsPerMin / n, aph = afkPerHour / n, ss = stoodShare / n;
-        corner = (hs.overlapChance + hs.gapChance) / 100.0;
+        corner = hs.cornerWeighted ? hs.cornerChance / 100.0 : (hs.overlapChance + hs.gapChance) / 100.0;
         String why = null;
         if (maxOff > 0.45) why = String.format(Locale.ROOT, "уход %.2f > 0.45", maxOff);
         else if (dup > 0) why = "одинаковые круги: " + dup;
+        else if (seqDup > 0) why = "длина круга повторилась подряд: " + seqDup;
         double score = score(MODE_BALANCE, cv, ps, s10, aph, oh, corner, maxOff, maxRun);
-        return new Stats(hs, why == null ? score : 1e6 + score, why == null, why, cv, ps, oh, s10, aph, ss, maxOff, dup, total, corner, maxRun, worst);
+        return new Stats(hs, why == null ? score : 1e6 + score, why == null, why, cv, ps, oh, s10, aph, ss, maxOff, dup, total, corner, maxRun, worst, seqDup);
     }
 
     static final int MODE_BALANCE = 0, MODE_SAFE = 1, MODE_FAST = 2;
@@ -161,7 +165,7 @@ public final class ConfigSweep {
         HumanSettings h = b.copy();
         int n = 1 + r.nextInt(4);
         for (int i = 0; i < n; i++) {
-            switch (r.nextInt(16)) {
+            switch (r.nextInt(20)) {
                 case 0 -> h.reachJitter = round(clamp(h.reachJitter + r.nextDouble(-0.05, 0.05), 0, 0.3), 0.01);
                 case 1 -> h.cornerSlop = round(clamp(h.cornerSlop + r.nextDouble(-0.05, 0.05), 0.2, 0.5), 0.01);
                 case 2 -> h.overlapChance = (int) clamp(h.overlapChance + r.nextInt(-10, 11), 0, 70);
@@ -177,8 +181,19 @@ public final class ConfigSweep {
                 case 12 -> h.streakMax = (int) clamp(h.streakMax + r.nextInt(-1, 2), 2, 6);
                 case 13 -> h.midStopChance = (int) clamp(h.midStopChance + r.nextInt(-4, 5), 0, 30);
                 case 14 -> { h.midStopMin = (int) clamp(h.midStopMin + r.nextInt(-8, 9), 5, 40); h.midStopMax = (int) clamp(h.midStopMax + r.nextInt(-20, 21), h.midStopMin, 140); }
-                default -> { h.afkChance = (int) clamp(h.afkChance + r.nextInt(-1, 2), 0, 8); h.afkMax = (int) clamp(h.afkMax + r.nextInt(-150, 151), h.afkMin, 1200); }
+                case 15 -> { h.afkChance = (int) clamp(h.afkChance + r.nextInt(-1, 2), 0, 8); h.afkMax = (int) clamp(h.afkMax + r.nextInt(-150, 151), h.afkMin, 1200); }
+                case 16 -> h.cornerChance = (int) clamp(h.cornerChance + r.nextInt(-10, 11), 20, 100);
+                case 17 -> { h.weightOverlap = (int) clamp(h.weightOverlap + r.nextInt(-10, 11), 0, 100); h.weightGap = (int) clamp(h.weightGap + r.nextInt(-10, 11), 0, 100); }
+                case 18 -> { h.weightStep = (int) clamp(h.weightStep + r.nextInt(-10, 11), 0, 60); h.stepMax = (int) clamp(h.stepMax + r.nextInt(-1, 2), 1, 4); }
+                default -> h.microPauseChance = (int) clamp(h.microPauseChance + r.nextInt(-8, 9), 0, 60);
             }
+        }
+        HumanSettings.sanitize(h);
+        // гаусс идёт за изменёнными пределами (форма — та же доля среднего и отклонения)
+        if (anyGauss(h)) {
+            HumanSettings.Dist st = h.dist(HumanSettings.Var.STOP);
+            double w = Math.max(1e-9, st.max - st.min);
+            toGauss(h, clamp((st.mean - st.min) / w + r.nextDouble(-0.03, 0.03), 0.25, 0.6), clamp(st.sd / w + r.nextDouble(-0.02, 0.02), 0.1, 0.4));
         }
         return HumanSettings.sanitize(h);
     }
@@ -205,23 +220,75 @@ public final class ConfigSweep {
         h.streakMin = 2; h.streakMax = r.nextInt(2, 7);
         h.midStopChance = r.nextInt(0, 31); h.midStopMin = r.nextInt(5, 41); h.midStopMax = h.midStopMin + r.nextInt(0, 101);
         h.afkChance = r.nextInt(0, 9); h.afkMin = r.nextInt(60, 301); h.afkMax = h.afkMin + r.nextInt(0, 901);
+        // v1.11.1: порядок на углах по весам, микропаузы; распределение — равномерное или гаусс (поровну)
+        h.cornerWeighted = r.nextBoolean();
+        h.cornerChance = r.nextInt(20, 101);
+        h.weightOverlap = r.nextInt(0, 101); h.weightGap = r.nextInt(0, 101); h.weightStep = r.nextInt(0, 61); h.stepMax = r.nextInt(1, 5);
+        h.microPauseChance = r.nextInt(0, 61);
+        HumanSettings.sanitize(h);
+        if (r.nextBoolean()) toGauss(h, r.nextDouble(0.35, 0.55), r.nextDouble(0.15, 0.35));
         return HumanSettings.sanitize(h);
     }
 
     static double round(double v, double s) { return Math.round(v / s) * s; }
 
+    /**
+     * Те же пределы, что у равномерного, но гаусс: среднее на доле m от нижнего предела (m < 0.5 — хвост вправо, как
+     * время реакции человека), отклонение — доля sdFrac от ширины. Пауза в точке — в % (±pauseJitterPct).
+     */
+    static HumanSettings toGauss(HumanSettings h, double m, double sdFrac) {
+        g(h, HumanSettings.Var.PAUSE, -h.pauseJitterPct, h.pauseJitterPct, 0.5, sdFrac);
+        g(h, HumanSettings.Var.HESITATE, 1, h.hesitateMax, m, sdFrac);
+        g(h, HumanSettings.Var.GAP, 1, h.gapMax, m, sdFrac);
+        g(h, HumanSettings.Var.OVERLAP, 1, h.overlapMax, m, sdFrac);
+        g(h, HumanSettings.Var.STEP, 1, h.stepMax, m, sdFrac);
+        g(h, HumanSettings.Var.MICRO, 0, 6, m, sdFrac);
+        g(h, HumanSettings.Var.STOP, h.midStopMin, h.midStopMax, m, sdFrac);
+        g(h, HumanSettings.Var.AFK, h.afkMin, h.afkMax, m, sdFrac);
+        g(h, HumanSettings.Var.ACTION, 0, h.actionDelayMax, m, sdFrac);
+        g(h, HumanSettings.Var.START, 0, h.startDelayMax, m, sdFrac);
+        return h;
+    }
+
+    private static void g(HumanSettings h, HumanSettings.Var v, double lo, double hi, double m, double sdFrac) {
+        HumanSettings.Dist d = h.gauss(v);
+        d.min = lo; d.max = hi; d.mean = lo + (hi - lo) * m; d.sd = Math.max(0.3, (hi - lo) * sdFrac);
+    }
+
+    /** Копия с равномерным распределением всех величин (для сравнения с гауссом). */
+    static HumanSettings toUniform(HumanSettings h) {
+        HumanSettings u = h.copy();
+        u.dists.clear();
+        u.microPauseChance = h.microPauseChance;
+        return u;
+    }
+
+    static boolean anyGauss(HumanSettings h) {
+        for (HumanSettings.Var v : HumanSettings.Var.values()) if (h.dists.containsKey(v.name()) && h.dist(v).isGauss()) return true;
+        return false;
+    }
+
     static String describe(HumanSettings h) {
         return String.format(Locale.ROOT, "reach+%.2f slop %.2f | overlap %d%%/%d gap %d%%/%d hes %d%%/%d | pause ±%d%%/±%d start %d spr %d jmp %d | "
-                        + "perfect %d%% streak %d%% %d-%d | stop %d%% %d-%d | afk %d%% %d-%d",
+                        + "perfect %d%% streak %d%% %d-%d | stop %d%% %d-%d | afk %d%% %d-%d | %s | micro %d%% | %s",
                 h.reachJitter, h.cornerSlop, h.overlapChance, h.overlapMax, h.gapChance, h.gapMax, h.hesitateChance, h.hesitateMax,
                 h.pauseJitterPct, h.pauseJitterTicks, h.startDelayMax, h.sprintDelayMax, h.jumpDelayMax,
                 h.perfectLapChance, h.perfectStreakChance, h.streakMin, h.streakMax, h.midStopChance, h.midStopMin, h.midStopMax,
-                h.afkChance, h.afkMin, h.afkMax);
+                h.afkChance, h.afkMin, h.afkMax,
+                h.cornerWeighted ? String.format(Locale.ROOT, "углы по весам %d%% o/g/s %d/%d/%d шаг ≤%d", h.cornerChance, h.weightOverlap, h.weightGap, h.weightStep, h.stepMax) : "углы как раньше",
+                h.microPauseChance, distDesc(h));
+    }
+
+    static String distDesc(HumanSettings h) {
+        if (!anyGauss(h)) return "равномерно";
+        HumanSettings.Dist st = h.dist(HumanSettings.Var.STOP), gp = h.dist(HumanSettings.Var.GAP);
+        return String.format(Locale.ROOT, "гаусс (встать %.0f±%.0f [%.0f–%.0f], зазор %.1f±%.1f [%.0f–%.0f])",
+                st.mean, st.sd, st.min, st.max, gp.mean, gp.sd, gp.min, gp.max);
     }
 
     static String row(Stats s) {
-        return String.format(Locale.ROOT, "score %.2f | CV %.1f%% идеальных %.1f%% (макс. серия %.0f) потеря %.1f%% встать %.1f/10мин протупить %.1f/ч стоим %.1f%% уход %.2f | %s",
-                s.score, s.cv * 100, s.perfectShare * 100, s.maxPerfectRun, s.overhead * 100, s.stopsPer10min, s.afkPerHour, s.stoodShare * 100, s.maxOff,
+        return String.format(Locale.ROOT, "%s score %.2f | CV %.1f%% идеальных %.1f%% (макс. серия %.0f) потеря %.1f%% встать %.1f/10мин протупить %.1f/ч стоим %.1f%% уход %.2f | %s",
+                anyGauss(s.h) ? "G" : "U", s.score, s.cv * 100, s.perfectShare * 100, s.maxPerfectRun, s.overhead * 100, s.stopsPer10min, s.afkPerHour, s.stoodShare * 100, s.maxOff,
                 (s.ok ? "OK" : s.why) + (s.maxOff > 0.4 ? " [макс. уход: " + s.worstFarm + "]" : ""));
     }
 
@@ -258,6 +325,31 @@ public final class ConfigSweep {
         for (Stats s : all) if (!s.ok) fails.merge(s.why.replaceAll("[0-9.]+", "N").replaceAll(": .*", ""), 1L, Long::sum);
         System.out.printf(Locale.ROOT, "%nСлучайный поиск: кандидатов %d, прошли жёсткие условия %d (%.1f%%). Причины отсева: %s (%.1f мин)%n",
                 all.size(), okN, okN * 100.0 / all.size(), fails, (System.currentTimeMillis() - t0) / 60000.0);
+
+        // v1.11.1: гаусс против равномерного — по всему случайному поиску и парами (те же настройки, другое распределение)
+        System.out.println("\n══ Гаусс против равномерного ══");
+        for (boolean gs : new boolean[]{false, true}) {
+            List<Stats> part = all.stream().filter(st -> anyGauss(st.h) == gs).toList();
+            long ok = part.stream().filter(Stats::ok).count();
+            double cvIn = part.stream().filter(st -> st.ok && st.cv >= 0.04 && st.cv <= 0.09).count();
+            double med = part.stream().filter(Stats::ok).mapToDouble(Stats::score).sorted().skip(Math.max(0, ok / 2 - 1)).findFirst().orElse(Double.NaN);
+            long seq = part.stream().filter(st -> st.seqDup > 0).count();
+            System.out.printf(Locale.ROOT, "  %-12s кандидатов %4d, прошли %4d, CV в 4–9%%: %4.0f, повтор длины круга подряд: %d, медиана оценки %.2f%n",
+                    gs ? "гаусс" : "равномерное", part.size(), ok, cvIn, seq, med);
+        }
+        List<Stats> topU = new ArrayList<>(all.stream().filter(Stats::ok).filter(st -> !anyGauss(st.h)).toList());
+        topU.sort(Comparator.comparingDouble(Stats::score));
+        List<Future<String>> pairs = new ArrayList<>();
+        for (int i = 0; i < Math.min(8, topU.size()); i++) {
+            final HumanSettings uh = topU.get(i).h;
+            pairs.add(ex.submit(() -> {
+                Stats su = session(uh, farms, laps * 2, 6060, 30);
+                Stats sg = session(toGauss(uh.copy(), 0.45, 0.25), farms, laps * 2, 6060, 30);
+                return String.format(Locale.ROOT, "  пара: U CV %.1f%% повт. %d оценка %.2f %s | G CV %.1f%% повт. %d оценка %.2f %s",
+                        su.cv * 100, su.seqDup, su.score, su.ok ? "OK" : su.why, sg.cv * 100, sg.seqDup, sg.score, sg.ok ? "OK" : sg.why);
+            }));
+        }
+        for (var f : pairs) System.out.println(f.get());
 
         System.out.println("\nВлияние параметров (доля отсева по уходу от линии > 0.45):");
         sens(all, "cornerSlop", s -> s.h.cornerSlop, new double[]{0.2, 0.3, 0.35, 0.4, 0.45, 0.51});

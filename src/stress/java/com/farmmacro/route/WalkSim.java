@@ -16,6 +16,12 @@ public final class WalkSim {
 
     static Result run(PointRoute r, float yaw, int stuckTicks, boolean drift,
                       int wallAfter, int pushAt, int maxTicks) {
+        return run(r, yaw, stuckTicks, drift, wallAfter, pushAt, maxTicks, null);
+    }
+
+    /** micro != null — «Случайность» (как в игре: stopNow до WalkCore.tick, shaper после). */
+    static Result run(PointRoute r, float yaw, int stuckTicks, boolean drift,
+                      int wallAfter, int pushAt, int maxTicks, com.farmmacro.macro.Humanizer.RouteShaper sh) {
         WalkCore core = new WalkCore();
         WalkCore.Out out = new WalkCore.Out();
         keyTicks = 0; diagTicks = 0;
@@ -26,7 +32,9 @@ public final class WalkSim {
         double maxSide = 0;
         int paused = 0, lastTarget = 0, reached = 0;
         for (int t = 0; t < maxTicks; t++) {
+            if (sh != null) core.pauseExternal(sh.stopNow(core.target(), core.dropPhase(), true, core.pausing()));
             core.tick(x, z, yaw, 0.3, true, stuckTicks, drift, 4.0, out);
+            if (sh != null && !core.done() && out.panic == null) { sh.tick(out, x, z, core.target(), core.dropPhase(), false); if (sh.idleNow) core.resetStuckWindow(); }
             if (out.panic != null) return new Result(t, reached, out.panic, maxSide, paused);
             if (core.done()) return new Result(t, r.points.size(), null, maxSide, paused);
             if (core.target() != lastTarget) { reached += core.target() - lastTarget; lastTarget = core.target(); }
@@ -103,5 +111,21 @@ public final class WalkSim {
         Result pz = run(route(paused), 90f, 30, true, -1, -1, 5_000);
         System.out.printf("  пауза 40 т в точке 2: %s, стояли %d тиков%n", pz.panic == null ? "ок" : pz.panic, pz.pausedTicks);
         if (pz.panic != null || pz.pausedTicks < 40) throw new IllegalStateException("пауза не выдержана: " + pz);
+
+        // v1.11.1: микропаузы после каждого отрезка (шанс 100 %, гаусс 0…6 т) — без «Застрял»
+        var mh = new com.farmmacro.macro.HumanSettings();
+        mh.enabled = true; mh.microPauseChance = 100;
+        mh.overlapChance = 0; mh.gapChance = 0; mh.startDelayMax = 0; mh.sprintDelayMax = 0; mh.jumpDelayMax = 0;
+        mh.midStopChance = 0; mh.afkChance = 0;
+        int mmin = Integer.MAX_VALUE, mmax = 0, mcount = 0;
+        Result base = run(route(TestRoutes.rows(0, 0, 31, 31, 3, 64)), 90f, 30, true, -1, -1, 20_000);
+        for (int sd = 0; sd < 50; sd++) {
+            var shaper = new com.farmmacro.macro.Humanizer(mh, 500 + sd).routeShaper(0);
+            Result m = run(route(TestRoutes.rows(0, 0, 31, 31, 3, 64)), 90f, 30, true, -1, -1, 40_000, shaper);
+            if (m.panic != null) throw new IllegalStateException("микропаузы: " + m.panic);
+            mmin = Math.min(mmin, m.ticks); mmax = Math.max(mmax, m.ticks); mcount += shaper.micros;
+        }
+        System.out.printf("  микропаузы после отрезков (100 %%, гаусс 0…6 т) × 50 сидов: без паники, %d…%d тиков (без них %d), микропауз %d%n",
+                mmin, mmax, base.ticks, mcount);
     }
 }

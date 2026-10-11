@@ -32,6 +32,8 @@ public final class RouteWalker implements PlaybackSource {
     private final com.farmmacro.camera.CameraBinding.Tracker camTracker = new com.farmmacro.camera.CameraBinding.Tracker();
     private com.farmmacro.camera.CameraBinding camera;
     private boolean started;
+    /** Тики этого прохода и «хвост» на последней точке, чтобы длина круга не совпала с прошлым (−1 — ещё не решали). */
+    private int passTicks, tail = -1;
     /** «Случайность» прохода (null — выкл). */
     private com.farmmacro.macro.Humanizer.RouteShaper shaper;
     /** v1.11 «Аномалия скорости». */
@@ -66,7 +68,7 @@ public final class RouteWalker implements PlaybackSource {
         if (human != null) human.shapeRoute(r);
         core.start(r, index, ModConfig.INSTANCE.stuckThresholdTicks);
         if (human != null) core.setReach(human.reachRadii(r.points.size(), ModConfig.INSTANCE.routeReachRadius));
-        shaper = human != null ? human.routeShaper(r.points.size()) : null;
+        shaper = human != null ? human.routeShaper(r.points.size()).route(r.points) : null;
         camera = r.settings.camera;
         camTracker.reset();
         velocity.reset();
@@ -74,11 +76,12 @@ public final class RouteWalker implements PlaybackSource {
         int from = Math.max(0, core.segment());
         camTracker.update(mc, camera, from, "старт, точка " + (from + 1));
         started = true;
+        passTicks = 0; tail = -1;
         int seg = core.segment();
         if (seg >= 0 && mc.player != null) applySlot(mc.player, core.points().get(seg).slot - 1);
     }
 
-    @Override public boolean passDone() { return started && core.done(); }
+    @Override public boolean passDone() { return started && core.done() && (shaper == null || tail == 0); }
     @Override public int progress()      { return started ? core.target() : 0; }
     @Override public int resumeIndex()   { return started ? core.target() : 0; }
     @Override public boolean controlsCamera(ModConfig c) { return false; }
@@ -137,8 +140,14 @@ public final class RouteWalker implements PlaybackSource {
             PanicDetector.INSTANCE.triggerPanic(mc, out.panic);
             return true;
         }
+        passTicks++;
         if (core.done()) {
             release(o);
+            // «без повторов подряд»: круг ровно как прошлый — постоять на последней точке ещё 1…3 тика
+            if (shaper != null && human != null) {
+                if (tail < 0) tail = human.lapTail(passTicks);
+                else if (tail > 0) tail--;
+            } else tail = 0;
             return false;
         }
         // точка смены камеры: «с точки N» — когда дошли до N (отрезок от неё), мгновенно, затем те же оси

@@ -99,6 +99,7 @@ public final class ConfigProfiles {
         loaded.camSelected = cur.camSelected;
         loaded.camNextId = cur.camNextId;
         loaded.camDefaultsRev = cur.camDefaultsRev;
+        loaded.lowRenderSavedChunks = cur.lowRenderSavedChunks;   // служебное, не часть профиля
         loaded.uiAdvanced = cur.uiAdvanced; loaded.uiSections = cur.uiSections;    // вид меню — не часть профиля
         loaded.keyRecord = cur.keyRecord; loaded.keyPlay = cur.keyPlay; loaded.keyClear = cur.keyClear; loaded.keyOpenGui = cur.keyOpenGui;
         loaded.sanitize();
@@ -118,28 +119,29 @@ public final class ConfigProfiles {
     public record Preset(String id, String label, String tip) {}
 
     public static final List<Preset> PRESETS = List.of(
-            new Preset("human", "Человек (рекомендую)", "Все детекторы, общая случайность: смазанные углы, разные паузы, "
-                    + "иногда встать/протупить, редкие идеальные круги"),
-            new Preset("careful", "Осторожный", "Как «Человек», но больше остановок и «протупить», игрок рядом — 24 бл"),
+            new Preset("human", "Человек (рекомендую)", "Все детекторы, общая случайность: углы по весам (перекрытие/зазор/шаг), "
+                    + "гаусс-паузы без повторов подряд, микропаузы, иногда встать/протупить, редкие идеальные круги"),
+            new Preset("careful", "Осторожный", "Как «Человек», но углы теснее, чаще заминки, встать и «протупить», игрок рядом — 24 бл"),
             new Preset("soft", "Мягкие детекторы", "Для лагающих/людных серверов: без «любого телепорта», входа/выхода и слов в чате "
                     + "(ник — да)"),
             new Preset("plain", "Без случайности", "Случайность выключена — проходы точно как записаны"));
 
     /** Рекомендуемая общая случайность («Человек»). */
     public static HumanSettings humanRecommended() {
-        HumanSettings h = new HumanSettings();
-        h.enabled = true; h.seed = 0;
-        h.reachJitter = 0.12; h.cornerSlop = 0.35;
-        h.overlapChance = 35; h.overlapMax = 3; h.gapChance = 20; h.gapMax = 2;
-        h.hesitateChance = 8; h.hesitateMax = 8;
-        h.pauseJitterPct = 25; h.pauseJitterTicks = 3;
+        HumanSettings h = HumanSettings.presetHuman();      // ходьба/круги — v1.11.1, configSweep
         h.landDelayMin = 0; h.landDelayMax = 6; h.edgeReleaseMax = 2;
-        h.jumpDelayMax = 2; h.sprintDelayMax = 3; h.startDelayMax = 20; h.holdDelayJitter = 6;
-        h.idleStretchPct = 15; h.actionDelayMax = 2; h.camNoiseDeg = 0.3;
+        h.holdDelayJitter = 6; h.idleStretchPct = 15; h.actionDelayMax = 2; h.camNoiseDeg = 0.3;
         h.bindJitterDeg = 0.35; h.lookPitchDeg = 0.4; h.stopLookDeg = 3;
-        h.perfectLapChance = 8; h.perfectStreakChance = 30; h.streakMin = 2; h.streakMax = 4;
-        h.midStopChance = 12; h.midStopMin = 15; h.midStopMax = 60;
-        h.afkChance = 2; h.afkMin = 120; h.afkMax = 600;
+        return h;
+    }
+
+    /** «Осторожный»: ходьба HumanSettings.presetCareful(), камера/действия как у «Человека». */
+    public static HumanSettings humanCareful() {
+        HumanSettings h = HumanSettings.presetCareful();
+        HumanSettings r = humanRecommended();
+        h.landDelayMin = r.landDelayMin; h.landDelayMax = r.landDelayMax; h.edgeReleaseMax = r.edgeReleaseMax;
+        h.holdDelayJitter = r.holdDelayJitter; h.idleStretchPct = r.idleStretchPct; h.actionDelayMax = r.actionDelayMax;
+        h.camNoiseDeg = r.camNoiseDeg; h.bindJitterDeg = r.bindJitterDeg; h.lookPitchDeg = r.lookPitchDeg; h.stopLookDeg = r.stopLookDeg;
         return h;
     }
 
@@ -178,10 +180,7 @@ public final class ConfigProfiles {
                 c.playerNearRadius = 24;
                 c.obstacleRange = 5.0; c.velocityAnomaly = 0.2;
                 c.suspicionLimit = 8; c.suspicionHalfLifeSec = 90;
-                HumanSettings h = humanRecommended();
-                h.hesitateChance = 12; h.perfectLapChance = 5;
-                h.midStopChance = 20; h.midStopMin = 20; h.midStopMax = 80;
-                h.afkChance = 4; h.afkMin = 200; h.afkMax = 1200;
+                HumanSettings h = humanCareful();
                 c.humanMaster = true; c.humanUseGlobal = true; c.humanGlobal = h;
                 c.smoothTurnJitterPct = 20;
             }

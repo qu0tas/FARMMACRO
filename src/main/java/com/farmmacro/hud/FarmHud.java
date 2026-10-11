@@ -37,6 +37,7 @@ public final class FarmHud {
                 y = drawEditor(g, mc, y);
                 y = drawHold(g, mc, y);
                 y = drawMouseLock(g, mc, y);
+                y = drawView(g, mc, y);
                 y = drawHuman(g, mc, y);
                 y = drawSuspicion(g, mc, y);
                 drawNavigator(g, mc, y, t);
@@ -241,6 +242,21 @@ public final class FarmHud {
         int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
         int col = 0xFF6EC8FF;
         String text = "МЫШЬ ЗАБЛОК. · " + MacroManager.keyName(FarmMacroMod.keyMouseLock) + " — снять";
+        Ui.round(g, x, y, w, h, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
+        return y + h + 4;
+    }
+
+    /** v1.12: плашки «FREELOOK» и «LOW RENDER». */
+    private static int drawView(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        boolean fl = com.farmmacro.camera.Freelook.active(), lr = com.farmmacro.visual.LowRender.active();
+        if (!fl && !lr) return y;
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
+        int col = 0xFF9BE07A;
+        String text = (fl ? "FREELOOK" : "") + (fl && lr ? " · " : "") + (lr ? "LOW RENDER " + ModConfig.INSTANCE.lowRenderRadius + " бл" : "");
         Ui.round(g, x, y, w, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
         Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);

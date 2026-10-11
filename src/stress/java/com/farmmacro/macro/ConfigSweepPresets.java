@@ -39,6 +39,8 @@ final class ConfigSweepPresets {
         m.put("по умолчанию", base());
         m.put("Человек (1.10.0)", human());
         m.put("Осторожный (1.10.0)", careful());
+        m.put("Человек (1.11.1)", HumanSettings.presetHuman());
+        m.put("Осторожный (1.11.1)", HumanSettings.presetCareful());
         return m;
     }
 }
