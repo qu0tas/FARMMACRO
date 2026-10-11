@@ -181,6 +181,29 @@ public class MacroManager {
         }
     }
 
+    /**
+     * v1.12 «Продолжить с места» (клавиша N / меню «Маршруты»): встал в любом месте дороги —
+     * автоход находит ближайший отрезок маршрута и идёт дальше к его концу, следующие круги — с начала.
+     * Дальше {@code resumeAnywhereMaxDist} от дороги (или на другом этаже) — не стартует.
+     */
+    public void startRouteHere(Minecraft mc) {
+        if (state != State.IDLE) { msg(mc, "§cСначала останови макрос"); return; }
+        var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+        if (rb.isEmpty()) { msg(mc, "§cМаршрут не загружен"); return; }
+        if (mc.player == null) return;
+        if (rb.size() < 2) { useRouteSource(); startPlayback(mc, 0, false); return; }
+        var hit = com.farmmacro.route.RouteProjection.nearest(rb.route().points, mc.player.getX(), mc.player.getY(), mc.player.getZ());
+        double max = ModConfig.INSTANCE.resumeAnywhereMaxDist;
+        if (hit.dist() > max || hit.dy() > 1.5) {
+            msg(mc, String.format(Locale.ROOT, "§cДо дороги %.1f бл%s — встань на маршрут (до %.1f бл)",
+                    hit.dist(), hit.dy() > 1.5 ? String.format(Locale.ROOT, ", по высоте %.1f", hit.dy()) : "", max));
+            return;
+        }
+        useRouteSource();
+        msg(mc, String.format(Locale.ROOT, "§aПродолжаю с места: отрезок %d → %d", hit.seg() + 1, hit.target() + 1));
+        startPlayback(mc, hit.target(), false, hit.dist());
+    }
+
     /** Источник для клавиши запуска: запись или маршрут по точкам. null — играть нечего. */
     private PlaybackSource selectSource() {
         if (sourceKind == SourceKind.ROUTE) {
@@ -197,7 +220,10 @@ public class MacroManager {
         startPlayback(mc, Math.max(0, savedIndex - back), true);
     }
 
-    private void startPlayback(Minecraft mc, int index, boolean resume) {
+    private void startPlayback(Minecraft mc, int index, boolean resume) { startPlayback(mc, index, resume, -1); }
+
+    /** onRoad ≥ 0 — старт «с места»: расстояние до дороги уже проверено, до точки index не меряем. */
+    private void startPlayback(Minecraft mc, int index, boolean resume, double onRoad) {
         if (state == State.RECORDING) { msg(mc, "§cСначала останови запись"); return; }
         PlaybackSource src = selectSource();
         if (src == null) {
@@ -218,7 +244,7 @@ public class MacroManager {
         index = Math.min(index, src.length() - 1);
 
         double[] at = src.position(index);
-        double dist = resume ? distanceTo(mc.player, savedX, savedY, savedZ) : distanceTo(mc.player, at[0], at[1], at[2]);
+        double dist = onRoad >= 0 ? 0 : resume ? distanceTo(mc.player, savedX, savedY, savedZ) : distanceTo(mc.player, at[0], at[1], at[2]);
         String where = resume ? "точки остановки" : "точки старта";
         if (dist > c.startPointWarnDistance) {
             if (c.requireStartPoint) {
@@ -297,6 +323,8 @@ public class MacroManager {
         com.farmmacro.panic.EventLog.log("START", (source == recordingSource ? "запись " + (loadedName != null ? loadedName : "(буфер)")
                 : "маршрут " + com.farmmacro.route.RouteBuffer.INSTANCE.route().name)
                 + ", с " + (pendingStartIndex + 1) + (human != null ? ", случайность, сид " + human.seed : ", без случайности"));
+        if (human != null) com.farmmacro.panic.EventLog.log("SEED", human.seed + (human.s.seed != 0 ? " (задан в настройках — проход повторяется)"
+                : " (новый на этот запуск)"));
         startPass(mc, pendingStartIndex);
         if (ModConfig.INSTANCE.mouseLockOnStart) com.farmmacro.camera.MouseLock.lock(mc, "старт макроса");
         LOGGER.info("Старт ({}), пороги: {}", source == recordingSource ? "запись" : "маршрут",
@@ -564,6 +592,7 @@ public class MacroManager {
         boolean held = MouseHold.INSTANCE.isManual() || MouseHold.INSTANCE.running() != null;
         boolean wasLocked = com.farmmacro.camera.MouseLock.isLocked();
         if (wasLocked) com.farmmacro.util.Guard.run("reset/unlock-mouse", () -> com.farmmacro.camera.MouseLock.unlock(mc, "End"));
+        com.farmmacro.util.Guard.run("reset/freelook", () -> com.farmmacro.camera.Freelook.off(mc, null));
         clearSavedPosition();
         MouseHold.INSTANCE.stopAll(mc);
         clearTransient();

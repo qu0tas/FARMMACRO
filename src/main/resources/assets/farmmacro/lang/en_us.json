@@ -13,5 +13,8 @@
   "key.farmmacro.cam_save": "FarmMacro: Camera — save current view",
   "key.farmmacro.editor": "FarmMacro: Route editor",
   "key.farmmacro.hold": "FarmMacro: Hold LMB on/off",
-  "key.farmmacro.mouselock": "FarmMacro: Mouse lock on/off"
+  "key.farmmacro.mouselock": "FarmMacro: Mouse lock on/off",
+  "key.farmmacro.freelook": "FarmMacro: Freelook (third-person free camera)",
+  "key.farmmacro.lowrender": "FarmMacro: Low render (render only near player)",
+  "key.farmmacro.startfrom": "FarmMacro: Continue route from here"
 }

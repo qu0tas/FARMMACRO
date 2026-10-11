@@ -33,7 +33,8 @@ public class FarmMacroMod implements ClientModInitializer {
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("farmmacro", "general"));
 
     public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
-            keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold, keyMouseLock;
+            keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold, keyMouseLock,
+            keyFreelook, keyLowRender, keyStartFrom;
 
     private static KeyMapping makeKey(String id, int defaultCode) {
         return KeyMappingHelper.registerKeyMapping(new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
@@ -62,6 +63,9 @@ public class FarmMacroMod implements ClientModInitializer {
         keyEditor   = makeKey("key.farmmacro.editor",    66);  // B
         keyHold     = makeKey("key.farmmacro.hold",      76);  // L
         keyMouseLock = makeKey("key.farmmacro.mouselock", 77); // M
+        keyFreelook  = makeKey("key.farmmacro.freelook", 295);  // F6 (v1.12)
+        keyLowRender = makeKey("key.farmmacro.lowrender", 296); // F7 (v1.12)
+        keyStartFrom = makeKey("key.farmmacro.startfrom", 78);  // N (v1.12) — продолжить маршрут с места
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
         LOGGER.info("FarmMacro загружен");
@@ -74,6 +78,8 @@ public class FarmMacroMod implements ClientModInitializer {
             macro.tickPlayback(mc);          // сам остановится без игрока
             MouseHold.INSTANCE.tick(mc);     // без игрока — выключить зажим
             com.farmmacro.camera.MouseLock.tick(mc); // без игрока — снять блокировку мыши
+            com.farmmacro.camera.Freelook.tick(mc);
+            com.farmmacro.visual.LowRender.tick(mc);
             if (macro.getState() == MacroManager.State.IDLE) MacroManager.clearTransient();
             RouteEditor.tick(mc);            // сам выключится без игрока
             return;
@@ -87,6 +93,11 @@ public class FarmMacroMod implements ClientModInitializer {
         while (keyEditor.consumeClick())   RouteEditor.toggle(mc);
         while (keyHold.consumeClick())     MouseHold.INSTANCE.toggleManual(mc);
         while (keyMouseLock.consumeClick()) com.farmmacro.camera.MouseLock.toggle(mc);
+        while (keyFreelook.consumeClick())  { if (!ModConfig.INSTANCE.freelookHold) com.farmmacro.camera.Freelook.toggle(mc); }
+        Guard.run("camera/freelook", () -> com.farmmacro.camera.Freelook.tick(mc));
+        while (keyLowRender.consumeClick()) com.farmmacro.visual.LowRender.toggle(mc);
+        Guard.run("visual/lowrender", () -> com.farmmacro.visual.LowRender.tick(mc));
+        while (keyStartFrom.consumeClick()) macro.startRouteHere(mc);
         Guard.run("editor/tick", () -> RouteEditor.tick(mc));
         while (keyCamApply.consumeClick()) CameraPresets.applySelected(mc);
         while (keyCamNext.consumeClick())  CameraPresets.next(mc);

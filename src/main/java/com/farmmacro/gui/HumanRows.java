@@ -82,18 +82,35 @@ final class HumanRows {
                     0, 1, 0.01, 0.05, v -> "+" + Rows.num(v) + " бл", false));
             rows.add(b.n("Смазанный поворот: не дальше", "От угла — чтобы не наступить на соседний ряд", () -> h.cornerSlop,
                     v -> h.cornerSlop = v, 0.05, 1, 0.01, 0.05, v -> Rows.num(v) + " бл", false).adv());
+            rows.add(new Rows.Toggle("Порядок на углу по весам", "Выкл — как раньше: шанс перекрытия, иначе шанс зазора. Вкл — "
+                    + "шанс на угол и веса трёх вариантов: перекрытие, зазор, шаг назад/вбок",
+                    () -> h.cornerWeighted, v -> { edit.accept(() -> h.cornerWeighted = v); rebuild.run(); }).enabledIf(on));
+            BooleanSupplier weighted = () -> h.cornerWeighted;
+            BooleanSupplier legacy = () -> !h.cornerWeighted;
             rows.add(b.n("Не сразу отпустил: шанс", "Старая клавиша держится ещё немного (диагональ на углу)", () -> h.overlapChance,
-                    v -> h.overlapChance = (int) v, 0, 100, 1, 10, HumanRows::pc, true));
+                    v -> h.overlapChance = (int) v, 0, 100, 1, 10, HumanRows::pc, true).showIf(legacy));
             rows.add(b.n("Не сразу отпустил: до", null, () -> h.overlapMax, v -> h.overlapMax = (int) v, 1, 20, 1, 2, HumanRows::tk, true)
-                    .showIf(() -> h.overlapChance > 0));
+                    .showIf(() -> h.cornerWeighted ? h.weightOverlap > 0 : h.overlapChance > 0));
             rows.add(b.n("Зазор между клавишами: шанс", "На углу на миг ничего не нажато", () -> h.gapChance,
-                    v -> h.gapChance = (int) v, 0, 100, 1, 10, HumanRows::pc, true));
+                    v -> h.gapChance = (int) v, 0, 100, 1, 10, HumanRows::pc, true).showIf(legacy));
             rows.add(b.n("Зазор: до", null, () -> h.gapMax, v -> h.gapMax = (int) v, 1, 20, 1, 2, HumanRows::tk, true)
-                    .showIf(() -> h.gapChance > 0));
+                    .showIf(() -> h.cornerWeighted ? h.weightGap > 0 : h.gapChance > 0));
+            rows.add(b.n("Угол: шанс", "Шанс, что на смене направления что-то произойдёт (иначе — ровно)", () -> h.cornerChance,
+                    v -> h.cornerChance = (int) v, 0, 100, 1, 10, HumanRows::pc, true).showIf(weighted));
+            rows.add(b.n("Вес: перекрытие", "Нажать новую → отпустить старую (короткая диагональ)", () -> h.weightOverlap,
+                    v -> h.weightOverlap = (int) v, 0, 100, 1, 10, v -> String.valueOf((int) v), true).showIf(weighted));
+            rows.add(b.n("Вес: зазор", "Отпустить старую → нажать новую (миг без клавиш)", () -> h.weightGap,
+                    v -> h.weightGap = (int) v, 0, 100, 1, 10, v -> String.valueOf((int) v), true).showIf(weighted));
+            rows.add(b.n("Вес: шаг назад/вбок", "Коротко назад или «проскочить» старой клавишей — не дальше «Смазанный поворот»",
+                    () -> h.weightStep, v -> h.weightStep = (int) v, 0, 100, 1, 10, v -> String.valueOf((int) v), true).showIf(weighted));
+            rows.add(b.n("Шаг: до", null, () -> h.stepMax, v -> h.stepMax = (int) v, 1, 20, 1, 2, HumanRows::tk, true)
+                    .showIf(() -> h.cornerWeighted && h.weightStep > 0));
             rows.add(b.n("Заминка в начале отрезка: шанс", "Постоять без клавиш, будто отвлёкся", () -> h.hesitateChance,
                     v -> h.hesitateChance = (int) v, 0, 100, 1, 10, HumanRows::pc, true));
             rows.add(b.n("Заминка: до", null, () -> h.hesitateMax, v -> h.hesitateMax = (int) v, 1, 100, 1, 5, HumanRows::tk, true)
                     .showIf(() -> h.hesitateChance > 0));
+            rows.add(b.n("Микропауза после отрезка: шанс", "После каждой точки постоять 0–6 т (гаусс; «Застрял» не считается)",
+                    () -> h.microPauseChance, v -> h.microPauseChance = (int) v, 0, 100, 1, 10, HumanRows::pc, true));
             rows.add(b.n("Пауза в точке ±", "Процент от паузы точки", () -> h.pauseJitterPct,
                     v -> h.pauseJitterPct = (int) v, 0, 100, 1, 10, HumanRows::pc, true));
             rows.add(b.n("Пауза в точке ± тиков", null, () -> h.pauseJitterTicks, v -> h.pauseJitterTicks = (int) v, 0, 200, 1, 5, HumanRows::tk, true).adv());
@@ -116,16 +133,45 @@ final class HumanRows {
             rows.add(b.n("Шум камеры", "Только с «Повторять камеру»: плавно ± N°", () -> h.camNoiseDeg,
                     v -> h.camNoiseDeg = v, 0, 10, 0.05, 0.5, v -> v == 0 ? "выкл" : "±" + Rows.num(v) + "°", false));
         }
+        // v1.11.1: распределения
+        rows.add(new Rows.Section("Распределения"));
+        rows.add(new Rows.Note("Равномерное — как раньше (пределы из строк выше). Гаусс — чаще около среднего, редко у краёв.", Ui.SUB).adv());
+        rows.add(new Rows.Toggle("Без повторов подряд", "То же значение, что в прошлый раз, — перебросить (до 3 раз)",
+                () -> h.noRepeat, v -> edit.accept(() -> h.noRepeat = v)).enabledIf(on));
+        for (HumanSettings.Var v : HumanSettings.Var.values()) {
+            boolean routeVar = v != HumanSettings.Var.ACTION;
+            boolean recVar = v == HumanSettings.Var.STOP || v == HumanSettings.Var.AFK || v == HumanSettings.Var.ACTION;
+            if (!(route && routeVar || record && recVar)) continue;
+            String u = " " + v.unit;
+            DoubleFunction<String> f = x -> Rows.num(x) + u;
+            BooleanSupplier g = () -> h.dist(v).isGauss();
+            rows.add(new Rows.Selector(v.label, v == HumanSettings.Var.PAUSE ? "Гаусс — в % от паузы точки" : null, () -> DIST,
+                    () -> h.dist(v).isGauss() ? HumanSettings.Dist.GAUSS : HumanSettings.Dist.UNIFORM, id -> {
+                edit.accept(() -> { if (HumanSettings.Dist.GAUSS.equals(id)) h.gauss(v); else if (h.dists != null && h.dists.get(v.name()) != null) h.dists.get(v.name()).type = HumanSettings.Dist.UNIFORM; });
+                rebuild.run();
+            }).enabledIf(on).adv());
+            rows.add(b.n("  среднее", null, () -> h.dist(v).mean, x -> h.gauss(v).mean = x, v.lo, v.hi, 0.5, 5, f, false).showIf(g).adv());
+            rows.add(b.n("  отклонение", null, () -> h.dist(v).sd, x -> h.gauss(v).sd = x, 0, v.hi - v.lo, 0.1, 1, f, false).showIf(g).adv());
+            rows.add(b.n("  минимум", null, () -> h.dist(v).min, x -> h.gauss(v).min = x, v.lo, v.hi, 1, 5, f, false).showIf(g).adv());
+            rows.add(b.n("  максимум", null, () -> h.dist(v).max, x -> h.gauss(v).max = x, v.lo, v.hi, 1, 5, f, false).showIf(g).adv());
+        }
+
         rows.add(new Rows.Section("Камера и зажим"));
+        rows.add(new Rows.Toggle("Камера точно", "Случайность не трогает камеру совсем: взгляд на ходу, оглядеться, пресет ±, шум записи — выкл",
+                () -> h.cameraExact, v -> { edit.accept(() -> h.cameraExact = v); rebuild.run(); }).enabledIf(on));
+        java.util.function.BooleanSupplier camOn = () -> !h.cameraExact;
         rows.add(b.n("Взгляд на ходу ±", "Pitch чуть «гуляет» (yaw не трогаем — от него зависит направление)", () -> h.lookPitchDeg,
-                v -> h.lookPitchDeg = v, 0, 5, 0.05, 0.25, v -> v == 0 ? "выкл" : "±" + Rows.num(v) + "°", false));
+                v -> h.lookPitchDeg = v, 0, 5, 0.05, 0.25, v -> v == 0 ? "выкл" : "±" + Rows.num(v) + "°", false).showIf(camOn));
         rows.add(b.n("Оглядеться на остановке ±", "Yaw и pitch, возвращается до начала движения", () -> h.stopLookDeg,
-                v -> h.stopLookDeg = v, 0, 20, 0.1, 1, v -> v == 0 ? "выкл" : "±" + Rows.num(v) + "°", false));
+                v -> h.stopLookDeg = v, 0, 20, 0.1, 1, v -> v == 0 ? "выкл" : "±" + Rows.num(v) + "°", false).showIf(camOn));
         rows.add(b.n("Пресет камеры ±", "Привязка пресетов: каждый раз чуть не точно", () -> h.bindJitterDeg,
-                v -> h.bindJitterDeg = v, 0, 10, 0.05, 0.5, v -> v == 0 ? "точно" : "±" + Rows.num(v) + "°", false).adv());
+                v -> h.bindJitterDeg = v, 0, 10, 0.05, 0.5, v -> v == 0 ? "точно" : "±" + Rows.num(v) + "°", false).showIf(camOn).adv());
         rows.add(b.n("Зажим мыши позже: до", "К задержке старта зажима", () -> h.holdDelayJitter,
                 v -> h.holdDelayJitter = (int) v, 0, 200, 1, 5, HumanRows::tk, true).adv());
     }
+
+    private static final List<Rows.Choice> DIST = List.of(new Rows.Choice(HumanSettings.Dist.UNIFORM, "равномерное"),
+            new Rows.Choice(HumanSettings.Dist.GAUSS, "гаусс"));
 
     static String tk(double v) { return (int) v + " т"; }
     static String pc(double v) { return (int) v + " %"; }

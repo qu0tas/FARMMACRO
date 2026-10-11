@@ -22,6 +22,8 @@ public final class HumanizerCheck {
 
     /** Тиков стояли по остановкам «Случайности» (WalkCore.pauseExternal) за последний run. */
     static int stoodTicks, stopsDone;
+    /** v1.11.1: шагов на углах и микропауз за последний успешный run. */
+    static int lastSteps, lastMicros;
 
     static PointRoute rowsRoute() {
         PointRoute r = new PointRoute();
@@ -32,6 +34,8 @@ public final class HumanizerCheck {
 
     /** Один проход; human == null — без случайности. */
     static Run run(Humanizer human, int maxTicks) { return run(human, maxTicks, false); }
+    /** v1.11.2: старт не в точке, а сдвинутым поперёк первого отрезка (стоял у края блока); итог — мин./макс. знаковый уход на 1-м отрезке. */
+    static double startSide = 0, firstSegMin, firstSegMax;
 
     /** withStops — как в игре: shaper.stopNow до WalkCore.tick (остановки посреди пути, заминки). */
     static Run run(Humanizer human, int maxTicks, boolean withStops) {
@@ -42,10 +46,14 @@ public final class HumanizerCheck {
         if (human != null) human.shapeRoute(r);
         core.start(r, 0, 30);
         if (human != null) core.setReach(human.reachRadii(r.points.size(), 0.3));
-        Humanizer.RouteShaper sh = human != null ? (withStops ? human.routeShaper(r.points.size()) : human.routeShaper()) : null;
+        Humanizer.RouteShaper sh = human != null ? (withStops ? human.routeShaper(r.points.size()) : human.routeShaper()).route(r.points) : null;
         float yaw = 90f;
         RoutePoint p0 = r.points.get(0);
         double x = p0.x, z = p0.z, vx = 0, vz = 0, maxOff = 0;
+        RoutePoint p1 = r.points.get(1);
+        double sl = Math.hypot(p1.x - p0.x, p1.z - p0.z), nx = -(p1.z - p0.z) / sl, nz = (p1.x - p0.x) / sl;
+        x += nx * startSide; z += nz * startSide;
+        firstSegMin = firstSegMax = startSide;
         StringBuilder keys = new StringBuilder();
         for (int t = 0; t < maxTicks; t++) {
             if (withStops && sh != null) {
@@ -59,7 +67,10 @@ public final class HumanizerCheck {
                 if (out.forward || out.back || out.left || out.right) return new Run(t, "на остановке нажата клавиша", 0, "", 0, 0);
             }
             if (out.panic != null) return new Run(t, out.panic, maxOff, keys.toString(), 0, 0);
-            if (core.done()) return new Run(t, null, maxOff, keys.toString(), sh == null ? 0 : sh.overlaps, sh == null ? 0 : sh.gaps);
+            if (core.done()) {
+                lastSteps = sh == null ? 0 : sh.steps; lastMicros = sh == null ? 0 : sh.micros;
+                return new Run(t, null, maxOff, keys.toString(), sh == null ? 0 : sh.overlaps, sh == null ? 0 : sh.gaps);
+            }
             if (sh != null) { sh.tick(out, x, z, core.target(), core.dropPhase(), false); if (sh.idleNow) core.resetStuckWindow(); }
             keys.append(out.forward ? 'W' : '.').append(out.back ? 'S' : '.').append(out.left ? 'A' : '.').append(out.right ? 'D' : '.');
             boolean moving = out.forward || out.back || out.left || out.right;
@@ -67,6 +78,10 @@ public final class HumanizerCheck {
             double[] dir = WalkCore.moveDir(out, yaw);
             vx = vx * 0.55 + dir[0] * speed * 0.45; vz = vz * 0.55 + dir[1] * speed * 0.45;
             x += vx; z += vz;
+            if (core.target() <= 1) {
+                double sd = (x - p0.x) * nx + (z - p0.z) * nz;
+                firstSegMin = Math.min(firstSegMin, sd); firstSegMax = Math.max(firstSegMax, sd);
+            }
             // отклонение от ломаной маршрута (ближайший из соседних отрезков) — «смазанный угол»
             int ti = core.target();
             double d = Double.MAX_VALUE;

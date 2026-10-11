@@ -365,6 +365,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         buildReaction();
     }
 
+    private static final List<Rows.Choice> CAM_TURN = List.of(new Rows.Choice("instant", "мгновенно"),
+            new Rows.Choice("smooth", "плавно"), new Rows.Choice("mouse", "как мышь"));
     private static final List<Rows.Choice> SOUND_OUT = List.of(
             new Rows.Choice("game", "Через игру (безопасно)"),
             new Rows.Choice("files", "Через игру + свои файлы"),
@@ -603,13 +605,21 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 + "«Запуск → Культура» ставит пресет культуры при старте.", Ui.SUB));
 
         rows.add(new Rows.Section("Применение"));
-        rows.add(toggle("Плавный поворот", "При применении пресета: постоянная скорость с торможением в конце, выкл — мгновенно",
-                () -> cfg().camSmooth, v -> cfg().camSmooth = v));
+        rows.add(new Rows.Selector("Поворот", "Мгновенно; плавно — постоянная скорость с торможением в конце; как мышь — "
+                + "по пикселям мыши с учётом чувствительности, разгон и торможение, лёгкий перелёт, углы не ровные",
+                () -> CAM_TURN, () -> !cfg().camSmooth ? "instant" : cfg().camMouseLike ? "mouse" : "smooth", v -> {
+            cfg().camSmooth = !"instant".equals(v);
+            cfg().camMouseLike = "mouse".equals(v);
+            save();
+        }));
         rows.add(number("Скорость поворота", "Градусов в секунду", () -> cfg().camTurnSpeed,
                 v -> cfg().camTurnSpeed = v, 1, 3600, 10, 60, v -> Rows.num(v) + "°/с").enabledIf(() -> cfg().camSmooth));
         rows.add(number("Скорость ±", "Каждый поворот чуть быстрее или медленнее (0 — всегда одинаково)", () -> cfg().smoothTurnJitterPct,
                 v -> cfg().smoothTurnJitterPct = (int) v, 0, 90, 1, 10, v -> v == 0 ? "выкл" : "±" + (int) v + " %").integer()
                 .under(() -> cfg().camSmooth).adv());
+        rows.add(number("Перелёт до", "«Как мышь»: чуть проскочить и вернуться, % от поворота (0 — без перелёта)", () -> cfg().camOvershootPct,
+                v -> cfg().camOvershootPct = v, 0, 3, 0.1, 1, v -> v == 0 ? "выкл" : Rows.num(v) + " %")
+                .under(() -> cfg().camSmooth && cfg().camMouseLike).adv());
 
         rows.add(new Rows.Section("Пресеты"));
         List<ModConfig.CamPreset> list = cfg().camPresets;
@@ -781,6 +791,19 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(colorRow("Маяк остановки", "По умолчанию красный", () -> cfg().routeStopColor, v -> cfg().routeStopColor = v).under(ro).adv());
         rows.add(colorRow("Цвет стрелок", "По умолчанию белые", () -> cfg().routeArrowColor, v -> cfg().routeArrowColor = v).under(ro).adv());
 
+        rows.add(new Rows.Section("Freelook и Low render").key("v.view"));
+        rows.add(new Rows.Note(() -> "Freelook (" + MacroManager.keyName(FarmMacroMod.keyFreelook) + ") — вид со стороны: мышь крутит только камеру, "
+                + "игрок и автоход не поворачиваются. Low render (" + MacroManager.keyName(FarmMacroMod.keyLowRender)
+                + ") — рисовать только мир рядом с игроком, чтобы снять нагрузку.", Ui.SUB));
+        rows.add(toggle("Freelook: держать клавишу", "Вкл — пока зажата; выкл — нажал: вкл, ещё раз: выкл",
+                () -> cfg().freelookHold, v -> cfg().freelookHold = v));
+        rows.add(toggle("Freelook: выключать при панике", "Сразу вернуть свой вид от первого лица",
+                () -> cfg().freelookOffOnPanic, v -> cfg().freelookOffOnPanic = v));
+        rows.add(number("Low render: радиус", "Секции мира 16×16×16, задевающие радиус, рисуются целиком — видно примерно 10–20 бл",
+                () -> cfg().lowRenderRadius, v -> cfg().lowRenderRadius = (int) v, 4, 64, 1, 4, v -> (int) v + " бл").integer());
+        rows.add(toggle("Low render: дальность 2 чанка", "На время режима — меньше чанков строится; прежняя дальность вернётся",
+                () -> cfg().lowRenderChunks, v -> cfg().lowRenderChunks = v));
+
         rows.add(new Rows.Section("HUD").key("v.hud"));
         rows.add(toggle("Панель статуса", "Состояние, прогресс, круги, время сессии",
                 () -> cfg().statsHudEnabled, v -> cfg().statsHudEnabled = v));
@@ -865,6 +888,14 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 + "Ctrl+D — спуск на этаж ниже, Ctrl+Z — отменить.", Ui.SUB));
         rows.add(new Rows.Note("Автоход не поворачивает камеру: идёт клавишами W/A/S/D относительно текущего yaw. "
                 + "Поставь yaw вдоль рядов (пресет культуры во вкладке «Камера») — тогда ряды идут чистыми W/S.", Ui.SUB));
+
+        rows.add(new Rows.Buttons(
+                new Rows.Btn(() -> "Продолжить с места (" + MacroManager.keyName(FarmMacroMod.keyStartFrom) + ")", () -> Rows.Style.PRIMARY,
+                        () -> { if (minecraft != null) { onClose(); MacroManager.INSTANCE.startRouteHere(minecraft); } })
+                        .enabledIf(() -> !rb.isEmpty() && !MacroManager.INSTANCE.isActive())
+                        .tip("Встань в любом месте дороги — автоход найдёт ближайший отрезок и пойдёт дальше. Следующие круги — с начала")));
+        rows.add(number("До дороги не дальше", "«Продолжить с места»: насколько можно отойти от линии маршрута",
+                () -> cfg().resumeAnywhereMaxDist, v -> cfg().resumeAnywhereMaxDist = v, 0.5, 16, 0.5, 1, v -> Rows.num(v) + " бл"));
 
         rows.add(new Rows.Section("Автоход и редактор").key("r.walk"));
         rows.add(number("Точка достигнута", "Радиус по горизонтали", () -> cfg().routeReachRadius,

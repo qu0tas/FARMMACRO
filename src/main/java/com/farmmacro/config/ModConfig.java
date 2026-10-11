@@ -187,6 +187,18 @@ public class ModConfig {
     public boolean mouseLockOnStart      = false;
     /** Снимать блокировку мыши и при обычном стопе (паника, End, выход из мира снимают всегда). */
     public boolean mouseUnlockOnStop     = false;
+    /** v1.12 Freelook: true — пока зажата клавиша, false — вкл/выкл нажатием. */
+    public boolean freelookHold          = false;
+    /** v1.12: паника выключает freelook (вид снова от первого лица). */
+    public boolean freelookOffOnPanic    = true;
+    /** v1.12 Low render: радиус прорисовки от игрока, блоков (секции 16³, пересекающие радиус, рисуются целиком). */
+    public int     lowRenderRadius       = 12;
+    /** v1.12 «Продолжить с места» (N): дальше этого от линии маршрута — не стартует. */
+    public double  resumeAnywhereMaxDist = 3.0;
+    /** v1.12 Low render: на это время дальность прорисовки 2 чанка (прежняя возвращается). */
+    public boolean lowRenderChunks       = true;
+    /** Служебное: дальность до Low render (0 — не меняли); вернуть при запуске игры, если закрылась в режиме. */
+    public int     lowRenderSavedChunks  = 0;
     /** Мягкий звук, когда макрос закончился сам (лимит/конец записи). */
     public boolean finishSoundEnabled    = true;
 
@@ -298,6 +310,13 @@ public class ModConfig {
     public boolean camSmooth             = true;
     /** Скорость плавного поворота, градусов в секунду. */
     public double  camTurnSpeed          = 120;
+    /**
+     * v1.11.1: плавный поворот «как мышь» — по пикселям мыши через Entity.turn с учётом чувствительности, разгон и
+     * торможение, небольшой перелёт и доводка; итоговые углы не ровные (≤ 0.2° от пресета). false — равномерный плавный.
+     */
+    public boolean camMouseLike          = false;
+    /** «Как мышь»: перелёт до N % от поворота (0…3). */
+    public double  camOvershootPct       = 2;
 
     // ── Клавиши по умолчанию (дальше их хранит меню «Управление» Minecraft) ──
     public int keyRecord  = 82;   // R
@@ -307,6 +326,9 @@ public class ModConfig {
 
     /** Приводит значения к допустимым диапазонам (на случай ручной правки json). */
     public void sanitize() {
+        lowRenderRadius       = Math.max(4, Math.min(64, lowRenderRadius));
+        resumeAnywhereMaxDist = clamp(resumeAnywhereMaxDist, 0.5, 16);
+        lowRenderSavedChunks  = Math.max(0, Math.min(64, lowRenderSavedChunks));
         yawThreshold          = clamp(yawThreshold, 0.001f, 180f);
         pitchThreshold        = clamp(pitchThreshold, 0.001f, 180f);
         serverMoveThreshold   = clamp(serverMoveThreshold, 0.001, 1024);
@@ -375,6 +397,7 @@ public class ModConfig {
         }
         camSelected           = camPresets.isEmpty() ? 0 : clamp(camSelected, 0, camPresets.size() - 1);
         camTurnSpeed          = clamp(camTurnSpeed, 1, 3600);
+        camOvershootPct       = clamp(camOvershootPct, 0, 3);
         if (!com.farmmacro.camera.CropPresets.NONE.equals(launchCrop) && !com.farmmacro.camera.CropPresets.isCrop(launchCrop)
                 || com.farmmacro.camera.CropPresets.OTHER.equals(launchCrop)) launchCrop = com.farmmacro.camera.CropPresets.NONE;
         camDefaultsRev        = Math.max(0, camDefaultsRev);
@@ -404,7 +427,7 @@ public class ModConfig {
                         + "чат=%s ник=%s титр=%s режим=%s игрок рядом=%s %.0f бл наблюдатель=%s вход/выход=%s предмет=%s | "
                         + "синхр=%s %.4f бл %.4f° | параметры=%s %.2f%% | препятствие=%s %.1f бл | скорость=%s %.3f бл/т | "
                         + "подозр=%s %.1f/%.0f с веса %.1f/%.1f/%.1f/%.1f/%.1f/%.1f слова мягко=%s | журнал=%s | "
-                        + "культура=%s пресетов=%d",
+                        + "культура=%s пресетов=%d | поворот камеры=%s %.0f°/с перелёт до %.1f%%",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
@@ -416,7 +439,8 @@ public class ModConfig {
                 detectObstacle, obstacleRange, detectVelocity, velocityAnomaly,
                 suspicionEnabled, suspicionLimit, suspicionHalfLifeSec, suspWeightSync, suspWeightRollback, suspWeightKnock,
                 suspWeightPlayerFar, suspWeightChatWord, suspWeightActionBar, chatWordsSoft, eventLogEnabled,
-                launchCrop, camPresets == null ? 0 : camPresets.size());
+                launchCrop, camPresets == null ? 0 : camPresets.size(),
+                !camSmooth ? "мгновенно" : camMouseLike ? "как мышь" : "плавно", camTurnSpeed, camOvershootPct);
     }
 
     private static String colorOrDefault(String id) {

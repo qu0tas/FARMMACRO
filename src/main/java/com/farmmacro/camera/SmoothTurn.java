@@ -28,6 +28,8 @@ public final class SmoothTurn {
     private static float targetYaw, targetPitch;
     private static double speed;
     private static long lastNs;
+    /** v1.11.1 «как мышь» (camMouseLike): план поворота по пикселям мыши; null — обычный плавный. */
+    private static MouseTurn mouse;
 
     /**
      * Начать (или перенацелить) поворот.
@@ -40,16 +42,26 @@ public final class SmoothTurn {
         int jp = com.farmmacro.config.ModConfig.INSTANCE.smoothTurnJitterPct;
         speed = jp > 0 && degPerSec > 0
                 ? degPerSec * (1 + java.util.concurrent.ThreadLocalRandom.current().nextDouble(-jp, jp) / 100.0) : degPerSec;
+        mouse = null;
+        com.farmmacro.config.ModConfig c = com.farmmacro.config.ModConfig.INSTANCE;
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        if (c.camMouseLike && degPerSec > 0 && p != null) {
+            double sens = mc.options.sensitivity().get();
+            mouse = new MouseTurn(p.getYRot(), p.getXRot(), Mth.wrapDegrees(targetYaw - p.getYRot()), targetPitch - p.getXRot(),
+                    sens, speed, c.camOvershootPct / 100.0, new java.util.SplittableRandom(System.nanoTime()));
+        }
         active = true;
     }
 
-    public static void stop()          { active = false; }
+    public static void stop()          { active = false; mouse = null; }
     public static boolean isActive()   { return active; }
 
     /** Сколько градусов осталось довернуть (0, если поворота нет). */
     public static float remaining(LocalPlayer p) {
         if (!active || p == null) return 0;
-        return (float) Math.hypot(Mth.wrapDegrees(targetYaw - p.getYRot()), targetPitch - p.getXRot());
+        float r = (float) Math.hypot(Mth.wrapDegrees(targetYaw - p.getYRot()), targetPitch - p.getXRot());
+        return mouse != null ? r * (float) (1 + 2 * mouse.overshoot) : r;
     }
 
     /** Каждый кадр, после мыши. */
@@ -62,6 +74,12 @@ public final class SmoothTurn {
         double dt = lastNs == 0 ? 1 / 60.0 : Math.min(0.1, (now - lastNs) / 1e9);
         lastNs = now;
 
+        if (mouse != null) {
+            long[] d = mouse.frame(dt);
+            if (d[0] != 0 || d[1] != 0) apply(p, (float) (d[0] * mouse.step), (float) (d[1] * mouse.step));
+            if (mouse.finished()) { active = false; mouse = null; }
+            return;
+        }
         float ey = Mth.wrapDegrees(targetYaw - p.getYRot());
         float ep = targetPitch - p.getXRot();
         double err = Math.hypot(ey, ep);
@@ -84,9 +102,29 @@ public final class SmoothTurn {
      */
     public static void look(com.farmmacro.macro.Humanizer h, LocalPlayer p, int stopLeft) {
         if (h == null || p == null) return;
-        float[] d = h.look.tick(stopLeft, h.lapPerfect());
-        if (d[0] != 0 || d[1] != 0) apply(p, d[0], d[1]);
+        if (h != lookOwner) { lookOwner = h; lookBase = false; }
+        // v1.11.2: смещение ставится от «своего» угла абсолютно, а не суммой мелких поворотов — float-ошибки
+        // не копятся, и когда смещение вернулось в 0, камера ровно там, где была (до 0.000°)
+        if (lookBase) {                                   // кто-то другой повернул (привязка, пресет) — сдвигаем базу
+            baseYaw += p.getYRot() - expYaw; basePitch += p.getXRot() - expPitch;
+        } else if (h.look.atZero()) { baseYaw = p.getYRot(); basePitch = p.getXRot(); }
+        h.look.tick(stopLeft, h.lapPerfect());
+        float ty, tp;
+        if (h.look.atZero()) { ty = baseYaw; tp = basePitch; }
+        else { ty = baseYaw + (float) h.look.yawOff(); tp = Math.max(-90f, Math.min(90f, basePitch + (float) h.look.pitchOff())); }
+        float y0 = p.getYRot(), x0 = p.getXRot();
+        if (ty != y0 || tp != x0) {
+            p.setYRot(ty); p.setXRot(tp);
+            p.yRotO += ty - y0; p.xRotO += tp - x0;       // как Entity.turn — без рывка интерполяции
+            PanicDetector.INSTANCE.expectTurn(ty - y0, tp - x0);
+        }
+        lookBase = !h.look.atZero();
+        expYaw = ty; expPitch = tp;
     }
+
+    private static com.farmmacro.macro.Humanizer lookOwner;
+    private static boolean lookBase;
+    private static float baseYaw, basePitch, expYaw, expPitch;
 
     /** Повернуть как мышь (Entity.turn принимает «сырые» единицы, ×0.15 внутри). */
     private static void apply(LocalPlayer p, float dYaw, float dPitch) {

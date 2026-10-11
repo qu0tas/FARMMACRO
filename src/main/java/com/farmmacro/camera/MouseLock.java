@@ -21,7 +21,7 @@ public final class MouseLock {
 
     /** Гасить ли поворот от мыши прямо сейчас (вызывается из миксина). */
     public static boolean shouldBlock() {
-        if (!locked) return false;
+        if (!locked || Freelook.active()) return false;   // freelook: мышь крутит камеру, игрок и так не поворачивается
         Minecraft mc = Minecraft.getInstance();
         return mc.player != null && mc.screen == null;
     }
