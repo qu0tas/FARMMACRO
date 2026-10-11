@@ -106,6 +106,24 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
             String n = t.note();
             return n == null ? "" : n;
         }, Ui.SUB));
+        rows.add(new Rows.Section("Для новых маршрутов и записей"));
+        rows.add(new Rows.Note("Эти настройки (камера, зажим, случайность) сразу получает каждый новый маршрут и каждая "
+                + "новая запись. Уже сохранённые не меняются.", Ui.SUB));
+        rows.add(new Rows.Buttons(
+                new Rows.Btn("Сделать по умолчанию", Rows.Style.SECONDARY, () -> {
+                    MacroSettings s = t.settings().copy();
+                    if (s.hold != null) s.hold.ranges.clear();       // участки кадров — свои у каждой записи
+                    cfg().newItemSettings = s;
+                    cfg().sanitize();
+                    ModConfig.save();
+                }).tip("Новые маршруты и записи будут получать такие же настройки"),
+                new Rows.Btn("Взять стандартные", Rows.Style.SECONDARY, () -> {
+                    edit(() -> {
+                        MacroSettings d = MacroSettings.forNew();
+                        t.settings().camera = d.camera; t.settings().hold = d.hold; t.settings().human = d.human;
+                    });
+                    build();
+                }).enabledIf(t::editable).tip("Поставить сюда настройки «по умолчанию для новых»")));
         rows.add(new Rows.Spacer(4));
         rows.add(new Rows.Buttons(new Rows.Btn("Готово", Rows.Style.PRIMARY, this::onClose)));
         Rows.link(rows);

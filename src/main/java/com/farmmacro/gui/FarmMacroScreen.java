@@ -445,9 +445,9 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private void buildConfigs() {
         rows.add(new Rows.Section("Готовые наборы"));
-        rows.add(new Rows.Note("Меняют детекторы и общую случайность. Визуал, звук, HUD и маршруты не трогают.", Ui.SUB));
+        rows.add(new Rows.Note("Меняют детекторы и общую случайность. Визуал, HUD и сохранённые маршруты не трогают; «Оптимально» ставит ещё звук паники и настройки для новых маршрутов и записей.", Ui.SUB));
         for (var p : com.farmmacro.config.ConfigProfiles.PRESETS)
-            rows.add(new Rows.Buttons(new Rows.Btn(p.label(), "human".equals(p.id()) ? Rows.Style.PRIMARY : Rows.Style.SECONDARY, () -> {
+            rows.add(new Rows.Buttons(new Rows.Btn(p.label(), "optimal".equals(p.id()) ? Rows.Style.PRIMARY : Rows.Style.SECONDARY, () -> {
                 com.farmmacro.config.ConfigProfiles.applyPreset(p.id());
                 profileMsg = "Применён набор «" + p.label() + "»";
                 buildTab();

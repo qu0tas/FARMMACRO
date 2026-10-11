@@ -26,6 +26,8 @@ public final class RouteBuffer {
     /** Дополнительно выделенные точки (Alt+ЛКМ, Ctrl+A) — для группового смещения. Сбрасываются при изменении состава. */
     private final java.util.TreeSet<Integer> marked = new java.util.TreeSet<>();
     private final Deque<PointRoute> undo = new ArrayDeque<>();
+    /** v1.12.1: новому (не загруженному) маршруту уже выданы настройки «по умолчанию для новых». */
+    private boolean defaultsApplied;
 
     private RouteBuffer() {}
 
@@ -118,6 +120,12 @@ public final class RouteBuffer {
 
     /** Измерение и мир берутся при первой точке. */
     private void stamp(Minecraft mc) {
+        if (!defaultsApplied && loadedName == null && route.points.isEmpty()) {
+            route.settings = com.farmmacro.macro.MacroSettings.forNew();   // первая точка нового маршрута
+            PointRoute top = undo.peek();                                    // Ctrl+Z первой точки не сбросит настройки
+            if (top != null && top.points.isEmpty()) top.settings = route.settings.copy();
+            defaultsApplied = true;
+        }
         if (!route.points.isEmpty() && route.dimension != null) return;
         if (mc.level != null) route.dimension = mc.level.dimension().identifier().toString();
         route.world = worldId(mc);
@@ -227,6 +235,8 @@ public final class RouteBuffer {
         marked.clear();
         MacroManager.INSTANCE.routeUnloaded();
         route = new PointRoute();
+        route.settings = com.farmmacro.macro.MacroSettings.forNew();
+        defaultsApplied = true;
         loadedName = null;
         dirty = false;
         selected = -1;
@@ -240,6 +250,7 @@ public final class RouteBuffer {
         MacroManager.INSTANCE.routeUnloaded();
         MacroManager.INSTANCE.showNav();
         route = r;
+        defaultsApplied = true;
         loadedName = name;
         dirty = false;
         selected = -1;

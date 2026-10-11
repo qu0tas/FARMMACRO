@@ -15,6 +15,29 @@ public class MacroSettings {
     /** «Случайность» (v5): каждый проход немного другой. В старых файлах нет — выключено. */
     public HumanSettings human = new HumanSettings();
 
+    /**
+     * v1.12.1: настройки для нового маршрута / новой записи — копия «по умолчанию для новых»
+     * ({@code ModConfig.newItemSettings}, набор «Оптимально» или кнопка ⚙ «Сделать по умолчанию для новых»).
+     * Старые файлы без {@code settings} это не затрагивает — у них по-прежнему всё выключено.
+     */
+    public static MacroSettings forNew() {
+        MacroSettings s = com.farmmacro.config.ModConfig.INSTANCE.newItemSettings;
+        return s == null ? optimalNew() : s.copy();
+    }
+
+    /**
+     * Стандарт «Оптимально» для новых маршрутов и записей: камера как есть, зажим ЛКМ весь проход без задержки,
+     * своя случайность включена (используется, только если общая случайность выключена).
+     */
+    public static MacroSettings optimalNew() {
+        MacroSettings s = new MacroSettings();
+        s.hold.button = HoldSettings.ATTACK;
+        s.hold.mode = HoldSettings.WHOLE;
+        s.hold.delayTicks = 0;
+        s.human = HumanSettings.presetRouteOptimal();
+        return s;
+    }
+
     public MacroSettings copy() {
         MacroSettings s = new MacroSettings();
         s.camera = camera == null ? new CameraBinding() : camera.copy();

@@ -91,7 +91,7 @@ public class MacroManager {
         if (state != State.RECORDING) {
             frames.clear();
             loadedName = null;
-            settings = new MacroSettings();
+            settings = MacroSettings.forNew();
             settingsDirty = false;
             clearSavedPosition();
             state = State.RECORDING;
@@ -123,7 +123,7 @@ public class MacroManager {
         if (state == State.PLAYING || state == State.COUNTDOWN) { msg(mc, "§cСначала останови воспроизведение"); return; }
         frames.clear();
         loadedName = null;
-        settings = new MacroSettings();
+        settings = MacroSettings.forNew();
         settingsDirty = false;
         state = State.IDLE;
         clearSavedPosition();

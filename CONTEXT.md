@@ -119,6 +119,15 @@ Minecraft **26.1.2** (официальные имена Mojang, игра не о
 - В игре: см. чек-лист в разделе 7.
 
 ## 6. Журнал
+### v1.12.1 — набор «Оптимально», настройки для новых маршрутов и записей
+**Что** (по скриншотам настроек игрока):
+- `ConfigProfiles`: набор `optimal` (первый в списке, основная кнопка) — `allDetectors` без `detectPlayerNear`/`detectPlayerJoin`/`detectDrift`, `blockDetectRadius` 1.5, звук (siren, safe, 1 повтор), красный экран 60 т, журнал; `humanOptimal()` = `humanRecommended()` + `cameraExact`, `camNoiseDeg` 0, `midStopChance` 7, `idleStretchPct` 9, `actionDelayMax` 2, приземление 0–8; `newItemSettings = optimalNew()`.
+- `ModConfig.newItemSettings` (MacroSettings, по умолчанию `MacroSettings.optimalNew()`: камера none, зажим attack/whole/0, `HumanSettings.presetRouteOptimal()`), sanitize через `MacroSettings.fromFile`. Входит в профили.
+- `MacroSettings.forNew()` — копия `newItemSettings`: `MacroManager` (начало записи, очистка буфера), `RouteBuffer.clear()` и первая точка нового маршрута (`stamp`, флаг `defaultsApplied`; снимок отмены тоже получает настройки, чтобы Ctrl+Z первой точки их не сбросил). Загруженные файлы и `PointRoute`/`Gson` не трогаются — старые файлы без `settings` по-прежнему «всё выкл».
+- Окно ⚙: раздел «Для новых маршрутов и записей» — «Сделать по умолчанию» (копия без участков кадров) и «Взять стандартные».
+**Как проверено**: `./gradlew build` и `./gradlew routeStress` — EXIT 0 (JDK Temurin 25.0.4). **В игре не проверялось.**
+**Осталось**: в игре — новый маршрут/запись получают зажим ЛКМ и случайность; «Оптимально» в «Конфигах»; ⚙ → «Сделать по умолчанию».
+
 ### v1.12.0 — Freelook, Low render, «Продолжить с места»
 **Что**:
 - Freelook (F6, `keyFreelook`): мышь → камера вокруг игрока, игрок не поворачивается (детектор «Камера повернулась», направление W/A/S/D автохода и луч «Препятствие» — по игроку, как раньше). Миксины `FreelookMouseMixin`, `FreelookCameraMixin` (цели — javap 26.1.2: в `turnPlayer` вызов `LocalPlayer.turn(DD)V`; в `alignWithEntity` два вызова `Entity.getViewYRot/XRot(F)F`). Паника/End/выход из мира выключают; при блокировке мыши (M) мышь в freelook крутит камеру.

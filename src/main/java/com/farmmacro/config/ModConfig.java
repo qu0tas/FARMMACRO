@@ -181,6 +181,8 @@ public class ModConfig {
     public boolean humanUseGlobal        = false;
     /** Общая «Случайность» (вкладка «Конфиги»), сохраняется в профилях. */
     public com.farmmacro.macro.HumanSettings humanGlobal = new com.farmmacro.macro.HumanSettings();
+    /** v1.12.1: настройки (⚙), которые сразу получает каждый новый маршрут и каждая новая запись. */
+    public com.farmmacro.macro.MacroSettings newItemSettings = com.farmmacro.macro.MacroSettings.optimalNew();
     /** Плавный поворот пресета (K): скорость ± N % каждый раз (0 — всегда одинаково). */
     public int     smoothTurnJitterPct   = 0;
     /** Включать блокировку мыши при старте макроса (после отсчёта). */
@@ -354,6 +356,8 @@ public class ModConfig {
         if (chatKeywords == null) chatKeywords = "";
         if (chatKeywords.length() > 1000) chatKeywords = chatKeywords.substring(0, 1000);
         humanGlobal           = com.farmmacro.macro.HumanSettings.sanitize(humanGlobal);
+        newItemSettings       = com.farmmacro.macro.MacroSettings.fromFile(
+                newItemSettings == null ? com.farmmacro.macro.MacroSettings.optimalNew() : newItemSettings, null);
         panicSoundVolume      = clamp(panicSoundVolume, 0f, 1f);
         panicSoundPitch       = clamp(panicSoundPitch, 0.5f, 2f);
         panicSoundRepeats     = clamp(panicSoundRepeats, 1, 100);

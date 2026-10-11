@@ -189,6 +189,23 @@ public class HumanSettings {
         return h;
     }
 
+    /**
+     * v1.12.1: своя случайность нового маршрута/записи в наборе «Оптимально» (по настройкам игрока):
+     * идеальный круг 15 %, серия 10 % × 1–2, встать 2 % на 10–40 т, протупить 1 % на 100–500 т,
+     * радиус +0.12, смазанный поворот 0.35, углы «как раньше» (не сразу отпустил 40 % до 4 т).
+     */
+    public static HumanSettings presetRouteOptimal() {
+        HumanSettings h = new HumanSettings();
+        h.enabled = true; h.seed = 0;
+        h.perfectLapChance = 15; h.perfectStreakChance = 10; h.streakMin = 1; h.streakMax = 2;
+        h.midStopChance = 2; h.midStopMin = 10; h.midStopMax = 40;
+        h.afkChance = 1; h.afkMin = 100; h.afkMax = 500;
+        h.reachJitter = 0.12; h.cornerSlop = 0.35;
+        h.cornerWeighted = false;
+        h.overlapChance = 40; h.overlapMax = 4;
+        return h;
+    }
+
     public HumanSettings copy() {
         HumanSettings h = new HumanSettings();
         h.enabled = enabled; h.seed = seed;

@@ -119,6 +119,9 @@ public final class ConfigProfiles {
     public record Preset(String id, String label, String tip) {}
 
     public static final List<Preset> PRESETS = List.of(
+            new Preset("optimal", "Оптимально", "Мои настройки: детекторы без «игрока рядом» и входа/выхода, блок рядом 1.5 бл, "
+                    + "сирена 1 раз, общая случайность «Человек» с «Камера точно», реже «встать»; новым маршрутам и записям — "
+                    + "зажим ЛКМ весь проход и своя случайность"),
             new Preset("human", "Человек (рекомендую)", "Все детекторы, общая случайность: углы по весам (перекрытие/зазор/шаг), "
                     + "гаусс-паузы без повторов подряд, микропаузы, иногда встать/протупить, редкие идеальные круги"),
             new Preset("careful", "Осторожный", "Как «Человек», но углы теснее, чаще заминки, встать и «протупить», игрок рядом — 24 бл"),
@@ -142,6 +145,17 @@ public final class ConfigProfiles {
         h.landDelayMin = r.landDelayMin; h.landDelayMax = r.landDelayMax; h.edgeReleaseMax = r.edgeReleaseMax;
         h.holdDelayJitter = r.holdDelayJitter; h.idleStretchPct = r.idleStretchPct; h.actionDelayMax = r.actionDelayMax;
         h.camNoiseDeg = r.camNoiseDeg; h.bindJitterDeg = r.bindJitterDeg; h.lookPitchDeg = r.lookPitchDeg; h.stopLookDeg = r.stopLookDeg;
+        return h;
+    }
+
+    /** «Оптимально» (v1.12.1, по настройкам игрока): «Человек» + «Камера точно», без шума камеры, реже «встать». */
+    public static HumanSettings humanOptimal() {
+        HumanSettings h = humanRecommended();
+        h.midStopChance = 7;
+        h.landDelayMin = 0; h.landDelayMax = 8; h.edgeReleaseMax = 2;
+        h.idleStretchPct = 9; h.actionDelayMax = 2; h.camNoiseDeg = 0;
+        h.holdDelayJitter = 6;
+        h.cameraExact = true;
         return h;
     }
 
@@ -170,6 +184,17 @@ public final class ConfigProfiles {
     public static void applyPreset(String id) {
         ModConfig c = ModConfig.INSTANCE;
         switch (id) {
+            case "optimal" -> {
+                allDetectors(c);
+                c.detectPlayerNear = false; c.detectPlayerJoin = false; c.detectDrift = false;
+                c.blockDetectRadius = 1.5; c.stuckThresholdTicks = 30;
+                c.panicSoundEnabled = true; c.panicSound = "builtin:siren"; c.panicSoundSafe = true;
+                c.panicSoundVolume = 1.0f; c.panicSoundRepeats = 1; c.panicSoundPitch = 1.0f;
+                c.panicRedScreenEnabled = true; c.panicRedScreenTicks = 60; c.eventLogEnabled = true;
+                c.humanMaster = true; c.humanUseGlobal = true; c.humanGlobal = humanOptimal();
+                c.smoothTurnJitterPct = 15;
+                c.newItemSettings = com.farmmacro.macro.MacroSettings.optimalNew();
+            }
             case "human" -> {
                 allDetectors(c);
                 c.humanMaster = true; c.humanUseGlobal = true; c.humanGlobal = humanRecommended();
