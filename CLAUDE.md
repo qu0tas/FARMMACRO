@@ -6,3 +6,4 @@
 - Сборка: `./gradlew build` (JDK 25).
 - После каждого изменения — запись в `CONTEXT.md` → «Журнал» (что / зачем / как проверено / что осталось) и обновление README при изменениях для игрока.
 - Паника = стоп + красный экран + звук
+- Скилл для ИИ-агентов: `.agents/skills/minecraft-mod-dev/SKILL.md` (копия для Claude — `.claude/skills/minecraft-mod-dev/SKILL.md`). Правила FarmMacro в его начале важнее общих примеров (1.21.x, NeoForge, блоки/datagen).

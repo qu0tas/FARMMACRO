@@ -2,7 +2,7 @@
 
 Клиентский мод для Fabric: записывает твои действия на ферме и повторяет их, а при любом подозрительном событии делает **аварийный стоп** (паника): отпускает все клавиши, показывает красный экран и играет сирену.
 
-**Minecraft 26.1.2 · Fabric Loader ≥ 0.19.5 · Fabric API 0.155.3+26.1.2 · Java 25 · мод v1.12.0**
+**Minecraft 26.1.2 · Fabric Loader ≥ 0.19.5 · Fabric API 0.155.3+26.1.2 · Java 25 · мод v1.13.2**
 
 Полное описание всех настроек — [docs/SETTINGS.md](docs/SETTINGS.md). Промт для нейросети, чтобы подобрать идеальный конфиг, — [docs/AI_CONFIG_PROMPT.md](docs/AI_CONFIG_PROMPT.md).
 
@@ -176,6 +176,8 @@
 ```
 
 Встроенные звуки генерирует `tools/gen_panic_sounds.py` (нужны numpy и ffmpeg с libvorbis).
+
+Для ИИ-агентов: правила — `AGENTS.md` / `CLAUDE.md` и `CONTEXT.md`, скилл `minecraft-mod-dev` — в `.agents/skills/` (и `.claude/skills/`).
 
 ## Границы
 
