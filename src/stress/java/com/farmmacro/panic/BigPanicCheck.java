@@ -71,6 +71,11 @@ public final class BigPanicCheck {
                 + "\"watchdog_rollingDaily\":4000,\"staff_total\":3000000}", 5);
         check(p != null && p.watchdogTotal() == 9_000_000 && p.staffTotal() == 3_000_000 && p.ms() == 5, "разбор ответа");
         check(BanwaveWatch.parse("{\"success\":false,\"cause\":\"Invalid API key\"}", 0) == null, "ошибка API");
+        // ── v1.13.1 Расписание: разброс ──
+        check(com.farmmacro.macro.Scheduler.jitterMinutes(60, 20, 0.5) == 60, "середина — ровно");
+        check(Math.abs(com.farmmacro.macro.Scheduler.jitterMinutes(60, 20, 0) - 48) < 1e-9, "−20 %");
+        check(Math.abs(com.farmmacro.macro.Scheduler.jitterMinutes(60, 20, 1) - 72) < 1e-9, "+20 %");
+        check(com.farmmacro.macro.Scheduler.jitterMinutes(1, 90, 0) == 1, "не меньше 1 мин");
         System.out.println("BigPanicCheck: OK");
     }
 }

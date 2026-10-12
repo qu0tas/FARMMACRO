@@ -295,6 +295,9 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 0.01, 5, 0.01, 0.1, v -> Rows.num(v) + " бл/т").under(() -> cfg().panicEnabled && cfg().detectVelocity).adv());
         rows.add(toggle("Застревание", "Игрок должен идти, а стоит на месте",
                 () -> cfg().detectStuck, v -> cfg().detectStuck = v).enabledIf(master));
+        rows.add(number("Анти-застревание: попыток", "Маршрут по точкам: застрял — отойти назад с прыжком и идти дальше; не помогло N раз за 30 с — паника. 0 — сразу паника",
+                () -> cfg().antiStuckTries, v -> cfg().antiStuckTries = (int) v, 0, 5, 1, 1,
+                v -> v == 0 ? "выкл" : String.valueOf((int) v)).integer().under(() -> cfg().panicEnabled && cfg().detectStuck));
         rows.add(number("Окно проверки", null, () -> cfg().stuckThresholdTicks, v -> cfg().stuckThresholdTicks = (int) v,
                 1, 12000, 5, 20, FarmMacroScreen::ticksFmt).integer().under(() -> cfg().panicEnabled && cfg().detectStuck));
         rows.add(toggle("Сход с маршрута", "Траектория разошлась с записью / линией маршрута",
@@ -635,6 +638,45 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().mouseLockOnStart, v -> cfg().mouseLockOnStart = v));
         rows.add(toggle("Снимать при стопе", "Паника, End и выход из мира снимают блокировку всегда",
                 () -> cfg().mouseUnlockOnStop, v -> cfg().mouseUnlockOnStop = v));
+        rows.add(toggle("Отпускать курсор при старте", "Курсор свободен — пользуйся ПК, макрос дальше ходит и ломает (клавиша "
+                + MacroManager.keyName(FarmMacroMod.keyUngrab) + " — вручную). Паника, End и стоп возвращают курсор",
+                () -> cfg().ungrabOnStart, v -> cfg().ungrabOnStart = v));
+
+        rows.add(new Rows.Section("Расписание и выход").key("l.sched"));
+        java.util.function.BooleanSupplier sch = () -> cfg().schedEnabled;
+        rows.add(toggle("Расписание", "Фармить N мин, потом перерыв M мин (стоим на месте), потом продолжить с точки остановки",
+                () -> cfg().schedEnabled, v -> cfg().schedEnabled = v));
+        rows.add(number("Фармить", null, () -> cfg().schedFarmMin, v -> cfg().schedFarmMin = (int) v,
+                1, 1440, 5, 30, v -> (int) v + " мин").integer().under(sch));
+        rows.add(number("Перерыв", null, () -> cfg().schedBreakMin, v -> cfg().schedBreakMin = (int) v,
+                1, 1440, 1, 10, v -> (int) v + " мин").integer().under(sch));
+        rows.add(number("Разброс", "Каждый отрезок ± столько процентов, случайно", () -> cfg().schedJitterPct, v -> cfg().schedJitterPct = (int) v,
+                0, 90, 5, 10, v -> (int) v + " %").integer().under(sch));
+        rows.add(new Rows.Note(() -> {
+            var ph = com.farmmacro.macro.Scheduler.phase();
+            if (!cfg().schedEnabled) return "";
+            return ph == com.farmmacro.macro.Scheduler.Phase.FARM ? "Сейчас: фарм, перерыв через " + clock(com.farmmacro.macro.Scheduler.farmLeftTicks() / 20)
+                    : ph == com.farmmacro.macro.Scheduler.Phase.BREAK ? "Сейчас: перерыв, продолжу через " + clock(com.farmmacro.macro.Scheduler.breakLeftTicks() / 20)
+                    : "Начнётся со следующего запуска макроса. Стоп вручную, паника или End — расписание сбрасывается.";
+        }, Ui.SUB));
+        rows.add(number("Таймер выхода", "Через столько минут после старта (перерывы считаются) — стоп и выход с сервера. 0 — выкл",
+                () -> cfg().leaveAfterMin, v -> cfg().leaveAfterMin = (int) v, 0, 10080, 5, 30,
+                v -> v == 0 ? "выкл" : (int) v + " мин").integer());
+
+        rows.add(new Rows.Section("Переподключение").key("l.reconnect").closed());
+        java.util.function.BooleanSupplier rc = () -> cfg().autoReconnect;
+        rows.add(toggle("Переподключаться", "Вылетел, пока шёл макрос — зайти снова. Не после паники (≤ 60 с), выхода через меню и таймера выхода",
+                () -> cfg().autoReconnect, v -> cfg().autoReconnect = v));
+        rows.add(number("Ждать перед входом", null, () -> cfg().reconnectDelaySec, v -> cfg().reconnectDelaySec = (int) v,
+                5, 600, 5, 30, v -> (int) v + " с").integer().under(rc));
+        rows.add(number("Попыток", null, () -> cfg().reconnectTries, v -> cfg().reconnectTries = (int) v,
+                1, 20, 1, 3, v -> String.valueOf((int) v)).integer().under(rc));
+        rows.add(new Rows.TextField("Команда после входа", "Через 3 с после входа, например /warp garden. Пусто — нет",
+                () -> cfg().reconnectCommand, v -> { cfg().reconnectCommand = v.strip(); save(); return true; }, null, 100, 0).under(rc));
+        rows.add(toggle("Продолжить макрос", "Когда игрок снова у точки остановки (ждём до 75 с)",
+                () -> cfg().reconnectResume, v -> cfg().reconnectResume = v).under(rc));
+        rows.add(new Rows.Note(() -> cfg().autoReconnect && cfg().panicEnabled && cfg().detectDisconnect
+                ? "При переподключении вылет — не паника (сирены нет), а запись RECONNECT в журнале." : "", Ui.SUB));
 
         rows.add(new Rows.Section("Сессия").key("l.session"));
         rows.add(new Rows.Note(() -> {
@@ -646,6 +688,13 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         }, Ui.ON));
         rows.add(new Rows.Buttons(new Rows.Btn("Сбросить статистику", Rows.Style.SECONDARY,
                 () -> MacroManager.INSTANCE.resetStats()).enabledIf(() -> MacroManager.INSTANCE.getSessionRuns() > 0)));
+    }
+
+    /** Секунды → «М:СС» или «Ч:ММ:СС». */
+    private static String clock(long sec) {
+        sec = Math.max(0, sec);
+        return sec >= 3600 ? String.format(Locale.ROOT, "%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60)
+                : String.format(Locale.ROOT, "%d:%02d", sec / 60, sec % 60);
     }
 
     private static final List<Rows.Choice> CROPS = com.farmmacro.camera.CameraPresets.CROPS.stream()
@@ -866,6 +915,11 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().freelookHold, v -> cfg().freelookHold = v));
         rows.add(toggle("Freelook: выключать при панике", "Сразу вернуть свой вид от первого лица",
                 () -> cfg().freelookOffOnPanic, v -> cfg().freelookOffOnPanic = v));
+        rows.add(toggle("Производительность при старте", "Режим производительности (" + MacroManager.keyName(FarmMacroMod.keyPerf)
+                + ") на время макроса: лимит FPS, без облаков и теней, минимум частиц. После — всё как было",
+                () -> cfg().perfOnStart, v -> cfg().perfOnStart = v));
+        rows.add(number("Производительность: FPS", null, () -> cfg().perfFps, v -> cfg().perfFps = (int) v,
+                10, 260, 5, 30, v -> (int) v + " FPS").integer());
         rows.add(number("Low render: радиус", "Рисуются только блоки в этом радиусе вокруг игрока, остальное — пусто (небо). "
                 + "Меняется сразу при следующем шаге",
                 () -> cfg().lowRenderRadius, v -> cfg().lowRenderRadius = (int) v, 1, 32, 1, 2, v -> (int) v + " бл").integer());

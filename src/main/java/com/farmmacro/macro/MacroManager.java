@@ -327,6 +327,7 @@ public class MacroManager {
                 : " (новый на этот запуск)"));
         startPass(mc, pendingStartIndex);
         if (ModConfig.INSTANCE.mouseLockOnStart) com.farmmacro.camera.MouseLock.lock(mc, "старт макроса");
+        if (ModConfig.INSTANCE.ungrabOnStart) com.farmmacro.camera.Ungrab.on(mc, "старт макроса");
         LOGGER.info("Старт ({}), пороги: {}", source == recordingSource ? "запись" : "маршрут",
                 ModConfig.INSTANCE.describeThresholds());
         String what = source == recordingSource ? (pendingStartIndex > 0 ? " с кадра " + pendingStartIndex : "")
@@ -356,6 +357,16 @@ public class MacroManager {
         if (state != State.PLAYING) return;
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) {          // вышли из мира — без следов
+            // v1.13.1: вылет — запомнить точку остановки по последней позиции (для переподключения и O)
+            if (source != null && lastPosValid && (source != recordingSource || playbackIndex > 0)) {
+                savedIndex = source.resumeIndex();
+                savedKind = source == recordingSource ? SourceKind.RECORDING : SourceKind.ROUTE;
+                savedX = lastX; savedY = lastY; savedZ = lastZ;
+                hasSavedPosition = true;
+                navDismissed = false;
+            }
+            lostWorldMs = System.currentTimeMillis();
+            lastPosValid = false;
             Humanizer.ACTIVE = null;
             state = State.IDLE;
             if (source != null) source.stop(mc);
@@ -365,6 +376,7 @@ public class MacroManager {
             return;
         }
         ModConfig c = ModConfig.INSTANCE;
+        lastX = p.getX(); lastY = p.getY(); lastZ = p.getZ(); lastPosValid = true;
 
         // ── лимиты ──
         if (c.timeLimitMinutes > 0 && System.currentTimeMillis() - runStartMs >= c.timeLimitMinutes * 60_000L) {
@@ -558,6 +570,19 @@ public class MacroManager {
         if (wasPlaying && ModConfig.INSTANCE.finishSoundEnabled) PanicSound.playDone();
     }
 
+    /** v1.13.1: последняя позиция игрока во время игры (точка остановки при вылете) и момент потери мира. */
+    private double lastX, lastY, lastZ;
+    private boolean lastPosValid;
+    private long lostWorldMs;
+
+    /** Макрос играет или только что (≤ 5 с) остановился из-за потери мира (вылет). */
+    public boolean playingOrJustLost() {
+        return isPlaying() || System.currentTimeMillis() - lostWorldMs < 5_000;
+    }
+
+    /** Сообщение над хотбаром (для других классов мода). */
+    public void msgPublic(Minecraft mc, String text) { msg(mc, text); }
+
     /** v1.13: штатный стоп по внешнему лимиту (Jacob's Contest) — как «Лимит времени», можно продолжить. */
     public void stopByLimit(Minecraft mc, String message) {
         if (state == State.PLAYING) finish(mc, message, true);
@@ -600,6 +625,9 @@ public class MacroManager {
     public void resetAll(Minecraft mc) {
         boolean wasActive = isActive();
         if (wasActive) stopInternal(mc, false);
+        Scheduler.cancel();
+        Reconnect.cancel();
+        com.farmmacro.util.Guard.run("reset/ungrab", () -> com.farmmacro.camera.Ungrab.off(mc, "End"));
         boolean held = MouseHold.INSTANCE.isManual() || MouseHold.INSTANCE.running() != null;
         boolean wasLocked = com.farmmacro.camera.MouseLock.isLocked();
         if (wasLocked) com.farmmacro.util.Guard.run("reset/unlock-mouse", () -> com.farmmacro.camera.MouseLock.unlock(mc, "End"));

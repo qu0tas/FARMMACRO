@@ -41,6 +41,7 @@ public final class FarmHud {
                 y = drawHuman(g, mc, y);
                 y = drawSuspicion(g, mc, y);
                 y = drawServer(g, mc, y);
+                y = drawSchedule(g, mc, y);
                 drawNavigator(g, mc, y, t);
                 drawCrosshairArrow(g, mc, t);
             }
@@ -249,6 +250,25 @@ public final class FarmHud {
         return y + h + 4;
     }
 
+    /** v1.13.1: плашка расписания / таймера выхода. */
+    private static int drawSchedule(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        var ph = com.farmmacro.macro.Scheduler.phase();
+        long leave = com.farmmacro.macro.Scheduler.leaveLeftMs();
+        if (ph == com.farmmacro.macro.Scheduler.Phase.OFF && leave < 0) return y;
+        StringBuilder t = new StringBuilder();
+        if (ph == com.farmmacro.macro.Scheduler.Phase.FARM) t.append("ПЕРЕРЫВ ЧЕРЕЗ ").append(clock(com.farmmacro.macro.Scheduler.farmLeftTicks() / 20));
+        else if (ph == com.farmmacro.macro.Scheduler.Phase.BREAK) t.append("ПЕРЕРЫВ ").append(clock(com.farmmacro.macro.Scheduler.breakLeftTicks() / 20));
+        if (leave >= 0) t.append(t.length() > 0 ? " · " : "").append("ВЫХОД ЧЕРЕЗ ").append(clock(leave / 1000));
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
+        int col = ph == com.farmmacro.macro.Scheduler.Phase.BREAK ? Ui.WARN : 0xFFC8A8FF;
+        Ui.round(g, x, y, w, h, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        Ui.text(g, f, Ui.ellipsize(f, t.toString(), w - 14), x + 8, y + 4, col);
+        return y + h + 4;
+    }
+
     /** v1.13: плашка «TPS · BPS · баны» во время макроса. */
     private static int drawServer(GuiGraphicsExtractor g, Minecraft mc, int y) {
         ModConfig c = ModConfig.INSTANCE;
@@ -277,12 +297,18 @@ public final class FarmHud {
     /** v1.12: плашки «FREELOOK» и «LOW RENDER». */
     private static int drawView(GuiGraphicsExtractor g, Minecraft mc, int y) {
         boolean fl = com.farmmacro.camera.Freelook.active(), lr = com.farmmacro.visual.LowRender.active();
-        if (!fl && !lr) return y;
+        boolean ug = com.farmmacro.camera.Ungrab.active(), pf = com.farmmacro.visual.PerformanceMode.active();
+        if (!fl && !lr && !ug && !pf) return y;
         Font f = mc.font;
         int sw = mc.getWindow().getGuiScaledWidth();
         int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
         int col = 0xFF9BE07A;
-        String text = (fl ? "FREELOOK" : "") + (fl && lr ? " · " : "") + (lr ? "LOW RENDER " + ModConfig.INSTANCE.lowRenderRadius + " бл" : "");
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        if (fl) parts.add("FREELOOK");
+        if (lr) parts.add("LOW RENDER " + ModConfig.INSTANCE.lowRenderRadius + " бл");
+        if (pf) parts.add("PERF " + ModConfig.INSTANCE.perfFps + " FPS");
+        if (ug) parts.add("КУРСОР ОТПУЩЕН");
+        String text = String.join(" · ", parts);
         Ui.round(g, x, y, w, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
         Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
