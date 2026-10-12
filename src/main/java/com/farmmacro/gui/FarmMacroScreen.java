@@ -258,6 +258,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().detectDamage, v -> cfg().detectDamage = v).enabledIf(master));
         rows.add(toggle("Открылось окно", "Любое окно, кроме паузы, чата и меню мода",
                 () -> cfg().detectGuiOpen, v -> cfg().detectGuiOpen = v).enabledIf(master));
+        rows.add(toggle("Полный инвентарь — паника", "Нет свободного слота ≈ 0.5 с. Обычный стоп по полному инвентарю — в «Макросе»; включены оба — сработает стоп",
+                () -> cfg().panicInventoryFull, v -> cfg().panicInventoryFull = v).enabledIf(master));
 
         rows.add(new Rows.Section("Телепорт и толчки").key("p.tp").closed());
         java.util.function.BooleanSupplier mv = () -> cfg().panicEnabled && cfg().detectServerMove;
@@ -301,6 +303,21 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 0.01, 1024, 0.5, 4, v -> Rows.num(v) + " бл").under(() -> cfg().panicEnabled && cfg().detectDrift));
         rows.add(toggle("Этажи", "Маршрут по точкам: после спуска упал не туда / не упал, точка на другом этаже без спуска",
                 () -> cfg().detectFloor, v -> cfg().detectFloor = v).enabledIf(master));
+        java.util.function.BooleanSupplier bpsOn = () -> cfg().panicEnabled && cfg().detectBps;
+        rows.add(toggle("Урожай не ломается (BPS)", "Блоков в секунду меньше порога, пока зажата ЛКМ и идёшь. Переходы без урожая тоже снижают BPS — порог ставь с запасом",
+                () -> cfg().detectBps, v -> cfg().detectBps = v).enabledIf(master));
+        rows.add(number("Мин. BPS", "Текущий BPS — на плашке HUD во время макроса", () -> cfg().bpsMin, v -> cfg().bpsMin = v,
+                0.1, 40, 0.5, 2, v -> Rows.num(v) + " бл/с").under(bpsOn));
+        rows.add(number("Окно BPS", "Сколько секунд усреднять; прогрев — окно + 2 с", () -> cfg().bpsWindowSec, v -> cfg().bpsWindowSec = v,
+                2, 30, 1, 5, v -> Rows.num(v) + " с").under(bpsOn).adv());
+        rows.add(toggle("Рассинхрон", "Сломанные блоки через 1 с снова на месте (сервер не принял ломание). При лаге — в подозрительность",
+                () -> cfg().detectDesync, v -> cfg().detectDesync = v).enabledIf(master));
+        rows.add(number("Доля вернувшихся", "Из последних 20 сломанных (минимум 10)", () -> cfg().desyncPct, v -> cfg().desyncPct = v,
+                10, 100, 5, 10, v -> Rows.num(v) + " %").under(() -> cfg().panicEnabled && cfg().detectDesync).adv());
+        rows.add(toggle("Откат назад — подозрительность", "Сервер вернул на место, где ты был за последние 3 с (< 4 бл): не паника, а очки",
+                () -> cfg().lagbackSoft, v -> cfg().lagbackSoft = v).enabledIf(master));
+        rows.add(number("Вес: откат назад", null, () -> cfg().suspWeightLagback, v -> cfg().suspWeightLagback = v,
+                0, 100, 0.5, 2, Rows::num).under(() -> cfg().panicEnabled && cfg().lagbackSoft).adv());
 
         rows.add(new Rows.Section("Блоки, эффекты, режим").key("p.world").closed());
         rows.add(toggle("Блок рядом", "Сервер поставил твёрдый блок вплотную к игроку",
@@ -316,6 +333,21 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().detectPotionEffect, v -> cfg().detectPotionEffect = v).enabledIf(master));
         rows.add(toggle("Режим игры и полёт", "Сменили режим, дали/забрали полёт, респавн/другой мир, посадили на сущность",
                 () -> cfg().detectGameMode, v -> cfg().detectGameMode = v).enabledIf(master));
+        rows.add(toggle("Горение", "Игрок загорелся. Горел на старте — не считается, пока не потухнет",
+                () -> cfg().detectFire, v -> cfg().detectFire = v).enabledIf(master));
+        rows.add(toggle("Паутина и вязкие блоки", "Сервер поставил паутину, куст ягод или рыхлый снег рядом — или ты в нём застрял",
+                () -> cfg().detectSticky, v -> cfg().detectSticky = v).enabledIf(master));
+        rows.add(number("Радиус вязких блоков", null, () -> cfg().stickyRadius, v -> cfg().stickyRadius = v,
+                1, 32, 1, 4, v -> Rows.num(v) + " бл").under(() -> cfg().panicEnabled && cfg().detectSticky).adv());
+        rows.add(toggle("Клетка", "Над головой и с 3–4 сторон бедрок или барьер, и хотя бы один из них поставил сервер",
+                () -> cfg().detectCage, v -> cfg().detectCage = v).enabledIf(master));
+        java.util.function.BooleanSupplier farm = () -> cfg().panicEnabled && cfg().detectFarmBlock;
+        rows.add(toggle("Блок на ферме", "Сервер поставил полный блок на месте воздуха/урожая/воды — очки; упёрся в него — паника",
+                () -> cfg().detectFarmBlock, v -> cfg().detectFarmBlock = v).enabledIf(master));
+        rows.add(number("Радиус фермы", "Свои сломанные блоки, рост урожая и поршни не считаются", () -> cfg().farmBlockRadius, v -> cfg().farmBlockRadius = v,
+                2, 64, 1, 8, v -> Rows.num(v) + " бл").under(farm).adv());
+        rows.add(number("Вес: блок на ферме", null, () -> cfg().suspWeightFarmBlock, v -> cfg().suspWeightFarmBlock = v,
+                0, 100, 0.5, 2, Rows::num).under(farm).adv());
 
         rows.add(new Rows.Section("Чат и игроки").key("p.social").closed());
         java.util.function.BooleanSupplier chat = () -> cfg().panicEnabled && cfg().detectChat;
@@ -337,6 +369,41 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().detectSpectator, v -> cfg().detectSpectator = v).enabledIf(master));
         rows.add(toggle("Вход / выход игроков", "Зашёл кто-то или пропал из Tab (часто так выглядит «ваниш»)",
                 () -> cfg().detectPlayerJoin, v -> cfg().detectPlayerJoin = v).enabledIf(master));
+
+        rows.add(new Rows.Section("Сервер и Skyblock").key("p.server").closed());
+        rows.add(toggle("Лаги сервера", "Нет пакетов времени > 1.3 с: «Застрял» и «Аномалия скорости» ждут, поправки позиции — в подозрительность",
+                () -> cfg().lagGuard, v -> cfg().lagGuard = v).enabledIf(master));
+        rows.add(new Rows.Note(() -> {
+            double tps = com.farmmacro.panic.LagGuard.INSTANCE.tps();
+            if (!cfg().lagGuard) return "";
+            return com.farmmacro.panic.LagGuard.INSTANCE.lagging() ? "Сейчас: сервер лагает"
+                    : Double.isNaN(tps) ? "TPS: ещё нет данных (нужно несколько секунд на сервере)"
+                    : String.format(java.util.Locale.ROOT, "Сейчас: TPS %.1f", tps);
+        }, Ui.SUB));
+        rows.add(toggle("Отключение от сервера", "Кикнули или оборвалась связь во время макроса — сирена и запись в журнал",
+                () -> cfg().detectDisconnect, v -> cfg().detectDisconnect = v).enabledIf(master));
+        rows.add(toggle("Перезагрузка / лимбо", "«Server closing: 0:25» на табло (< 30 с), слова restart/reboot/перезагрузка/limbo в системном чате и титрах",
+                () -> cfg().detectRestart, v -> cfg().detectRestart = v).enabledIf(master));
+        java.util.function.BooleanSupplier ban = () -> cfg().panicEnabled && cfg().detectBanwave;
+        rows.add(toggle("Банвейв (Hypixel)", "Банов Watchdog/staff за окно больше порога. Нужен свой API-ключ с developer.hypixel.net",
+                () -> cfg().detectBanwave, v -> cfg().detectBanwave = v).enabledIf(master));
+        rows.add(new Rows.TextField("API-ключ Hypixel", "Хранится отдельно (hypixel-api-key.txt), в профили настроек не попадает",
+                com.farmmacro.panic.BanwaveWatch::key, com.farmmacro.panic.BanwaveWatch::setKey,
+                ch -> ch.matches("[0-9a-fA-F\\-]"), 36, 0).errorText("Ключ — UUID вида xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").under(ban));
+        rows.add(number("Порог банов", null, () -> cfg().banwaveThreshold, v -> cfg().banwaveThreshold = (int) v,
+                1, 100000, 5, 50, v -> Rows.num(v)).integer().under(ban));
+        rows.add(number("Окно банвейва", null, () -> cfg().banwaveWindowMin, v -> cfg().banwaveWindowMin = (int) v,
+                2, 60, 1, 5, v -> Rows.num(v) + " мин").integer().under(ban).adv());
+        rows.add(toggle("Считать баны staff", "Watchdog + баны модераторов", () -> cfg().banwaveWithStaff, v -> cfg().banwaveWithStaff = v).under(ban).adv());
+        rows.add(new Rows.Note(() -> cfg().detectBanwave ? "Банвейв: " + com.farmmacro.panic.BanwaveWatch.describe() : "", Ui.SUB));
+        rows.add(toggle("Jacob's Contest: лимит", "Skyblock: собрано в конкурсе ≥ лимита (по табло) — обычный стоп, не паника",
+                () -> cfg().detectJacob, v -> cfg().detectJacob = v).enabledIf(master));
+        rows.add(number("Лимит конкурса", "0 — без лимита", () -> cfg().jacobLimit, v -> cfg().jacobLimit = (int) v,
+                0, 2_000_000_000, 1000, 100000, v -> Rows.num(v)).integer().under(() -> cfg().panicEnabled && cfg().detectJacob));
+        rows.add(toggle("Гость на ферме", "Skyblock: «Ник is visiting Your Garden/Island»",
+                () -> cfg().detectVisitor, v -> cfg().detectVisitor = v).enabledIf(master));
+        rows.add(toggle("Плашка TPS · BPS", "В HUD во время макроса: TPS сервера, блоков в секунду, баны",
+                () -> cfg().serverHud, v -> cfg().serverHud = v));
 
         rows.add(new Rows.Section("Подозрительность").key("p.susp").closed());
         rows.add(new Rows.Note("Мелкие события ниже порогов дают очки, очки затухают. Сумма дошла до лимита — паника «Много мелких аномалий».", Ui.SUB));

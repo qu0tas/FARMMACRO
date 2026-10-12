@@ -140,6 +140,49 @@ public class ModConfig {
     public boolean detectFloor         = true;
     public double  driftThreshold      = 4.0;
 
+    // ── v1.13 «THE BIG PANIC UPDATE» ─────────────────────────────────────────
+    /** Лаги сервера (нет пакета времени > 1.3 с): «Застрял»/«Аномалия скорости» не паникуют, откаты — в подозрительность. */
+    public boolean lagGuard            = true;
+    /** Игрок загорелся (горел на старте — не считается, пока не потухнет). */
+    public boolean detectFire          = true;
+    /** Паутина, куст сладких ягод, рыхлый снег: сервер поставил рядом или игрок в нём застрял. */
+    public boolean detectSticky        = true;
+    public double  stickyRadius        = 8;
+    /** Клетка: над головой и с ≥ 3 сторон бедрок/барьер, хотя бы один блок поставил сервер во время запуска. */
+    public boolean detectCage          = true;
+    /** Блок на ферме: сервер поставил полный блок на месте воздуха/урожая/воды → подозрительность; упёрся в него → паника. */
+    public boolean detectFarmBlock     = true;
+    public double  farmBlockRadius     = 16;
+    public double  suspWeightFarmBlock = 3;
+    /** Урожай не ломается: блоков в секунду по «рабочим» тикам (ЛКМ + ход) ниже порога. */
+    public boolean detectBps           = false;
+    public double  bpsMin              = 3;
+    public double  bpsWindowSec        = 5;
+    /** Рассинхрон: сломанные блоки через 1 с снова на месте (≥ N % из последних 20). */
+    public boolean detectDesync        = true;
+    public double  desyncPct           = 75;
+    /** Полный инвентарь — паника (а не обычный стоп, как stopWhenInventoryFull). */
+    public boolean panicInventoryFull  = false;
+    /** Отключение от сервера во время макроса — сирена и запись в журнал. */
+    public boolean detectDisconnect    = true;
+    /** Перезагрузка / лимбо: «Server closing: 0:25» на табло (< 30 с), слова перезагрузки и лимбо в системном чате и титрах. */
+    public boolean detectRestart       = true;
+    /** Банвейв (Hypixel API, ключ — в config/farmmacro/hypixel-api-key.txt): банов за окно ≥ порога. */
+    public boolean detectBanwave       = false;
+    public int     banwaveThreshold    = 50;
+    public int     banwaveWindowMin    = 15;
+    public boolean banwaveWithStaff    = true;
+    /** Skyblock Jacob's Contest: собрано ≥ лимита (по табло) — обычный стоп. 0 — без лимита. */
+    public boolean detectJacob         = false;
+    public int     jacobLimit          = 0;
+    /** Skyblock: «Ник is visiting Your Garden/Island». */
+    public boolean detectVisitor       = true;
+    /** Откат назад: сервер вернул на место из последних ~3 с пути (< 4 бл) — подозрительность вместо паники. */
+    public boolean lagbackSoft         = false;
+    public double  suspWeightLagback   = 3;
+    /** Плашка HUD: TPS сервера, BPS, баны (во время макроса). */
+    public boolean serverHud           = true;
+
     // ── Реакция на панику ────────────────────────────────────────────────────
     public boolean panicSoundEnabled          = true;
     /** builtin:siren|klaxon|alarm|alert, mc:<id> или file:<имя файла в config/farmmacro/sounds> */
@@ -356,6 +399,16 @@ public class ModConfig {
         suspWeightPlayerFar   = clamp(suspWeightPlayerFar, 0, 100);
         suspWeightChatWord    = clamp(suspWeightChatWord, 0, 100);
         suspWeightActionBar   = clamp(suspWeightActionBar, 0, 100);
+        stickyRadius          = clamp(stickyRadius, 1, 32);
+        farmBlockRadius       = clamp(farmBlockRadius, 2, 64);
+        suspWeightFarmBlock   = clamp(suspWeightFarmBlock, 0, 100);
+        bpsMin                = clamp(bpsMin, 0.1, 40);
+        bpsWindowSec          = clamp(bpsWindowSec, 2, 30);
+        desyncPct             = clamp(desyncPct, 10, 100);
+        banwaveThreshold      = clamp(banwaveThreshold, 1, 100_000);
+        banwaveWindowMin      = clamp(banwaveWindowMin, 2, 60);
+        jacobLimit            = clamp(jacobLimit, 0, 2_000_000_000);
+        suspWeightLagback     = clamp(suspWeightLagback, 0, 100);
         if (chatKeywords == null) chatKeywords = "";
         if (chatKeywords.length() > 1000) chatKeywords = chatKeywords.substring(0, 1000);
         humanGlobal           = com.farmmacro.macro.HumanSettings.sanitize(humanGlobal);
@@ -434,7 +487,10 @@ public class ModConfig {
                         + "чат=%s ник=%s титр=%s режим=%s игрок рядом=%s %.0f бл наблюдатель=%s вход/выход=%s предмет=%s | "
                         + "синхр=%s %.4f бл %.4f° | параметры=%s %.2f%% | препятствие=%s %.1f бл | скорость=%s %.3f бл/т | "
                         + "подозр=%s %.1f/%.0f с веса %.1f/%.1f/%.1f/%.1f/%.1f/%.1f слова мягко=%s | журнал=%s | "
-                        + "культура=%s пресетов=%d | поворот камеры=%s %.0f°/с перелёт до %.1f%%",
+                        + "культура=%s пресетов=%d | поворот камеры=%s %.0f°/с перелёт до %.1f%% | "
+                        + "1.13: лаги=%s огонь=%s паутина=%s %.0f бл клетка=%s блок на ферме=%s %.0f бл вес %.1f | "
+                        + "BPS=%s <%.1f за %.0f с рассинхрон=%s %.0f%% | инвентарь-паника=%s отключение=%s перезагрузка=%s | "
+                        + "банвейв=%s %d/%d мин staff=%s | jacob=%s %d гость=%s откат назад=%s %.1f",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
@@ -447,7 +503,11 @@ public class ModConfig {
                 suspicionEnabled, suspicionLimit, suspicionHalfLifeSec, suspWeightSync, suspWeightRollback, suspWeightKnock,
                 suspWeightPlayerFar, suspWeightChatWord, suspWeightActionBar, chatWordsSoft, eventLogEnabled,
                 launchCrop, camPresets == null ? 0 : camPresets.size(),
-                !camSmooth ? "мгновенно" : camMouseLike ? "как мышь" : "плавно", camTurnSpeed, camOvershootPct);
+                !camSmooth ? "мгновенно" : camMouseLike ? "как мышь" : "плавно", camTurnSpeed, camOvershootPct,
+                lagGuard, detectFire, detectSticky, stickyRadius, detectCage, detectFarmBlock, farmBlockRadius, suspWeightFarmBlock,
+                detectBps, bpsMin, bpsWindowSec, detectDesync, desyncPct, panicInventoryFull, detectDisconnect, detectRestart,
+                detectBanwave, banwaveThreshold, banwaveWindowMin, banwaveWithStaff, detectJacob, jacobLimit, detectVisitor,
+                lagbackSoft, suspWeightLagback);
     }
 
     private static String colorOrDefault(String id) {

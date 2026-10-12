@@ -125,7 +125,7 @@ public final class ConfigProfiles {
             new Preset("human", "Человек (рекомендую)", "Все детекторы, общая случайность: углы по весам (перекрытие/зазор/шаг), "
                     + "гаусс-паузы без повторов подряд, микропаузы, иногда встать/протупить, редкие идеальные круги"),
             new Preset("careful", "Осторожный", "Как «Человек», но углы теснее, чаще заминки, встать и «протупить», игрок рядом — 24 бл"),
-            new Preset("soft", "Мягкие детекторы", "Для лагающих/людных серверов: без «любого телепорта», входа/выхода и слов в чате "
+            new Preset("soft", "Мягкие детекторы", "Для лагающих/людных серверов: без «любого телепорта», входа/выхода и слов в чате, «откат назад» — в подозрительность "
                     + "(ник — да)"),
             new Preset("plain", "Без случайности", "Случайность выключена — проходы точно как записаны"));
 
@@ -178,6 +178,11 @@ public final class ConfigProfiles {
         c.suspWeightSync = 1; c.suspWeightRollback = 2; c.suspWeightKnock = 2;
         c.suspWeightPlayerFar = 2; c.suspWeightChatWord = 4; c.suspWeightActionBar = 0.5;
         c.chatWordsSoft = false;
+        // v1.13: детекторы мира и сервера (BPS, банвейв, Jacob, «откат назад» — по желанию, их не трогаем)
+        c.lagGuard = true; c.detectFire = true; c.detectSticky = true; c.stickyRadius = 8; c.detectCage = true;
+        c.detectFarmBlock = true; c.farmBlockRadius = 16; c.suspWeightFarmBlock = 3;
+        c.detectDesync = true; c.desyncPct = 75; c.detectDisconnect = true; c.detectRestart = true; c.detectVisitor = true;
+        c.suspWeightLagback = 3;
     }
 
     /** Применить готовый набор к текущим настройкам (визуал, HUD, звук, маршрут — не трогает) и сохранить. */
@@ -214,6 +219,7 @@ public final class ConfigProfiles {
                 c.serverMoveAny = false; c.detectPlayerJoin = false; c.chatKeywords = "";
                 c.knockbackThreshold = 0.2; c.playerNearRadius = 6;
                 c.serverPosEpsilon = 0.5; c.serverRotEpsilon = 1.0f; c.attrEpsilon = 5.0;
+                c.lagbackSoft = true; c.suspWeightFarmBlock = 2; c.desyncPct = 85;
                 c.obstacleRange = 3.0; c.velocityAnomaly = 0.4;
                 c.suspicionLimit = 16; c.suspicionHalfLifeSec = 45; c.suspWeightActionBar = 0;
             }

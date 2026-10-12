@@ -100,7 +100,8 @@ public final class RouteWalker implements PlaybackSource {
     private boolean velocityExcused(LocalPlayer p) {
         if (!p.onGround() || !lastOnGround || lastJump || p.horizontalCollision || p.isInWater() || p.isInLava()
                 || p.isPassenger() || p.getAbilities().flying || p.isFallFlying() || p.isUsingItem() || p.isInPowderSnow
-                || p.onClimbable() || core.dropPhase() != WalkCore.D_NONE || PanicDetector.INSTANCE.pushExcused()) return true;
+                || p.onClimbable() || core.dropPhase() != WalkCore.D_NONE || PanicDetector.INSTANCE.pushExcused()
+                || (com.farmmacro.config.ModConfig.INSTANCE.lagGuard && com.farmmacro.panic.LagGuard.INSTANCE.lagging())) return true;
         var lvl = p.level();
         var below = lvl.getBlockState(p.getBlockPosBelowThatAffectsMyMovement()).getBlock();
         var at = lvl.getBlockState(p.blockPosition()).getBlock();
@@ -133,6 +134,7 @@ public final class RouteWalker implements PlaybackSource {
             PanicDetector.INSTANCE.triggerPanic(mc, vel);
             return true;
         }
+        if (on && c.lagGuard && com.farmmacro.panic.LagGuard.INSTANCE.lagging()) core.resetStuckWindow();   // v1.13: лаг — не «Застрял»
         core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), c.routeReachRadius,
                 on && c.detectStuck, c.stuckThresholdTicks, on && c.detectDrift, c.driftThreshold, on && c.detectFloor, out);
         if (core.dropPhase() != WalkCore.D_NONE) PanicDetector.INSTANCE.allowFall(10);  // урон от спуска — не паника

@@ -416,6 +416,7 @@ public class MacroManager {
             rs = h != null ? h.recShaper(frames.size()) : null;
             playbackIndex = index;
             passStartIndex = index;
+            lagSkipUntil = 0;
             camTracker.reset();
             camTracker.update(mc, settings.camera, index, "старт, кадр " + (index + 1));
             LocalPlayer p = mc.player;
@@ -496,10 +497,15 @@ public class MacroManager {
         }
     }
 
+    /** v1.13: до какого кадра записи «Застрял» пропускается после лага сервера. */
+    private int lagSkipUntil;
+
     /** @return true если сработала паника */
     private boolean checkRouteProblems(Minecraft mc, LocalPlayer p, ModConfig c) {
         int i = playbackIndex;
-        if (c.detectStuck) {
+        // v1.13 «Лаги сервера»: пока лагает (и ещё окно после) — «Застрял» не проверяем
+        if (c.lagGuard && com.farmmacro.panic.LagGuard.INSTANCE.lagging()) lagSkipUntil = i + c.stuckThresholdTicks;
+        if (c.detectStuck && i >= lagSkipUntil) {
             int n = c.stuckThresholdTicks;
             if (i - n >= passStartIndex) {
                 MacroFrame a = frames.get(i - n), b = frames.get(i);
@@ -550,6 +556,11 @@ public class MacroManager {
         stopInternal(mc, keepResume);
         msg(mc, message);
         if (wasPlaying && ModConfig.INSTANCE.finishSoundEnabled) PanicSound.playDone();
+    }
+
+    /** v1.13: штатный стоп по внешнему лимиту (Jacob's Contest) — как «Лимит времени», можно продолжить. */
+    public void stopByLimit(Minecraft mc, String message) {
+        if (state == State.PLAYING) finish(mc, message, true);
     }
 
     /** Остановка (вручную или паникой). Точка остановки запоминается для «возобновить». */

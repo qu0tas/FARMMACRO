@@ -68,12 +68,21 @@ public class FarmMacroMod implements ClientModInitializer {
         keyStartFrom = makeKey("key.farmmacro.startfrom", 78);  // N (v1.12) — продолжить маршрут с места
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
+        // v1.13: отключение от сервера во время макроса — паника; новый сервер — сброс замера лагов
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            boolean playing = MacroManager.INSTANCE.isPlaying()
+                    && (client.screen == null || client.screen instanceof net.minecraft.client.gui.screens.ChatScreen);
+            Guard.run("panic/disconnect", () -> PanicDetector.INSTANCE.onDisconnect(client, playing));
+        });
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register((handler, sender, client) ->
+                com.farmmacro.panic.LagGuard.INSTANCE.reset());
         LOGGER.info("FarmMacro загружен");
     }
 
     private static void onTick(Minecraft mc) {
         MacroManager macro = MacroManager.INSTANCE;
         Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
+        Guard.run("panic/banwave", com.farmmacro.panic.BanwaveWatch::tick);
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
             MouseHold.INSTANCE.tick(mc);     // без игрока — выключить зажим

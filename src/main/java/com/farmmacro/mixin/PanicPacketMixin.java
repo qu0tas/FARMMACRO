@@ -96,8 +96,17 @@ public class PanicPacketMixin {
 
     @Inject(method = "handleSystemChat", at = @At("HEAD"))
     private void farmmacro$onSystemChat(ClientboundSystemChatPacket packet, CallbackInfo ci) {
-        if (farmmacro$main() && packet.content() != null)
-            PanicDetector.INSTANCE.onChat(packet.content().getString(), null, null, packet.overlay());
+        if (farmmacro$main() && packet.content() != null) {
+            String text = packet.content().getString();
+            PanicDetector.INSTANCE.onSystemText(text, packet.overlay() ? "надпись над хотбаром" : "чат");
+            PanicDetector.INSTANCE.onChat(text, null, null, packet.overlay());
+        }
+    }
+
+    // v1.13 «Лаги сервера»: момент прихода пакета времени — в сетевом потоке (первый вызов, до перекидывания в главный)
+    @Inject(method = "handleSetTime", at = @At("HEAD"))
+    private void farmmacro$onSetTime(ClientboundSetTimePacket packet, CallbackInfo ci) {
+        if (!farmmacro$main()) com.farmmacro.panic.LagGuard.INSTANCE.onTime(System.currentTimeMillis(), packet.gameTime());
     }
 
     @Inject(method = "handlePlayerChat", at = @At("HEAD"))
@@ -128,8 +137,10 @@ public class PanicPacketMixin {
 
     @Inject(method = "setActionBarText", at = @At("HEAD"))
     private void farmmacro$onActionBar(ClientboundSetActionBarTextPacket packet, CallbackInfo ci) {
-        if (farmmacro$main() && packet.text() != null)
+        if (farmmacro$main() && packet.text() != null) {
+            PanicDetector.INSTANCE.onSystemText(packet.text().getString(), "надпись над хотбаром");
             PanicDetector.INSTANCE.onChat(packet.text().getString(), null, null, true);
+        }
     }
 
     @Inject(method = "handleGameEvent", at = @At("HEAD"))

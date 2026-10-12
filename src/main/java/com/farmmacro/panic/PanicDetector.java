@@ -73,6 +73,8 @@ public class PanicDetector {
 
     /** v1.11 «Подозрительность» (главный поток; lastScore — volatile для HUD). */
     public final Suspicion suspicion = new Suspicion();
+    /** v1.13: детекторы мира и сервера (горение, паутина, клетка, BPS, рассинхрон, табло, банвейв…). */
+    private final WorldGuards world = new WorldGuards(this);
     /** Игроки, уже засчитанные «за радиусом» в этом запуске (null — ещё не запомнили стартовых). */
     private Set<UUID> farSeen;
     /** Надписи над хотбаром (цифры → #), уже засчитанные в этом запуске. */
@@ -92,7 +94,7 @@ public class PanicDetector {
         return MacroManager.INSTANCE.isPlaying() && ModConfig.INSTANCE.panicEnabled;
     }
 
-    private void flag(String reason) {
+    void flag(String reason) {
         EventLog.log("FLAG", reason);
         if (pendingReason == null) {
             pendingReason = reason;
@@ -118,10 +120,37 @@ public class PanicDetector {
     public void beginRun() {
         nearSeen = null; fallGraceTicks = 0;
         farSeen = null; actionSeen.clear(); suspicion.reset();
+        world.beginRun(Minecraft.getInstance().player);
+    }
+
+    /** v1.13: BPS для HUD (NaN — мало данных). */
+    public double bps() { return world.lastBps(); }
+
+    /** v1.13: игрок сломал блок (MultiPlayerGameMode.destroyBlock). state — что было до ломания. */
+    public void onPlayerBroke(BlockPos pos, BlockState state) {
+        if (armed()) world.onBroke(pos, state);
+    }
+
+    /** v1.13: системный чат / надпись над хотбаром / титр — перезагрузка, лимбо, гость на ферме. */
+    public void onSystemText(String text, String where) {
+        if (armed() && player() != null) world.onServerText(text, where);
+    }
+
+    /**
+     * v1.13 «Отключение от сервера»: вызывается из события Fabric (поток может быть любым).
+     * wasPlaying — играл ли макрос в момент отключения (потом MacroManager молча остановится без игрока).
+     */
+    public void onDisconnect(Minecraft mc, boolean wasPlaying) {
+        com.farmmacro.panic.LagGuard.INSTANCE.reset();
+        if (!wasPlaying) return;
+        mc.execute(() -> {
+            ModConfig c = ModConfig.INSTANCE;
+            if (c.panicEnabled && c.detectDisconnect) triggerPanic(mc, "Отключение от сервера");
+        });
     }
 
     /** v1.11: мелкое событие ниже порогов → очки подозрительности (и строка журнала). */
-    private void suspect(String type, String detail, double weight) {
+    void suspect(String type, String detail, double weight) {
         ModConfig c = ModConfig.INSTANCE;
         if (!armed() || !c.suspicionEnabled || !(weight > 0)) return;
         double s = suspicion.add(type, detail, weight, System.currentTimeMillis(), c.suspicionHalfLifeSec);
@@ -182,10 +211,21 @@ public class PanicDetector {
         float dYaw = angleDiff(p.getYRot(), mvYaw), dPitch = Math.abs(p.getXRot() - mvPitch);
         float rot = Math.max(dYaw, dPitch);
         boolean syncOver = SyncMath.posOver(dist, c.serverPosEpsilon) || SyncMath.rotOver(rot, c.serverRotEpsilon);
-        if (dist >= c.serverMoveThreshold) {
+        boolean lag = c.lagGuard && LagGuard.INSTANCE.lagging();
+        if (dist >= c.serverMoveThreshold && c.lagbackSoft && dist < 4 && world.onRecentPath(p.getX(), p.getY(), p.getZ(), 0.5)) {
+            // v1.13 «Откат назад»: вернули на место, где игрок был за последние ~3 с — похоже на лаг-откат античита
+            String d = String.format(Locale.ROOT, "%.2f бл%s", dist, lag ? ", сервер лагает" : "");
+            EventLog.log("SYNC", "откат назад: " + d);
+            suspect("откат назад", d, c.suspWeightLagback);
+        } else if (dist >= c.serverMoveThreshold) {
             flag(String.format(Locale.ROOT, "Сервер телепортировал (%.1f бл)", dist));
         } else if (rot >= c.serverRotateThreshold) {
             flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.3f° ≥ %.3f°)", rot, c.serverRotateThreshold));
+        } else if (lag && (syncOver || c.serverMoveAny)) {
+            // v1.13 «Лаги сервера»: во время лага поправка позиции — норма, только подозрительность
+            String d = String.format(Locale.ROOT, "%.3f бл, %.3f°, сервер лагает", dist, rot);
+            EventLog.log("SYNC", "лаг: пакет " + mvKind + " " + d);
+            suspect("откат при лаге", d, syncOver ? c.suspWeightRollback : c.suspWeightSync);
         } else if (c.detectServerSync && syncOver) {
             flag(SyncMath.syncReason(mvKind, dist, c.serverPosEpsilon, dYaw, dPitch, c.serverRotEpsilon));
         } else if (c.serverMoveAny) {
@@ -209,14 +249,17 @@ public class PanicDetector {
     /** Блок из пакета сервера. Вызывается ДО применения, поэтому в мире ещё старое состояние. */
     public void onServerBlockChange(BlockPos pos, BlockState newState) {
         ModConfig c = ModConfig.INSTANCE;
-        if (!armed() || (!c.detectBlockInFace && !c.detectObstacle)) return;
+        if (!armed()) return;
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
         ClientLevel level = mc.level;
         if (p == null || level == null) return;
+        BlockState old = level.getBlockState(pos);
+        world.onBlock(p, level, pos, old, newState);
+        if (!c.detectBlockInFace && !c.detectObstacle) return;
 
         // Свои постановки блоков клиент уже предсказал — там старое состояние уже твёрдое.
-        if (!level.getBlockState(pos).getCollisionShape(level, pos).isEmpty()) return;
+        if (!old.getCollisionShape(level, pos).isEmpty()) return;
         VoxelShape shape = newState.getCollisionShape(level, pos);
         if (shape.isEmpty()) return;
 
@@ -236,7 +279,7 @@ public class PanicDetector {
     }
 
     /** Блоки, которые появляются сами: растут на ферме или их двигает поршень фермы. */
-    private static boolean grownOrMoved(BlockState st) {
+    static boolean grownOrMoved(BlockState st) {
         var b = st.getBlock();
         return b == net.minecraft.world.level.block.Blocks.PUMPKIN || b == net.minecraft.world.level.block.Blocks.MELON
                 || b == net.minecraft.world.level.block.Blocks.CACTUS || b == net.minecraft.world.level.block.Blocks.BAMBOO
@@ -365,7 +408,9 @@ public class PanicDetector {
     }
 
     public void onTitle(String text, boolean subtitle) {
-        if (!armed() || !ModConfig.INSTANCE.detectTitle || text == null || text.isBlank()) return;
+        if (!armed() || text == null || text.isBlank()) return;
+        world.onServerText(text, subtitle ? "подзаголовок" : "титр");
+        if (!ModConfig.INSTANCE.detectTitle) return;
         flag((subtitle ? "Подзаголовок" : "Титр") + " на экране: «" + clip(text, 60) + "»");
     }
 
@@ -580,6 +625,10 @@ public class PanicDetector {
             reason = String.format(Locale.ROOT, "Получен урон (−%.1f ❤)", (expectedHealth - hp) / 2f);
         }
         expectedHealth = hp;
+
+        String w = world.tick(mc, p, c);                 // v1.13: мир и сервер (состояние обновляется всегда)
+        if (reason == null) reason = w;
+        if (!MacroManager.INSTANCE.isPlaying()) return;    // Jacob's Contest: обычный стоп по лимиту
 
         if (c.suspicionEnabled) {
             String s = suspicion.reasonIfOver(System.currentTimeMillis(), c.suspicionHalfLifeSec, c.suspicionLimit);

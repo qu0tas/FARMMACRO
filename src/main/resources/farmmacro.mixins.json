@@ -7,6 +7,7 @@
     "EditorInputMixin",
     "FreelookCameraMixin",
     "FreelookMouseMixin",
+    "GameModeBreakMixin",
     "LowRenderFrustumMixin",
     "LowRenderRegionMixin",
     "MouseLockMixin",

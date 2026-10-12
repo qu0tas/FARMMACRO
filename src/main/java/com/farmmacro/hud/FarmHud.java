@@ -40,6 +40,7 @@ public final class FarmHud {
                 y = drawView(g, mc, y);
                 y = drawHuman(g, mc, y);
                 y = drawSuspicion(g, mc, y);
+                y = drawServer(g, mc, y);
                 drawNavigator(g, mc, y, t);
                 drawCrosshairArrow(g, mc, t);
             }
@@ -245,6 +246,31 @@ public final class FarmHud {
         Ui.round(g, x, y, w, h, 5, bg());
         g.fill(x, y + 3, x + 2, y + h - 3, col);
         Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
+        return y + h + 4;
+    }
+
+    /** v1.13: плашка «TPS · BPS · баны» во время макроса. */
+    private static int drawServer(GuiGraphicsExtractor g, Minecraft mc, int y) {
+        ModConfig c = ModConfig.INSTANCE;
+        if (!c.serverHud || !MacroManager.INSTANCE.isPlaying()) return y;
+        double tps = com.farmmacro.panic.LagGuard.INSTANCE.tps();
+        boolean lag = com.farmmacro.panic.LagGuard.INSTANCE.lagging();
+        double bps = com.farmmacro.panic.PanicDetector.INSTANCE.bps();
+        StringBuilder t = new StringBuilder();
+        t.append(lag ? "ЛАГ СЕРВЕРА" : Double.isNaN(tps) ? "TPS —" : String.format(java.util.Locale.ROOT, "TPS %.1f", tps));
+        t.append(Double.isNaN(bps) ? " · BPS —" : String.format(java.util.Locale.ROOT, " · BPS %.1f", bps));
+        if (c.detectBanwave) {
+            long b = com.farmmacro.panic.BanwaveWatch.bans();
+            t.append(b < 0 ? " · баны —" : " · баны " + b + "/" + c.banwaveThreshold);
+        }
+        Font f = mc.font;
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
+        boolean bad = lag || (!Double.isNaN(bps) && c.detectBps && bps < c.bpsMin);
+        int col = bad ? Ui.WARN : 0xFF8FB8FF;
+        Ui.round(g, x, y, w, h, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        Ui.text(g, f, Ui.ellipsize(f, t.toString(), w - 14), x + 8, y + 4, col);
         return y + h + 4;
     }
 
