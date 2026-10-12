@@ -11,6 +11,7 @@
     "GameModeBreakMixin",
     "LowRenderFrustumMixin",
     "LowRenderRegionMixin",
+    "LowRenderSodiumMixin",
     "MouseLockMixin",
     "PanicGuiMixin",
     "PanicPacketMixin",

@@ -20,6 +20,10 @@ public final class LowRender {
 
     private static volatile boolean active;
     private static volatile Center center;
+    /** v1.14.1: сколько раз сборка секций спросила блок в режиме (0 через 4 с — наш код не вызывается). */
+    private static final java.util.concurrent.atomic.LongAdder asked = new java.util.concurrent.atomic.LongAdder();
+    private static long onMs;
+    private static boolean warned;
 
     private LowRender() {}
 
@@ -32,6 +36,9 @@ public final class LowRender {
     public static void on(Minecraft mc) {
         if (active || mc.player == null) return;
         center = centerOf(mc.player);
+        asked.reset();
+        onMs = System.currentTimeMillis();
+        warned = false;
         active = true;
         mc.levelRenderer.allChanged();                      // пересобрать всё: за радиусом — пусто
         msg(mc, "§b▣ Low render: " + ModConfig.INSTANCE.lowRenderRadius + " бл §7("
@@ -66,6 +73,16 @@ public final class LowRender {
         }
         if (!active) return;
         if (mc.player == null || mc.level == null) { active = false; center = null; return; }
+        if (!warned && System.currentTimeMillis() - onMs > 4000) {
+            warned = true;
+            if (asked.sum() == 0) {
+                FarmMacroMod.LOGGER.warn("FarmMacro Low render: сборка чанков не вызвала ни RenderSectionRegion, ни Sodium LevelSlice — "
+                        + "чанки собирает другой мод, режим не работает");
+                if (mc.player != null) mc.player.sendSystemMessage(Component.literal(
+                        "§8[§cFM§8] §eLow render не сработал: чанки собирает другой мод рендера (не vanilla и не Sodium). Подробности — в логе."));
+            } else FarmMacroMod.LOGGER.info("FarmMacro Low render: работает ({} запросов блоков за 4 с, Sodium: {})", asked.sum(),
+                    net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
+        }
         Center old = center, now = centerOf(mc.player);
         if (now.equals(old)) return;
         center = now;
@@ -91,7 +108,9 @@ public final class LowRender {
     /** Из сборки секций (любой поток): блок спрятан (за радиусом)? */
     public static boolean hides(int x, int y, int z) {
         Center c = center;
-        return active && c != null && !LowRenderMath.blockInside(x, y, z, c.x, c.y, c.z, c.r);
+        if (!active || c == null) return false;
+        asked.increment();
+        return !LowRenderMath.blockInside(x, y, z, c.x, c.y, c.z, c.r);
     }
 
     /** Из миксина Frustum: OUTSIDE/PARTIAL/INSIDE относительно радиуса (вне режима — INSIDE). */
