@@ -1,0 +1,12 @@
+# Файлы, удалённые из проекта навсегда. Если какой-то снова появился (например, после загрузки
+# старой папки на GitHub через «Add files» — веб-загрузка не удаляет файлы), сборка остановится
+# с понятным сообщением (задача checkRemovedFiles). Удалить: git rm <путь>.
+# Авто-маршрут и «змейка» — удалены в 1.11 (промт 3в); вернулись в коммите «1.14.2», убраны в 1.14.2-pre2.
+src/main/java/com/farmmacro/route/AutoRoute.java
+src/main/java/com/farmmacro/route/AutoRouteTool.java
+src/main/java/com/farmmacro/route/FarmGrid.java
+src/main/java/com/farmmacro/route/SnakeBuilder.java
+src/main/java/com/farmmacro/route/SnakeTool.java
+src/stress/java/com/farmmacro/route/AutoRouteCheck.java
+# Окно выбора точки — заменено «Продолжить с места» в 1.12.0.
+src/main/java/com/farmmacro/gui/StartPointScreen.java

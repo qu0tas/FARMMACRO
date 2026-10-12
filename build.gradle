@@ -69,3 +69,22 @@ tasks.register('configSweep', JavaExec) {
 	           '-Drefine=' + (project.findProperty('refine') ?: '40'),
 	           '-Dvlaps=' + (project.findProperty('vlaps') ?: '300')]
 }
+
+// Удалённые навсегда файлы (tools/removed-files.txt): если вернулись — понятная ошибка до компиляции,
+// а не десятки «cannot find symbol». Входит в build и routeStress.
+tasks.register('checkRemovedFiles') {
+	group = 'verification'
+	description = 'Проверяет, что удалённые из проекта файлы не вернулись'
+	def list = file('tools/removed-files.txt')
+	def root = projectDir
+	inputs.file(list)
+	doLast {
+		def back = list.readLines('UTF-8').collect { it.trim() }
+			.findAll { it && !it.startsWith('#') && new File(root, it).exists() }
+		if (back) {
+			throw new GradleException("Вернулись удалённые файлы (см. tools/removed-files.txt):\n  " +
+				back.join('\n  ') + "\nУдали их: git rm " + back.join(' '))
+		}
+	}
+}
+tasks.named('compileJava') { dependsOn 'checkRemovedFiles' }
