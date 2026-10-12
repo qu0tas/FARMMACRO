@@ -41,7 +41,7 @@ Minecraft **26.1.2** (официальные имена Mojang, игра не о
 | `route/WalkCore`, `route/RouteWalker` | автоход: логика без игры (направление к точке → W/A/S/D по осям текущего yaw, камеру не крутит; достижение, пауза, прыжок, «застрял», «сход») и адаптер к игроку/клавишам |
 | `camera/MouseTurn` | v1.11.1, без зависимостей от игры: поворот «как мышь» — шаг = пиксель мыши при текущей чувствительности (`s = sens·0.6+0.2`, `s³·8·0.15°`, как `MouseHandler.turnPlayer` → `Entity.turn`), целое число шагов (при грубой чувствительности пиксель дробится до ≤ 0.13°), разгон/торможение (min-jerk), перелёт 0…`camOvershootPct` % (≤ 3) и возврат, итог не на «ровном» угле (не кратен 0.1°) и ≤ 0.2° от пресета |
 | `camera/Freelook`, `camera/FreelookMath` | v1.12: freelook — свои yaw/pitch камеры, вид THIRD_PERSON_BACK (прежний возвращается), вкл/выкл или «держать» (`freelookHold`), выкл при панике (`freelookOffOnPanic`)/End/выходе; `MouseLock.shouldBlock` в freelook — false |
-| `visual/LowRender`, `visual/LowRenderMath` | v1.12: Low render — радиус `lowRenderRadius` от игрока (цилиндр ± r по высоте), классификация коробки OUTSIDE/PARTIAL/INSIDE; дальность 2 чанка на время режима (`lowRenderChunks`, возврат через `lowRenderSavedChunks`, и при запуске игры) |
+| `visual/LowRender`, `visual/LowRenderMath`, `mixin/LowRenderRegionMixin` | v1.12.2: Low render поблочно — `Center` (блок игрока + радиус, volatile, читается потоками сборки), `hides` → в `RenderSectionRegion.getBlockState/getFluidState` воздух/пусто за радиусом (`blockInside`: круг dx²+dz² ≤ r²+r, \|dy\| ≤ r); смена блока игрока → `setBlocksDirty` по старому и новому кругу (+1), вкл/выкл → `allChanged`, телепорт > 32 бл → `allChanged`; `LowRenderFrustumMixin` — коробки за r + `MARGIN` не рисуются. Дальность прорисовки не трогается (`restoreChunks` — только возврат после старой версии) |
 | `route/RouteProjection` | v1.12: «Продолжить с места» — ближайший отрезок маршрута к игроку (`nearest` → seg, t, dist, dy; высота ×3, внутри спуска без штрафа, при равенстве — более поздний отрезок). `MacroManager.startRouteHere` → `startPlayback(seg+1, onRoad)` |
 | `mixin/FreelookMouseMixin` | `MouseHandler.turnPlayer` — @Redirect `LocalPlayer.turn(DD)V` → `Freelook.turn` в режиме freelook |
 | `mixin/FreelookCameraMixin` | `Camera.alignWithEntity` — @Redirect `Entity.getViewYRot(F)`/`getViewXRot(F)` своего игрока → углы freelook |
@@ -119,6 +119,15 @@ Minecraft **26.1.2** (официальные имена Mojang, игра не о
 - В игре: см. чек-лист в разделе 7.
 
 ## 6. Журнал
+### v1.12.2 — Low render поблочно («пару блоков рядом»)
+**Что** (по просьбе: «как на скрине — пару блоков рядом, а не чанки или снижение прорисовки»):
+- `LowRenderRegionMixin` (новый): `RenderSectionRegion.getBlockState(BlockPos)` / `getFluidState(BlockPos)` HEAD — за радиусом воздух / `Fluids.EMPTY` (javap 26.1.2: `SectionCompiler.compile` берёт блоки только через регион, жидкость — `BlockState.getFluidState`, грани соседей и AO — тоже через регион, поэтому краевые блоки получают боковые грани; блок-сущности за радиусом не попадают в секцию — `hasBlockEntity` у воздуха false).
+- `LowRender`: центр — блок под ногами (`Center` record, volatile), смена блока → `levelRenderer.setBlocksDirty` (бокс старого+нового круга, +1), вкл/выкл → `allChanged()`, прыжок > 32 бл → `allChanged()`. Снижение дальности до 2 чанков убрано (`lowRenderChunks` не используется; `restoreChunks` при запуске возвращает дальность, если игра закрылась в режиме 1.12.0/1.12.1).
+- `LowRenderMath.blockInside` (круг dx²+dz² ≤ r²+r, |dy| ≤ r; r=3 → 37 блоков в слое), `MARGIN` 1 бл для отсечения коробок (секции, сущности) в `LowRenderFrustumMixin`.
+- `ModConfig`: `lowRenderRadius` 3 (1–32), `lowRenderRev` — старое 12 → 3 один раз. Меню: строка «дальность 2 чанка» убрана.
+**Как проверено**: `./gradlew build routeStress` — EXIT 0 (JDK Temurin 25.0.4). `ViewCheck`: r = 1…32 — ни один видимый блок не отсечён коробкой блока или секции, край круга по оси точно на r. **В игре не проверялось** (нужно: F7 — вокруг только круг 3 бл, шаги — круг едет следом без дыр, F7 ещё раз — мир целиком).
+**Осталось**: при беге спринтом пересборка 8–27 секций на каждый новый блок — если будет подлагивать, сделать шаг пересборки 2 бл.
+
 ### v1.12.1 — набор «Оптимально», настройки для новых маршрутов и записей
 **Что** (по скриншотам настроек игрока):
 - `ConfigProfiles`: набор `optimal` (первый в списке, основная кнопка) — `allDetectors` без `detectPlayerNear`/`detectPlayerJoin`/`detectDrift`, `blockDetectRadius` 1.5, звук (siren, safe, 1 повтор), красный экран 60 т, журнал; `humanOptimal()` = `humanRecommended()` + `cameraExact`, `camNoiseDeg` 0, `midStopChance` 7, `idleStretchPct` 9, `actionDelayMax` 2, приземление 0–8; `newItemSettings = optimalNew()`.

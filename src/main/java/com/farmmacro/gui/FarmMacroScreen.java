@@ -794,15 +794,14 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Section("Freelook и Low render").key("v.view"));
         rows.add(new Rows.Note(() -> "Freelook (" + MacroManager.keyName(FarmMacroMod.keyFreelook) + ") — вид со стороны: мышь крутит только камеру, "
                 + "игрок и автоход не поворачиваются. Low render (" + MacroManager.keyName(FarmMacroMod.keyLowRender)
-                + ") — рисовать только мир рядом с игроком, чтобы снять нагрузку.", Ui.SUB));
+                + ") — рисовать только пару блоков вокруг игрока, остальное — пусто.", Ui.SUB));
         rows.add(toggle("Freelook: держать клавишу", "Вкл — пока зажата; выкл — нажал: вкл, ещё раз: выкл",
                 () -> cfg().freelookHold, v -> cfg().freelookHold = v));
         rows.add(toggle("Freelook: выключать при панике", "Сразу вернуть свой вид от первого лица",
                 () -> cfg().freelookOffOnPanic, v -> cfg().freelookOffOnPanic = v));
-        rows.add(number("Low render: радиус", "Секции мира 16×16×16, задевающие радиус, рисуются целиком — видно примерно 10–20 бл",
-                () -> cfg().lowRenderRadius, v -> cfg().lowRenderRadius = (int) v, 4, 64, 1, 4, v -> (int) v + " бл").integer());
-        rows.add(toggle("Low render: дальность 2 чанка", "На время режима — меньше чанков строится; прежняя дальность вернётся",
-                () -> cfg().lowRenderChunks, v -> cfg().lowRenderChunks = v));
+        rows.add(number("Low render: радиус", "Рисуются только блоки в этом радиусе вокруг игрока, остальное — пусто (небо). "
+                + "Меняется сразу при следующем шаге",
+                () -> cfg().lowRenderRadius, v -> cfg().lowRenderRadius = (int) v, 1, 32, 1, 2, v -> (int) v + " бл").integer());
 
         rows.add(new Rows.Section("HUD").key("v.hud"));
         rows.add(toggle("Панель статуса", "Состояние, прогресс, круги, время сессии",

@@ -38,6 +38,27 @@ public final class ViewCheck {
         }
         check(cut == 0 && far == 0, "low render: отрезано в радиусе " + cut + ", нарисовано далеко " + far);
 
+        // ── v1.12.2 Low render поблочно: видимые блоки не отсекаются коробками (секции/сущности), круг без дыр ──
+        for (int rr = 1; rr <= 32; rr++) {
+            int cx = 5, cy = 70, cz = -3, layer = 0;
+            for (int bx = cx - rr - 2; bx <= cx + rr + 2; bx++)
+                for (int by = cy - rr - 2; by <= cy + rr + 2; by++)
+                    for (int bz = cz - rr - 2; bz <= cz + rr + 2; bz++) {
+                        boolean in = LowRenderMath.blockInside(bx, by, bz, cx, cy, cz, rr);
+                        if (in && by == cy) layer++;
+                        if (!in) continue;
+                        check(Math.hypot(bx - cx, bz - cz) <= rr + 0.5 && Math.abs(by - cy) <= rr, "блок дальше радиуса " + rr);
+                        int k = LowRenderMath.classify(bx, by, bz, bx + 1, by + 1, bz + 1, cx + 0.5, cy + 0.5, cz + 0.5, rr + LowRenderMath.MARGIN);
+                        check(k != LowRenderMath.OUTSIDE, "видимый блок отсечён коробкой, r=" + rr);
+                        int sx = Math.floorDiv(bx, 16) * 16, sy = Math.floorDiv(by, 16) * 16, sz = Math.floorDiv(bz, 16) * 16;
+                        check(LowRenderMath.classify(sx, sy, sz, sx + 16, sy + 16, sz + 16, cx + 0.5, cy + 0.5, cz + 0.5,
+                                rr + LowRenderMath.MARGIN) != LowRenderMath.OUTSIDE, "секция с видимым блоком отсечена, r=" + rr);
+                    }
+            check(LowRenderMath.blockInside(cx + rr, cy, cz, cx, cy, cz, rr) && !LowRenderMath.blockInside(cx + rr + 1, cy, cz, cx, cy, cz, rr),
+                    "край круга по оси, r=" + rr);
+            if (rr == 3) System.out.println("Low render r=3: блоков в слое " + layer);
+        }
+
         // ── Freelook: углы ──
         float[] a = {135f, 0f};
         for (int i = 0; i < 1000; i++) a = FreelookMath.turn(a[0], a[1], 3, 2);

@@ -193,12 +193,14 @@ public class ModConfig {
     public boolean freelookHold          = false;
     /** v1.12: паника выключает freelook (вид снова от первого лица). */
     public boolean freelookOffOnPanic    = true;
-    /** v1.12 Low render: радиус прорисовки от игрока, блоков (секции 16³, пересекающие радиус, рисуются целиком). */
-    public int     lowRenderRadius       = 12;
+    /** Low render: радиус от блока игрока, блоков (v1.12.2 — поблочно, 1–32). */
+    public int     lowRenderRadius       = 3;
+    /** Служебное: 1 — радиус уже переведён на поблочный режим 1.12.2 (старые 12 бл → 3). */
+    public int     lowRenderRev          = 1;
     /** v1.12 «Продолжить с места» (N): дальше этого от линии маршрута — не стартует. */
     public double  resumeAnywhereMaxDist = 3.0;
-    /** v1.12 Low render: на это время дальность прорисовки 2 чанка (прежняя возвращается). */
-    public boolean lowRenderChunks       = true;
+    /** v1.12 (не используется с 1.12.2): дальность 2 чанка на время Low render. Оставлено для чтения старых файлов. */
+    public boolean lowRenderChunks       = false;
     /** Служебное: дальность до Low render (0 — не меняли); вернуть при запуске игры, если закрылась в режиме. */
     public int     lowRenderSavedChunks  = 0;
     /** Мягкий звук, когда макрос закончился сам (лимит/конец записи). */
@@ -328,7 +330,8 @@ public class ModConfig {
 
     /** Приводит значения к допустимым диапазонам (на случай ручной правки json). */
     public void sanitize() {
-        lowRenderRadius       = Math.max(4, Math.min(64, lowRenderRadius));
+        if (lowRenderRev < 1) { lowRenderRadius = 3; lowRenderChunks = false; lowRenderRev = 1; }   // 1.12 → 1.12.2
+        lowRenderRadius       = Math.max(1, Math.min(32, lowRenderRadius));
         resumeAnywhereMaxDist = clamp(resumeAnywhereMaxDist, 0.5, 16);
         lowRenderSavedChunks  = Math.max(0, Math.min(64, lowRenderSavedChunks));
         yawThreshold          = clamp(yawThreshold, 0.001f, 180f);
