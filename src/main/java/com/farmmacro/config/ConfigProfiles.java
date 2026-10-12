@@ -128,8 +128,8 @@ public final class ConfigProfiles {
             new Preset("human", "Человек (рекомендую)", "Все детекторы, общая случайность: углы по весам (перекрытие/зазор/шаг), "
                     + "гаусс-паузы без повторов подряд, микропаузы, иногда встать/протупить, редкие идеальные круги"),
             new Preset("careful", "Осторожный", "Как «Человек», но углы теснее, чаще заминки, встать и «протупить», игрок рядом — 24 бл"),
-            new Preset("soft", "Мягкие детекторы", "Для лагающих/людных серверов: без «любого телепорта», входа/выхода и слов в чате, «откат назад» — в подозрительность "
-                    + "(ник — да)"),
+            new Preset("soft", "Мягкие детекторы", "Для лагающих/людных серверов: без «любого телепорта», входа/выхода, слов в чате и личных сообщений, "
+                    + "«откат назад» — в подозрительность, игрок рядом — только если стоит 3 с (ник и staff — да)"),
             new Preset("plain", "Без случайности", "Случайность выключена — проходы точно как записаны"));
 
     /** Рекомендуемая общая случайность («Человек»). */
@@ -186,6 +186,16 @@ public final class ConfigProfiles {
         c.detectFarmBlock = true; c.farmBlockRadius = 16; c.suspWeightFarmBlock = 3;
         c.detectDesync = true; c.desyncPct = 75; c.detectDisconnect = true; c.detectRestart = true; c.detectVisitor = true;
         c.suspWeightLagback = 3;
+        // v1.14: игроки (идеи blazebot), бедрок/клетка по числу, тишина сервера. Друзья, скриншот и Discord — не трогаем
+        c.detectStaffNear = true; c.staffRadius = 30; c.staffTab = true;
+        c.detectTwin = true; c.twinRadius = 16;
+        c.detectMassTp = true; c.massTpMin = 5; c.massTpRadius = 8; c.massTpWindowMs = 1000; c.massTpWorldGraceSec = 10;
+        c.detectNameless = true; c.namelessRadius = 8; c.namelessDwellMs = 1000;
+        c.detectPm = true; c.detectAfkMsg = true;
+        c.detectBedrockBurst = true; c.bedrockBurstMin = 2; c.bedrockBurstRadius = 8; c.bedrockBurstMs = 300;
+        c.detectCageCount = true; c.cageCountMin = 4; c.cageCountRadius = 1.5; c.cageCountMs = 1000;
+        c.detectSilence = true; c.silenceSec = 30;
+        c.playerNearDelaySec = 0;
     }
 
     /** Применить готовый набор к текущим настройкам (визуал, HUD, звук, маршрут — не трогает) и сохранить. */
@@ -223,6 +233,7 @@ public final class ConfigProfiles {
                 c.knockbackThreshold = 0.2; c.playerNearRadius = 6;
                 c.serverPosEpsilon = 0.5; c.serverRotEpsilon = 1.0f; c.attrEpsilon = 5.0;
                 c.lagbackSoft = true; c.suspWeightFarmBlock = 2; c.desyncPct = 85;
+                c.playerNearDelaySec = 3; c.detectPm = false; c.massTpMin = 6;
                 c.obstacleRange = 3.0; c.velocityAnomaly = 0.4;
                 c.suspicionLimit = 16; c.suspicionHalfLifeSec = 45; c.suspWeightActionBar = 0;
             }

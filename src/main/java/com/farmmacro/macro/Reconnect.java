@@ -30,6 +30,28 @@ public final class Reconnect {
     public static int secondsLeft() { return state == State.WAIT ? (ticks + 19) / 20 : 0; }
     public static int tries() { return tries; }
 
+    /** v1.14: кнопка «Сейчас» на экране отключения — подключиться без ожидания. */
+    public static void connectNow() {
+        if (state == State.WAIT) { ticks = 1; EventLog.log("RECONNECT", "«Сейчас» — подключаюсь без ожидания"); }
+    }
+
+    /** v1.14: кнопка «Отмена» на экране отключения. */
+    public static void cancelByUser() {
+        if (state == State.OFF) return;
+        EventLog.log("RECONNECT", "отменено на экране отключения");
+        cancel();
+    }
+
+    /**
+     * v1.14: задержка попытки k (с 1). Без роста — всегда base; с ростом — base, 2·base, 4·base… (не больше 10 мин).
+     * Идея «разные задержки для разных попыток» — Bstn1802/AutoReconnect (только идея).
+     */
+    public static int delaySec(int base, int attempt, boolean backoff) {
+        if (!backoff || attempt <= 1) return base;
+        long d = (long) base << Math.min(20, attempt - 1);
+        return (int) Math.min(600, Math.max(base, d));
+    }
+
     /** Вход на сервер (Fabric JOIN): запомнить адрес. */
     public static void onJoin(Minecraft mc) {
         ServerData d = mc.getCurrentServer();
@@ -65,9 +87,10 @@ public final class Reconnect {
             return;
         }
         tries++;
-        ticks = c.reconnectDelaySec * 20;
+        int sec = delaySec(c.reconnectDelaySec, tries, c.reconnectBackoff);
+        ticks = sec * 20;
         state = State.WAIT;
-        EventLog.log("RECONNECT", why + ": попытка " + tries + "/" + c.reconnectTries + " через " + c.reconnectDelaySec + " с");
+        EventLog.log("RECONNECT", why + ": попытка " + tries + "/" + c.reconnectTries + " через " + sec + " с");
     }
 
     /** Каждый тик (и на экране отключения). */

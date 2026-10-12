@@ -18,5 +18,6 @@
   "key.farmmacro.lowrender": "FarmMacro: Low render (render only near player)",
   "key.farmmacro.startfrom": "FarmMacro: Continue route from here",
   "key.farmmacro.ungrab": "FarmMacro: Release cursor (macro keeps farming)",
+  "key.farmmacro.hudedit": "FarmMacro: HUD editor",
   "key.farmmacro.perf": "FarmMacro: Performance mode"
 }

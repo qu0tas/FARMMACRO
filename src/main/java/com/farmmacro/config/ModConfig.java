@@ -109,7 +109,12 @@ public class ModConfig {
     public boolean chatMentionName     = true;
     /** Слова через запятую, без учёта регистра. */
     public String  chatKeywords        = DEFAULT_KEYWORDS;
-    public static final String DEFAULT_KEYWORDS = "макро, macro, бот, bot, афк, afk, ты тут, ответь, проверка, check, админ";
+    public static final String DEFAULT_KEYWORDS = "макро, macro, бот, bot, афк, afk, ты тут, ответь, проверка, check, админ, "
+            + ModConfig.V14_KEYWORDS;
+    /** v1.14: staff-строки (ЗАГЛАВНЫМИ — с учётом регистра и целым словом), дописываются один раз и в старые конфиги. */
+    public static final String V14_KEYWORDS = "ROTATED, TELEPORTED, BEDROCK CAGED, BANWAVE, DIRT CHECKED, COBWEB CHECKED, KNOCKED OUT";
+    /** Служебное: 1 — слова v1.14 уже дописаны в chatKeywords (0 — старый конфиг; новый допишет без повторов). */
+    public int     chatKeywordsRev     = 0;
     /** Титр/подзаголовок на экране (/title); actionbar — только с ником или словом из списка. */
     public boolean detectTitle         = true;
     /** Режим игры, полёт, респавн / смена мира, посадили на сущность. */
@@ -212,6 +217,69 @@ public class ModConfig {
     public String  perfSavedParticles  = null;
     public int     perfSavedShadows    = -1;
     public double  perfSavedEntityDist = -1;
+
+    // ── v1.14: игроки (идеи blazebot), друзья, тишина сервера, скриншот, Discord, диагностика ──
+    /** Staff рядом: имя начинается с [OWNER]/[ADMIN]/[GM]/[GAME MASTER]/[MOD]/[MODERATOR]/[HELPER]/[MOJANG] ([YOUTUBE] — нет). */
+    public boolean detectStaffNear     = true;
+    public double  staffRadius         = 30;
+    /** …или такой игрок появился в Tab (кто был в Tab на старте — не считается). */
+    public boolean staffTab            = true;
+    /** Двойник: игрок с моим ником ближе N бл. */
+    public boolean detectTwin          = true;
+    public double  twinRadius          = 16;
+    /** Массовый телепорт: ≥ N игроков появились ближе R бл за окно (не после своего телепорта/варпа и не в первые K с в мире). */
+    public boolean detectMassTp        = true;
+    public int     massTpMin           = 5;
+    public double  massTpRadius        = 8;
+    public int     massTpWindowMs      = 1000;
+    public int     massTpWorldGraceSec = 10;
+    /** Игрок без имени ближе R бл дольше T мс (невидимость от зелья с видимым ником — не считается). */
+    public boolean detectNameless      = true;
+    public double  namelessRadius      = 8;
+    public int     namelessDwellMs     = 1000;
+    /** Личное сообщение «From [RANK] Ник: …». */
+    public boolean detectPm            = true;
+    /** «You are AFK» в чате. */
+    public boolean detectAfkMsg        = true;
+    /** Бедрок очередью: ≥ N блоков бедрока ближе R бл за T мс. */
+    public boolean detectBedrockBurst  = true;
+    public int     bedrockBurstMin     = 2;
+    public double  bedrockBurstRadius  = 8;
+    public int     bedrockBurstMs      = 300;
+    /** Клетка по числу блоков: ≥ N любых твёрдых блоков у ног или головы (≤ R бл) за T мс. */
+    public boolean detectCageCount     = true;
+    public int     cageCountMin        = 4;
+    public double  cageCountRadius     = 1.5;
+    public int     cageCountMs         = 1000;
+    /** Тишина сервера: ни одного пакета N с — закрыть соединение и считать вылетом (дальше — переподключение). */
+    public boolean detectSilence       = true;
+    public int     silenceSec          = 30;
+    /** Белый список ников (друзья), через запятую. */
+    public String  friendNames         = "";
+    public boolean friendsIgnoreNear   = true;
+    public boolean friendsIgnoreJoin   = true;
+    public boolean friendsIgnoreSpectator = true;
+    public boolean friendsIgnoreChat   = true;
+    public boolean friendsIgnorePm     = true;
+    public boolean friendsIgnoreMass   = true;
+    /** «Игрок рядом»: паника, только если чужой стоит в радиусе N с (0 — сразу). */
+    public double  playerNearDelaySec  = 0;
+    /** Скриншот при панике: config/farmmacro/screenshots/panic-ДАТА_ВРЕМЯ_причина.png. */
+    public boolean panicScreenshot     = true;
+    /** Discord-webhook при панике (адрес — в config/farmmacro/discord-webhook.txt, не в профилях). */
+    public boolean webhookEnabled      = false;
+    public boolean webhookScreenshot   = true;
+    /** Диагностика (только журнал): «стоит без дела» — ни одной нажатой клавиши N с. */
+    public boolean diagIdle            = true;
+    public int     diagIdleSec         = 20;
+    /** Диагностика (только журнал): табло не читается 60 с (от него зависят «Перезагрузка» и Jacob). */
+    public boolean diagScoreboard      = true;
+    /** Переподключение: каждая следующая попытка ждёт вдвое дольше (до 10 мин). */
+    public boolean reconnectBackoff    = false;
+    /** HUD: все плашки в одной общей панели. */
+    public boolean hudMerged           = false;
+    /** HUD: места, масштаб и скрытие плашек (редактор HUD). Ключ — id плашки, "all" — общая панель. */
+    public java.util.Map<String, HudSlot> hudSlots = new java.util.LinkedHashMap<>();
 
     // ── Реакция на панику ────────────────────────────────────────────────────
     public boolean panicSoundEnabled          = true;
@@ -450,6 +518,39 @@ public class ModConfig {
         antiStuckTries        = clamp(antiStuckTries, 0, 5);
         perfFps               = clamp(perfFps, 10, 260);
         if (chatKeywords == null) chatKeywords = "";
+        if (chatKeywordsRev < 1) {                      // v1.14: дописать staff-строки один раз (пустой список — не трогаем)
+            if (!chatKeywords.isBlank()) {
+                java.util.Set<String> have = new java.util.HashSet<>();
+                for (String w : chatKeywords.split(",")) have.add(w.strip());
+                StringBuilder b = new StringBuilder(chatKeywords.strip());
+                for (String w : V14_KEYWORDS.split(",")) if (!have.contains(w.strip())) b.append(", ").append(w.strip());
+                chatKeywords = b.toString();
+            }
+            chatKeywordsRev = 1;
+        }
+        staffRadius           = clamp(staffRadius, 1, 128);
+        twinRadius            = clamp(twinRadius, 1, 128);
+        massTpMin             = clamp(massTpMin, 2, 50);
+        massTpRadius          = clamp(massTpRadius, 1, 64);
+        massTpWindowMs        = clamp(massTpWindowMs, 100, 10_000);
+        massTpWorldGraceSec   = clamp(massTpWorldGraceSec, 0, 120);
+        namelessRadius        = clamp(namelessRadius, 1, 64);
+        namelessDwellMs       = clamp(namelessDwellMs, 50, 30_000);
+        bedrockBurstMin       = clamp(bedrockBurstMin, 1, 64);
+        bedrockBurstRadius    = clamp(bedrockBurstRadius, 1, 64);
+        bedrockBurstMs        = clamp(bedrockBurstMs, 50, 10_000);
+        cageCountMin          = clamp(cageCountMin, 2, 26);
+        cageCountRadius       = clamp(cageCountRadius, 0.5, 4);
+        cageCountMs           = clamp(cageCountMs, 100, 10_000);
+        silenceSec            = clamp(silenceSec, 10, 300);
+        if (friendNames == null) friendNames = "";
+        if (friendNames.length() > 1000) friendNames = friendNames.substring(0, 1000);
+        playerNearDelaySec    = clamp(playerNearDelaySec, 0, 120);
+        diagIdleSec           = clamp(diagIdleSec, 3, 3600);
+        if (hudSlots == null) hudSlots = new java.util.LinkedHashMap<>();
+        hudSlots.values().removeIf(java.util.Objects::isNull);
+        if (hudSlots.size() > 64) hudSlots.clear();
+        for (HudSlot sl : hudSlots.values()) sl.sanitize();
         if (chatKeywords.length() > 1000) chatKeywords = chatKeywords.substring(0, 1000);
         humanGlobal           = com.farmmacro.macro.HumanSettings.sanitize(humanGlobal);
         newItemSettings       = com.farmmacro.macro.MacroSettings.fromFile(
@@ -531,7 +632,11 @@ public class ModConfig {
                         + "1.13: лаги=%s огонь=%s паутина=%s %.0f бл клетка=%s блок на ферме=%s %.0f бл вес %.1f | "
                         + "BPS=%s <%.1f за %.0f с рассинхрон=%s %.0f%% | инвентарь-паника=%s отключение=%s перезагрузка=%s | "
                         + "банвейв=%s %d/%d мин staff=%s | jacob=%s %d гость=%s откат назад=%s %.1f | "
-                        + "1.13.1: расписание=%s %d/%d мин ±%d%% выход=%d мин переподкл=%s %d с ×%d продолжить=%s анти-застр=%d",
+                        + "1.13.1: расписание=%s %d/%d мин ±%d%% выход=%d мин переподкл=%s %d с ×%d рост=%s продолжить=%s анти-застр=%d | "
+                        + "1.14: staff=%s %.0f бл tab=%s двойник=%s %.0f бл масс.тп=%s %d/%.0f бл/%d мс без имени=%s %.0f бл %d мс "
+                        + "ЛС=%s AFK=%s бедрок=%s %d/%.0f бл/%d мс клетка-число=%s %d/%.1f бл/%d мс тишина=%s %d с | "
+                        + "друзей=%d (рядом=%s вход=%s набл=%s чат=%s ЛС=%s масс=%s) задержка рядом=%.1f с | "
+                        + "скриншот=%s discord=%s диагн=%s %d с/%s",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
@@ -550,7 +655,14 @@ public class ModConfig {
                 detectBanwave, banwaveThreshold, banwaveWindowMin, banwaveWithStaff, detectJacob, jacobLimit, detectVisitor,
                 lagbackSoft, suspWeightLagback,
                 schedEnabled, schedFarmMin, schedBreakMin, schedJitterPct, leaveAfterMin,
-                autoReconnect, reconnectDelaySec, reconnectTries, reconnectResume, antiStuckTries);
+                autoReconnect, reconnectDelaySec, reconnectTries, reconnectBackoff, reconnectResume, antiStuckTries,
+                detectStaffNear, staffRadius, staffTab, detectTwin, twinRadius, detectMassTp, massTpMin, massTpRadius, massTpWindowMs,
+                detectNameless, namelessRadius, namelessDwellMs, detectPm, detectAfkMsg,
+                detectBedrockBurst, bedrockBurstMin, bedrockBurstRadius, bedrockBurstMs,
+                detectCageCount, cageCountMin, cageCountRadius, cageCountMs, detectSilence, silenceSec,
+                com.farmmacro.panic.PlayerRules.parseNames(friendNames).size(), friendsIgnoreNear, friendsIgnoreJoin,
+                friendsIgnoreSpectator, friendsIgnoreChat, friendsIgnorePm, friendsIgnoreMass, playerNearDelaySec,
+                panicScreenshot, webhookEnabled, diagIdle, diagIdleSec, diagScoreboard);
     }
 
     private static String colorOrDefault(String id) {

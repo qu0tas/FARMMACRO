@@ -46,6 +46,11 @@ final class WorldGuards {
     private final ArrayDeque<double[]> path = new ArrayDeque<>();
     private static final int PATH_TICKS = 60, DESYNC_DELAY = 20, DESYNC_KEEP = 20, DESYNC_MIN = 10;
     private volatile double lastBps = Double.NaN;
+    /** v1.14: бедрок очередью и клетка по числу блоков (идеи blazebot, код свой). */
+    private final BurstWatch bedrockBurst = new BurstWatch(), cageBurst = new BurstWatch();
+    /** v1.14 диагностика: с какого момента табло пустое/не читается (−1 — читается). */
+    private long boardMissingSince = -1;
+    private boolean boardLogged;
 
     WorldGuards(PanicDetector d) { this.d = d; }
 
@@ -55,6 +60,7 @@ final class WorldGuards {
         cageBlocks.clear(); farmBlocks.clear(); recentBroken.clear();
         bps.reset(); pendingDesync.clear(); desyncResults.clear(); path.clear();
         invFullTicks = 0; lastBps = Double.NaN;
+        bedrockBurst.clear(); cageBurst.clear(); boardMissingSince = -1; boardLogged = false;
     }
 
     /** BPS для HUD (NaN — мало данных). */
@@ -95,10 +101,33 @@ final class WorldGuards {
             return;
         }
         if (c.detectCage && cageBlock(now) && !cageBlock(old) && dist <= 4 && cageBlocks.size() < 256) cageBlocks.add(pos.asLong());
+        long ms = System.currentTimeMillis();
+        // v1.14 «Бедрок очередью»: ≥ N блоков бедрока ближе R бл за 300 мс (клетку staff ставит одной пачкой)
+        if (c.detectBedrockBurst && now.getBlock() == Blocks.BEDROCK && old.getBlock() != Blocks.BEDROCK && dist <= c.bedrockBurstRadius) {
+            bedrockBurst.add(ms, pos.asLong());
+            int n = bedrockBurst.count(ms, c.bedrockBurstMs);
+            if (n >= c.bedrockBurstMin) {
+                d.flag(String.format(Locale.ROOT, "Бедрок очередью: %d блоков ближе %.0f бл за %d мс", n, c.bedrockBurstRadius, c.bedrockBurstMs));
+                return;
+            }
+        }
+        // v1.14 «Клетка по числу блоков»: ≥ N любых твёрдых блоков у ног или головы за 1 с (рост урожая и поршни — нет)
+        if (c.detectCageCount && old.getCollisionShape(level, pos).isEmpty() && !now.getCollisionShape(level, pos).isEmpty()
+                && !PanicDetector.grownOrMoved(now)) {
+            double cx = pos.getX() + 0.5, cy = pos.getY() + 0.5, cz = pos.getZ() + 0.5;
+            double feet = dist3(cx, cy, cz, p.getX(), p.getY() + 0.5, p.getZ()), head = dist3(cx, cy, cz, p.getX(), p.getY() + 1.5, p.getZ());
+            if (Math.min(feet, head) <= c.cageCountRadius) {
+                cageBurst.add(ms, pos.asLong());
+                int n = cageBurst.count(ms, c.cageCountMs);
+                if (n >= c.cageCountMin) {
+                    d.flag(String.format(Locale.ROOT, "Клетка: %d блоков у ног/головы за %.1f с (последний %s)", n, c.cageCountMs / 1000.0, name));
+                    return;
+                }
+            }
+        }
         if (c.detectFarmBlock && dist <= c.farmBlockRadius && !lag()
                 && old.getCollisionShape(level, pos).isEmpty() && now.isCollisionShapeFullBlock(level, pos)
                 && !PanicDetector.grownOrMoved(now) && !brokenRecently(pos.asLong())) {
-            long ms = System.currentTimeMillis();
             if (farmBlocks.size() < 512) farmBlocks.put(pos.asLong(), ms + 60_000);
             EventLog.log("FARMBLOCK", name + " " + pos.toShortString() + String.format(Locale.ROOT, " (%.1f бл)", dist));
             d.suspect("блок на ферме", name + " " + pos.toShortString(), c.suspWeightFarmBlock);
@@ -217,6 +246,15 @@ final class WorldGuards {
         // табло: перезагрузка сервера, Jacob's Contest
         if (level != null && tickNo % 20 == 0 && (c.detectRestart || c.detectJacob)) {
             List<String> lines = sidebar(level);
+            // v1.14 диагностика (только журнал): табло не читается минуту — «Перезагрузка» и Jacob по табло не сработают
+            if (lines.size() <= 1) {
+                long ms = System.currentTimeMillis();
+                if (boardMissingSince < 0) boardMissingSince = ms;
+                else if (c.diagScoreboard && !boardLogged && ms - boardMissingSince >= 60_000) {
+                    boardLogged = true;
+                    EventLog.log("DIAG", "табло (sidebar) не читается 60 с: перезагрузка по табло и Jacob's Contest не работают");
+                }
+            } else { boardMissingSince = -1; boardLogged = false; }
             if (r == null && c.detectRestart) {
                 int sec = ServerText.closingSeconds(lines);
                 if (sec >= 0 && sec < 30) r = "Сервер перезагружается через " + sec + " с (табло)";
@@ -238,6 +276,11 @@ final class WorldGuards {
                 r = "Банвейв: " + b + " банов за " + c.banwaveWindowMin + " мин (порог " + c.banwaveThreshold + ")";
         }
         return r;
+    }
+
+    private static double dist3(double ax, double ay, double az, double bx, double by, double bz) {
+        double dx = ax - bx, dy = ay - by, dz = az - bz;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /** Над головой и ≥ 3 из 4 сторон (на уровне ног или головы) — бедрок/барьер. */

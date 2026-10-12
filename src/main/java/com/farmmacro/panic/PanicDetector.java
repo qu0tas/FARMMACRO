@@ -75,6 +75,14 @@ public class PanicDetector {
     public final Suspicion suspicion = new Suspicion();
     /** v1.13: детекторы мира и сервера (горение, паутина, клетка, BPS, рассинхрон, табло, банвейв…). */
     private final WorldGuards world = new WorldGuards(this);
+    /** v1.14: игроки (staff, двойник, массовый телепорт, без имени, ЛС, AFK) и друзья. */
+    private final PlayerGuards players = new PlayerGuards(this);
+    /** v1.14 «Игрок рядом: задержка»: новые (не стартовые) игроки в радиусе и сколько стоят. */
+    private Set<UUID> nearFresh = new HashSet<>();
+    private final DwellTimer<UUID> nearDwell = new DwellTimer<>();
+    /** v1.14 диагностика «стоит без дела»: с какого момента нет нажатых клавиш. */
+    private long idleSinceMs;
+    private boolean idleLogged;
     /** Игроки, уже засчитанные «за радиусом» в этом запуске (null — ещё не запомнили стартовых). */
     private Set<UUID> farSeen;
     /** Надписи над хотбаром (цифры → #), уже засчитанные в этом запуске. */
@@ -121,6 +129,9 @@ public class PanicDetector {
         nearSeen = null; fallGraceTicks = 0;
         farSeen = null; actionSeen.clear(); suspicion.reset();
         world.beginRun(Minecraft.getInstance().player);
+        players.beginRun();
+        nearFresh = new HashSet<>(); nearDwell.clear();
+        idleSinceMs = System.currentTimeMillis(); idleLogged = false;
     }
 
     /** v1.13: BPS для HUD (NaN — мало данных). */
@@ -133,8 +144,17 @@ public class PanicDetector {
 
     /** v1.13: системный чат / надпись над хотбаром / титр — перезагрузка, лимбо, гость на ферме. */
     public void onSystemText(String text, String where) {
-        if (armed() && player() != null) world.onServerText(text, where);
+        if (armed() && player() != null) {
+            world.onServerText(text, where);
+            if (!"надпись над хотбаром".equals(where)) players.onSystemText(text, ModConfig.INSTANCE);
+        }
     }
+
+    /** v1.14: каждый тик, даже без макроса (возраст мира, свои телепорты — для «Массового телепорта»). */
+    public void tickAlways(Minecraft mc) { players.tickAlways(mc); }
+
+    /** v1.14: друг из белого списка («Паника → Друзья»). */
+    public boolean isFriend(String name) { return players.isFriend(name); }
 
     /**
      * v1.13 «Отключение от сервера»: вызывается из события Fabric (поток может быть любым).
@@ -182,7 +202,8 @@ public class PanicDetector {
         if (screen instanceof PauseScreen || screen instanceof ChatScreen
                 || screen instanceof FarmMacroScreen || screen instanceof SaveMacroScreen
                 || screen instanceof com.farmmacro.gui.PointEditScreen
-                || screen instanceof com.farmmacro.gui.MacroSettingsScreen) return;
+                || screen instanceof com.farmmacro.gui.MacroSettingsScreen
+                || screen instanceof com.farmmacro.hud.HudEditorScreen) return;
         flag("Открылось окно: " + screen.getTitle().getString()
                 + " (" + screen.getClass().getSimpleName() + ")");
     }
@@ -386,6 +407,10 @@ public class PanicDetector {
         ModConfig c = ModConfig.INSTANCE;
         if (p == null || text == null || !armed()) return;
         if (sender != null && sender.equals(p.getUUID())) return;           // своё сообщение
+        if (c.friendsIgnoreChat && !overlay) {                               // v1.14: друг пишет — не считаем
+            String who = senderName != null ? senderName : PlayerRules.chatSender(text);
+            if (players.isFriend(who)) { EventLog.log("FRIEND", "чат от друга " + who); return; }
+        }
         String hit = c.detectChat ? ChatMatch.hit(text, p.getGameProfile().name(), c.chatMentionName, c.chatKeywords) : null;
         if (hit == null) {
             // новая надпись над хотбаром без ника/слова — немного подозрительности (цифры не различаем: таймеры)
@@ -513,12 +538,14 @@ public class PanicDetector {
             if (e.profileId() == null || e.profileId().equals(p.getUUID())) continue;
             var old = mc.getConnection().getPlayerInfo(e.profileId());
             String name = e.profile() != null ? e.profile().name() : old != null ? old.getProfile().name() : "?";
+            boolean friend = players.isFriend(name);
             if (add && old == null) {
-                if (c.detectSpectator && mode && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR) {
+                if (c.detectSpectator && mode && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR
+                        && !(friend && c.friendsIgnoreSpectator)) {
                     flag("Зашёл игрок наблюдателем: " + name); return;
                 }
-                if (c.detectPlayerJoin) { flag("Зашёл игрок: " + name); return; }
-            } else if (mode && c.detectSpectator && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR
+                if (c.detectPlayerJoin && !(friend && c.friendsIgnoreJoin)) { flag("Зашёл игрок: " + name); return; }
+            } else if (mode && c.detectSpectator && !(friend && c.friendsIgnoreSpectator) && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR
                     && old != null && old.getGameMode() != net.minecraft.world.level.GameType.SPECTATOR) {
                 flag("Игрок стал наблюдателем: " + name); return;
             }
@@ -532,6 +559,7 @@ public class PanicDetector {
         for (UUID id : ids) {
             if (id.equals(p.getUUID())) continue;
             var old = mc.getConnection().getPlayerInfo(id);
+            if (old != null && ModConfig.INSTANCE.friendsIgnoreJoin && players.isFriend(old.getProfile().name())) continue;
             flag("Игрок пропал из списка (вышел или ваниш): " + (old != null ? old.getProfile().name() : id.toString()));
             return;
         }
@@ -593,29 +621,48 @@ public class PanicDetector {
         heldStackable = !stack.isEmpty() && stack.isStackable();
 
         // игрок подошёл: кто был рядом на старте — не считаем, считаем только новых в радиусе
+        // v1.14: друзья не считаются (по галочке); «задержка N с» — паника, только если чужой стоит рядом N с
+        long nowMs = System.currentTimeMillis();
         if (mc.level != null) {
             double r = c.playerNearRadius;
-            Set<UUID> now = new HashSet<>();
-            String who = null;
+            Set<UUID> now = new HashSet<>(), fresh = new HashSet<>();
+            java.util.Map<UUID, String> info = new java.util.HashMap<>();
             boolean firstFar = farSeen == null;
             if (firstFar) farSeen = new HashSet<>();
             for (var other : mc.level.players()) {
                 if (other == p || other.getUUID().equals(p.getUUID())) continue;
+                String nm = other.getGameProfile().name();
+                if (c.friendsIgnoreNear && players.isFriend(nm)) continue;
                 double d = other.distanceTo(p);
                 if (d > r) {
                     // v1.11: виден, но дальше радиуса — раз за запуск на игрока (кто был на старте — нет)
                     if (farSeen.add(other.getUUID()) && !firstFar)
-                        suspect("игрок за радиусом", String.format(Locale.ROOT, "%s %.0f бл", other.getGameProfile().name(), d),
+                        suspect("игрок за радиусом", String.format(Locale.ROOT, "%s %.0f бл", nm, d),
                                 c.suspWeightPlayerFar);
                     continue;
                 }
                 now.add(other.getUUID());
-                if (who == null && nearSeen != null && !nearSeen.contains(other.getUUID()))
-                    who = String.format(Locale.ROOT, "Рядом игрок: %s (%.1f бл)", other.getGameProfile().name(), d);
+                if (nearSeen != null && (!nearSeen.contains(other.getUUID()) || nearFresh.contains(other.getUUID()))) {
+                    fresh.add(other.getUUID());
+                    info.put(other.getUUID(), String.format(Locale.ROOT, "%s (%.1f бл", nm, d));
+                }
             }
             if (nearSeen == null && !now.isEmpty()) LOGGER.info("Рядом на старте (не паника): {}", now.size());
             nearSeen = now;
-            if (reason == null && c.detectPlayerNear && who != null) reason = who;
+            nearFresh = fresh;
+            long delayMs = Math.round(c.playerNearDelaySec * 1000);
+            UUID hit = nearDwell.update(nowMs, fresh, delayMs);
+            if (reason == null && c.detectPlayerNear && hit != null)
+                reason = "Рядом игрок: " + info.get(hit) + (delayMs > 0 ? String.format(Locale.ROOT, ", стоит %.1f с)", nearDwell.elapsed(hit, nowMs) / 1000.0) : ")");
+        }
+
+        // v1.14 диагностика (только журнал): нет нажатых клавиш дольше обычного
+        var ko = mc.options;
+        if (ko.keyUp.isDown() || ko.keyDown.isDown() || ko.keyLeft.isDown() || ko.keyRight.isDown() || ko.keyJump.isDown()
+                || ko.keyAttack.isDown() || ko.keyUse.isDown() || ko.keyShift.isDown()) { idleSinceMs = nowMs; idleLogged = false; }
+        else if (c.diagIdle && !idleLogged && nowMs - idleSinceMs >= c.diagIdleSec * 1000L) {
+            idleLogged = true;
+            EventLog.log("DIAG", "стоит без дела " + c.diagIdleSec + " с: ни одна клавиша не нажата (точка-пауза, лаг или макрос завис?)");
         }
 
         float hp = p.getHealth();
@@ -628,6 +675,8 @@ public class PanicDetector {
 
         String w = world.tick(mc, p, c);                 // v1.13: мир и сервер (состояние обновляется всегда)
         if (reason == null) reason = w;
+        String pl = players.tick(mc, p, c);              // v1.14: staff, двойник, массовый телепорт, без имени
+        if (reason == null) reason = pl;
         if (!MacroManager.INSTANCE.isPlaying()) return;    // Jacob's Contest: обычный стоп по лимиту
 
         if (c.suspicionEnabled) {
@@ -693,6 +742,8 @@ public class PanicDetector {
         }
         // 3. Красный экран.
         if (c.panicRedScreenEnabled) redScreenTicksLeft = c.panicRedScreenTicks;
+        // 4. v1.14: скриншот последнего кадра (до красного экрана) и сообщение в Discord — файлы/сеть в фоне
+        Guard.run("panic/screenshot", () -> PanicShot.onPanic(mc, reason));
     }
 
     /** Проверка из меню: те же звук и красный экран, но без остановки и без записи в «последнюю панику». */

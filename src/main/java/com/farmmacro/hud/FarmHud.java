@@ -13,6 +13,10 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.resources.Identifier;
 import org.joml.Matrix3x2fStack;
 
+import com.farmmacro.config.HudSlot;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -22,31 +26,161 @@ import java.util.Locale;
 public final class FarmHud {
     private FarmHud() {}
 
-    private static final int MARGIN = 6;
-    private static final int PANEL_W = 132;
+    static final int MARGIN = HudLayout.MARGIN;
+    static final int PANEL_W = 132, WIDE = PANEL_W + 20, GAP = 4;
+
+    /** v1.14 «Одна общая плашка»: блоки рисуются без своей подложки внутри общей панели. */
+    private static boolean merged;
+    /** Цель навигатора на этот кадр. */
+    private static Target target;
+
+    /** Блок HUD: g == null — только посчитать высоту. @return высота (0 — блоку нечего показать) */
+    interface Drawer { int draw(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w); }
+
+    public record Block(String id, String label, int width, Drawer drawer) {}
+
+    /** Порядок — как в стопке справа (до v1.14 — единственный вариант). */
+    public static final List<Block> BLOCKS = List.of(
+            new Block("status", "Статус", PANEL_W, FarmHud::drawStatus),
+            new Block("editor", "Редактор маршрута", WIDE, FarmHud::drawEditor),
+            new Block("hold", "Зажим мыши", WIDE, FarmHud::drawHold),
+            new Block("mouselock", "Блокировка мыши", WIDE, FarmHud::drawMouseLock),
+            new Block("view", "Freelook · Low render · PERF", WIDE, FarmHud::drawView),
+            new Block("human", "Случайность", WIDE, FarmHud::drawHuman),
+            new Block("susp", "Подозрительность", WIDE, FarmHud::drawSuspicion),
+            new Block("server", "TPS · BPS · баны", WIDE, FarmHud::drawServer),
+            new Block("schedule", "Расписание и выход", WIDE, FarmHud::drawSchedule),
+            new Block("nav", "Навигатор", PANEL_W, FarmHud::drawNavigator));
+
+    /** Место плашки на экране (для редактора HUD). id "all" — общая панель; sub — строка внутри общей панели. */
+    public record Rect(String id, String label, int x, int y, int w, int h, boolean hidden, boolean sub) {
+        public boolean contains(double mx, double my) { return mx >= x && my >= y && mx < x + w && my < y + h; }
+    }
 
     public static void register() {
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "hud"), Guard.hud("hud", (g, delta) -> {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null || mc.options.hideGui) return;
-            int y = MARGIN;
+            if (mc.screen instanceof HudEditorScreen) return;           // редактор рисует HUD сам
             if (mc.screen == null) {
                 float pt = delta.getGameTimeDeltaPartialTick(true);
-                Target t = target(mc, pt);
-                y = drawStatus(g, mc, y);
-                y = drawEditor(g, mc, y);
-                y = drawHold(g, mc, y);
-                y = drawMouseLock(g, mc, y);
-                y = drawView(g, mc, y);
-                y = drawHuman(g, mc, y);
-                y = drawSuspicion(g, mc, y);
-                y = drawServer(g, mc, y);
-                y = drawSchedule(g, mc, y);
-                drawNavigator(g, mc, y, t);
-                drawCrosshairArrow(g, mc, t);
+                target = target(mc, pt);
+                layout(g, mc, false);
+                drawCrosshairArrow(g, mc, target);
             }
             drawCountdown(g, mc);
         }));
+    }
+
+    /** Для редактора HUD: цель навигатора по текущему кадру. */
+    static void prepare(Minecraft mc) { target = mc.player != null ? target(mc, 1f) : null; }
+
+    private static HudSlot slot(String id) { return ModConfig.INSTANCE.hudSlots.get(id); }
+
+    /**
+     * v1.14: раскладка HUD. Без мест из редактора — стопка у правого края, как раньше. g == null — только места.
+     * edit — режим редактора: пустые блоки показываются заглушкой, скрытые — затемнёнными.
+     */
+    public static List<Rect> layout(GuiGraphicsExtractor g, Minecraft mc, boolean edit) {
+        ModConfig c = ModConfig.INSTANCE;
+        int sw = mc.getWindow().getGuiScaledWidth(), sh = mc.getWindow().getGuiScaledHeight();
+        List<Rect> out = new ArrayList<>();
+        Font f = mc.font;
+        if (c.hudMerged) {
+            int w = WIDE;
+            List<Block> list = new ArrayList<>();
+            List<Integer> hs = new ArrayList<>();
+            merged = true;
+            try {
+                for (Block b : BLOCKS) {
+                    HudSlot sl = slot(b.id());
+                    boolean hid = sl != null && sl.hidden;
+                    if (hid && !edit) continue;
+                    int h = b.drawer().draw(null, mc, 0, 0, w);
+                    if (h <= 0 && !edit) continue;
+                    list.add(b);
+                    hs.add(h <= 0 ? -12 : h);                         // минус — заглушка в редакторе
+                }
+            } finally { merged = false; }
+            if (list.isEmpty() && !edit) return out;
+            int total = 4;
+            for (int h : hs) total += Math.abs(h) + 2;
+            total = Math.max(total, 16);
+            HudSlot all = slot("all");
+            double sc = all != null ? all.scale : 1;
+            int pw = (int) Math.round(w * sc), ph = (int) Math.round(total * sc);
+            int[] pos = all != null && all.placed ? HudLayout.place(all, pw, ph, sw, sh) : new int[]{sw - pw - MARGIN, MARGIN};
+            out.add(new Rect("all", "Общая плашка", pos[0], pos[1], pw, ph, false, false));
+            int yy = 2;
+            Matrix3x2fStack pose = g != null ? g.pose() : null;
+            if (pose != null) { pose.pushMatrix(); pose.translate(pos[0], pos[1]); pose.scale((float) sc, (float) sc); }
+            try {
+                if (g != null) Ui.round(g, 0, 0, w, total, 5, bg());
+                if (list.isEmpty() && g != null) Ui.text(g, f, "Общая плашка (пусто)", 8, 4, Ui.DIM);
+                merged = true;
+                for (int i = 0; i < list.size(); i++) {
+                    Block b = list.get(i);
+                    int h = hs.get(i);
+                    boolean empty = h < 0;
+                    h = Math.abs(h);
+                    HudSlot sl = slot(b.id());
+                    boolean hid = sl != null && sl.hidden;
+                    if (g != null) {
+                        if (empty) Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", w - 14), 8, yy + 2, Ui.DIM);
+                        else b.drawer().draw(g, mc, 0, yy, w);
+                        if (edit && hid) dimHidden(g, f, 0, yy, w, h);
+                    }
+                    out.add(new Rect(b.id(), b.label(), pos[0], pos[1] + (int) Math.round(yy * sc), pw, (int) Math.round(h * sc), hid, true));
+                    yy += h + 2;
+                }
+            } finally {
+                merged = false;
+                if (pose != null) pose.popMatrix();
+            }
+            return out;
+        }
+        int stack = MARGIN;
+        for (Block b : BLOCKS) {
+            HudSlot sl = slot(b.id());
+            boolean hid = sl != null && sl.hidden;
+            if (hid && !edit) continue;
+            int h = b.drawer().draw(null, mc, 0, 0, b.width());
+            boolean empty = h <= 0;
+            if (empty && !edit) continue;
+            if (empty) h = 15;
+            double sc = sl != null ? sl.scale : 1;
+            int pw = (int) Math.round(b.width() * sc), ph = (int) Math.round(h * sc);
+            int x, y;
+            if (sl != null && sl.placed) { int[] p = HudLayout.place(sl, pw, ph, sw, sh); x = p[0]; y = p[1]; }
+            else { x = sw - pw - MARGIN; y = stack; stack += ph + GAP; }
+            out.add(new Rect(b.id(), b.label(), x, y, pw, ph, hid, false));
+            if (g == null) continue;
+            Matrix3x2fStack pose = g.pose();
+            pose.pushMatrix();
+            try {
+                pose.translate(x, y);
+                pose.scale((float) sc, (float) sc);
+                if (empty) {
+                    Ui.round(g, 0, 0, b.width(), h, 5, 0x90101420);
+                    Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", b.width() - 14), 8, 4, Ui.DIM);
+                } else b.drawer().draw(g, mc, 0, 0, b.width());
+                if (edit && hid) dimHidden(g, f, 0, 0, b.width(), h);
+            } finally {
+                pose.popMatrix();
+            }
+        }
+        return out;
+    }
+
+    private static void dimHidden(GuiGraphicsExtractor g, Font f, int x, int y, int w, int h) {
+        g.fill(x, y, x + w, y + h, 0xB0000000);
+        Ui.text(g, f, "скрыто · ПКМ — показать", x + w - f.width("скрыто · ПКМ — показать") - 4, y + Math.max(0, h / 2 - 4), Ui.WARN);
+    }
+
+    /** Подложка и цветная полоска слева (в общей плашке — только полоска). */
+    private static void panel(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
+        if (!merged) Ui.round(g, x, y, w, h, 5, bg());
+        g.fill(x, y + 3, x + 2, y + h - 3, col);
     }
 
     // ── Цвета HUD (Визуал → HUD): «по умолчанию» — как раньше ─────────────────
@@ -69,11 +203,10 @@ public final class FarmHud {
 
     // ── Статус ───────────────────────────────────────────────────────────────
 
-    private static int drawStatus(GuiGraphicsExtractor g, Minecraft mc, int y) {
+    private static int drawStatus(GuiGraphicsExtractor g, Minecraft mc, int x0, int y, int w0) {
         MacroManager m = MacroManager.INSTANCE;
         ModConfig c = ModConfig.INSTANCE;
         Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
         MacroManager.State st = m.getState();
 
         boolean blink = (System.currentTimeMillis() / 500) % 2 == 0;
@@ -86,26 +219,27 @@ public final class FarmHud {
         }
 
         if (!c.statsHudEnabled) {
-            if (st == MacroManager.State.IDLE) return y;
+            if (st == MacroManager.State.IDLE) return 0;
             // компактная «пилюля», чтобы запись/игра никогда не шли незаметно
+            if (g == null) return 14;
             String s = st == MacroManager.State.PLAYING ? "▶ " + percent(m) + "%" : head;
-            int w = f.width(s) + 16;
-            int x = sw - w - MARGIN;
-            Ui.pill(g, x, y, w, 14, 0xC0101420);
+            int w = Math.min(w0, f.width(s) + 16);
+            int x = x0 + w0 - w;
+            if (!merged) Ui.pill(g, x, y, w, 14, 0xC0101420);
             Ui.circle(g, x + 7, y + 7, 2, blink || st != MacroManager.State.RECORDING ? col : Ui.alpha(col, 0.3f));
-            Ui.text(g, f, s, x + 12, y + 3, Ui.TEXT);
-            return y + 18;
+            Ui.text(g, f, Ui.ellipsize(f, s, w - 14), x + 12, y + 3, Ui.TEXT);
+            return 14;
         }
-        if (st == MacroManager.State.IDLE && m.getSessionRuns() == 0) return y;
+        if (st == MacroManager.State.IDLE && m.getSessionRuns() == 0) return 0;
 
-        int x = sw - PANEL_W - MARGIN;
         boolean playing = st == MacroManager.State.PLAYING;
         int h = playing ? 46 : 36;
-        Ui.round(g, x, y, PANEL_W, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        if (g == null) return h;
+        int x = x0, W = w0;
+        panel(g, x, y, W, h, col);
 
         Ui.circle(g, x + 9, y + 8, 2, blink || st != MacroManager.State.RECORDING ? col : Ui.alpha(col, 0.3f));
-        Ui.text(g, f, Ui.ellipsize(f, head, PANEL_W - 20), x + 15, y + 4, col);
+        Ui.text(g, f, Ui.ellipsize(f, head, W - 20), x + 15, y + 4, col);
 
         String name;
         if (m.getSourceKind() == MacroManager.SourceKind.ROUTE && st != MacroManager.State.RECORDING) {
@@ -115,27 +249,27 @@ public final class FarmHud {
             name = m.getLoadedName() != null ? m.getLoadedName()
                     : m.getFrameCount() > 0 ? "несохранённая запись" : "нет макроса";
         }
-        Ui.text(g, f, Ui.ellipsize(f, name, PANEL_W - 14), x + 8, y + 15, Ui.TEXT);
+        Ui.text(g, f, Ui.ellipsize(f, name, W - 14), x + 8, y + 15, Ui.TEXT);
 
         String line;
         if (playing) {
             int pct = percent(m);
-            int bx = x + 8, bw = PANEL_W - 16, by = y + 27;
+            int bx = x + 8, bw = W - 16, by = y + 27;
             Ui.pill(g, bx, by, bw, 4, 0xFF2A3245);
             Ui.pill(g, bx, by, Math.max(4, bw * pct / 100), 4, Ui.ON);
             long sec = (System.currentTimeMillis() - m.getRunStartMs()) / 1000;
             String loops = c.loopEnabled ? "круг " + (m.getLoopsDone() + 1) + (c.loopLimit > 0 ? "/" + c.loopLimit : "") + " · " : "";
             String prog = m.isRoutePlaying() ? "точка " + (m.getProgress() + 1) + "/" + m.getProgressTotal() : pct + "%";
             line = loops + prog + " · " + clock(sec);
-            Ui.text(g, f, Ui.ellipsize(f, line, PANEL_W - 14), x + 8, y + 35, Ui.SUB);
+            Ui.text(g, f, Ui.ellipsize(f, line, W - 14), x + 8, y + 35, Ui.SUB);
         } else {
             long sec = m.getSessionStartMs() > 0 ? (System.currentTimeMillis() - m.getSessionStartMs()) / 1000 : 0;
             line = st == MacroManager.State.RECORDING
                     ? MacroManager.keyName(FarmMacroMod.keyRecord) + " — остановить"
                     : "сессия " + clock(sec) + " · кругов " + m.getSessionRuns();
-            Ui.text(g, f, Ui.ellipsize(f, line, PANEL_W - 14), x + 8, y + 25, Ui.SUB);
+            Ui.text(g, f, Ui.ellipsize(f, line, W - 14), x + 8, y + 25, Ui.SUB);
         }
-        return y + h + 4;
+        return h;
     }
 
     private static int percent(MacroManager m) {
@@ -155,20 +289,18 @@ public final class FarmHud {
             "Shift+ПКМ — параметры", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
             "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+D — спуск на этаж ниже", "Ctrl+Z — отменить"};
 
-    private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int y) {
-        if (!com.farmmacro.route.RouteEditor.isActive()) return y;
+    private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
+        if (!com.farmmacro.route.RouteEditor.isActive()) return 0;
         Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN;
         var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
         String issue = com.farmmacro.visual.RouteRenderer.editorIssue;
         if (issue != null && com.farmmacro.visual.RouteRenderer.editorIssueCount > 1)
             issue += " (+" + (com.farmmacro.visual.RouteRenderer.editorIssueCount - 1) + ")";
         int h = 26 + EDITOR_HINTS.length * 10 + (issue != null ? 10 : 0);
+        if (g == null) return h;
         int col = 0xFFD08CFF;
-        Ui.round(g, x, y, w, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
-        Ui.text(g, f, "РЕДАКТОР · " + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход", x + 8, y + 4, col);
+        panel(g, x, y, w, h, col);
+        Ui.text(g, f, Ui.ellipsize(f, "РЕДАКТОР · " + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход", w - 14), x + 8, y + 4, col);
         int sel = rb.selected();
         int many = rb.selection().size();
         var sp = rb.get(sel);
@@ -179,100 +311,81 @@ public final class FarmHud {
         int ly = y + 26;
         if (issue != null) { Ui.text(g, f, Ui.ellipsize(f, "⚠ " + issue, w - 14), x + 8, ly, 0xFFFF5A5A); ly += 10; }
         for (String hint : EDITOR_HINTS) { Ui.text(g, f, Ui.ellipsize(f, hint, w - 14), x + 8, ly, Ui.SUB); ly += 10; }
-        return y + h + 4;
+        return h;
     }
 
-    // ── Зажим мыши ───────────────────────────────────────────────────────────
+    // ── Однострочные плашки ──────────────────────────────────────────────────
+
+    /** Однострочная плашка высотой 15. */
+    private static int line(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w, String text, int col) {
+        if (g == null) return 15;
+        panel(g, x, y, w, 15, col);
+        Ui.text(g, mc.font, Ui.ellipsize(mc.font, text, w - 14), x + 8, y + 4, col);
+        return 15;
+    }
 
     /** Плашка «ЗАЖИМ ЛКМ» — ручной зажим или зажим от играющего макроса. */
-    private static int drawHold(GuiGraphicsExtractor g, Minecraft mc, int y) {
+    private static int drawHold(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         var mh = com.farmmacro.macro.MouseHold.INSTANCE;
         boolean manual = mh.isManual();
         boolean attackNow = mh.wants(mc, mc.options.keyAttack), useNow = mh.wants(mc, mc.options.keyUse);
-        if (!manual && !attackNow && !useNow) return y;
-        Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
-        int col = 0xFFFFB347;
+        if (!manual && !attackNow && !useNow) return 0;
         String text = "ЗАЖИМ " + (attackNow || manual ? "ЛКМ" : "") + (useNow ? (attackNow || manual ? " + ПКМ" : "ПКМ") : "")
                 + (manual ? " · " + MacroManager.keyName(FarmMacroMod.keyHold) + " — выкл" : " · от макроса");
-        Ui.round(g, x, y, w, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
-        Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
-        return y + h + 4;
+        return line(g, mc, x, y, w, text, 0xFFFFB347);
     }
 
     /** Плашка «СЛУЧАЙНОСТЬ · сид» — пока играет проход со случайностью. */
-    private static int drawHuman(GuiGraphicsExtractor g, Minecraft mc, int y) {
+    private static int drawHuman(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         var h = com.farmmacro.macro.Humanizer.ACTIVE;
-        if (h == null || !MacroManager.INSTANCE.isPlaying()) return y;
-        Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN, h2 = 15;
-        int col = 0xFFE08CFF;
-        Ui.round(g, x, y, w, h2, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h2 - 3, col);
-        Ui.text(g, f, Ui.ellipsize(f, "СЛУЧАЙНОСТЬ · " + h.status() + " · сид " + h.seed, w - 14), x + 8, y + 4, col);
-        return y + h2 + 4;
+        if (h == null || !MacroManager.INSTANCE.isPlaying()) return 0;
+        return line(g, mc, x, y, w, "СЛУЧАЙНОСТЬ · " + h.status() + " · сид " + h.seed, 0xFFE08CFF);
     }
 
     /** v1.11: полоска «ПОДОЗР. N/10» — очки «Подозрительности», пока играет макрос. */
-    private static int drawSuspicion(GuiGraphicsExtractor g, Minecraft mc, int y) {
+    private static int drawSuspicion(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         ModConfig c = ModConfig.INSTANCE;
-        if (!c.suspicionEnabled || !c.suspicionHud || !c.panicEnabled || !MacroManager.INSTANCE.isPlaying()) return y;
+        if (!c.suspicionEnabled || !c.suspicionHud || !c.panicEnabled || !MacroManager.INSTANCE.isPlaying()) return 0;
+        if (g == null) return 15;
         double s = com.farmmacro.panic.PanicDetector.INSTANCE.suspicionScore(), lim = c.suspicionLimit;
         double frac = Math.max(0, Math.min(1, s / lim));
         Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
+        int h = 15;
         int col = frac < 0.5 ? Ui.ON : frac < 0.8 ? Ui.WARN : Ui.DANGER;
-        Ui.round(g, x, y, w, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        panel(g, x, y, w, h, col);
         String text = String.format(java.util.Locale.ROOT, "ПОДОЗР. %.1f/%.0f", s, lim);
         Ui.text(g, f, text, x + 8, y + 4, col);
         int bx = x + 8 + f.width(text) + 6, bw = Math.max(10, x + w - 8 - bx), by = y + 6;
         Ui.pill(g, bx, by, bw, 4, 0xFF2A3245);
         if (frac > 0) Ui.pill(g, bx, by, Math.max(4, (int) Math.round(bw * frac)), 4, col);
-        return y + h + 4;
+        return h;
     }
 
     /** Плашка «МЫШЬ ЗАБЛОК.» — блокировка мыши (клавиша M). */
-    private static int drawMouseLock(GuiGraphicsExtractor g, Minecraft mc, int y) {
-        if (!com.farmmacro.camera.MouseLock.isLocked()) return y;
-        Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
-        int col = 0xFF6EC8FF;
-        String text = "МЫШЬ ЗАБЛОК. · " + MacroManager.keyName(FarmMacroMod.keyMouseLock) + " — снять";
-        Ui.round(g, x, y, w, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
-        Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
-        return y + h + 4;
+    private static int drawMouseLock(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
+        if (!com.farmmacro.camera.MouseLock.isLocked()) return 0;
+        return line(g, mc, x, y, w, "МЫШЬ ЗАБЛОК. · " + MacroManager.keyName(FarmMacroMod.keyMouseLock) + " — снять", 0xFF6EC8FF);
     }
 
     /** v1.13.1: плашка расписания / таймера выхода. */
-    private static int drawSchedule(GuiGraphicsExtractor g, Minecraft mc, int y) {
+    private static int drawSchedule(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         var ph = com.farmmacro.macro.Scheduler.phase();
         long leave = com.farmmacro.macro.Scheduler.leaveLeftMs();
-        if (ph == com.farmmacro.macro.Scheduler.Phase.OFF && leave < 0) return y;
+        if (ph == com.farmmacro.macro.Scheduler.Phase.OFF && leave < 0) return 0;
+        if (g == null) return 15;
         StringBuilder t = new StringBuilder();
         if (ph == com.farmmacro.macro.Scheduler.Phase.FARM) t.append("ПЕРЕРЫВ ЧЕРЕЗ ").append(clock(com.farmmacro.macro.Scheduler.farmLeftTicks() / 20));
         else if (ph == com.farmmacro.macro.Scheduler.Phase.BREAK) t.append("ПЕРЕРЫВ ").append(clock(com.farmmacro.macro.Scheduler.breakLeftTicks() / 20));
         if (leave >= 0) t.append(t.length() > 0 ? " · " : "").append("ВЫХОД ЧЕРЕЗ ").append(clock(leave / 1000));
-        Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
         int col = ph == com.farmmacro.macro.Scheduler.Phase.BREAK ? Ui.WARN : 0xFFC8A8FF;
-        Ui.round(g, x, y, w, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
-        Ui.text(g, f, Ui.ellipsize(f, t.toString(), w - 14), x + 8, y + 4, col);
-        return y + h + 4;
+        return line(g, mc, x, y, w, t.toString(), col);
     }
 
     /** v1.13: плашка «TPS · BPS · баны» во время макроса. */
-    private static int drawServer(GuiGraphicsExtractor g, Minecraft mc, int y) {
+    private static int drawServer(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         ModConfig c = ModConfig.INSTANCE;
-        if (!c.serverHud || !MacroManager.INSTANCE.isPlaying()) return y;
+        if (!c.serverHud || !MacroManager.INSTANCE.isPlaying()) return 0;
+        if (g == null) return 15;
         double tps = com.farmmacro.panic.LagGuard.INSTANCE.tps();
         boolean lag = com.farmmacro.panic.LagGuard.INSTANCE.lagging();
         double bps = com.farmmacro.panic.PanicDetector.INSTANCE.bps();
@@ -283,36 +396,21 @@ public final class FarmHud {
             long b = com.farmmacro.panic.BanwaveWatch.bans();
             t.append(b < 0 ? " · баны —" : " · баны " + b + "/" + c.banwaveThreshold);
         }
-        Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
         boolean bad = lag || (!Double.isNaN(bps) && c.detectBps && bps < c.bpsMin);
-        int col = bad ? Ui.WARN : 0xFF8FB8FF;
-        Ui.round(g, x, y, w, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
-        Ui.text(g, f, Ui.ellipsize(f, t.toString(), w - 14), x + 8, y + 4, col);
-        return y + h + 4;
+        return line(g, mc, x, y, w, t.toString(), bad ? Ui.WARN : 0xFF8FB8FF);
     }
 
     /** v1.12: плашки «FREELOOK» и «LOW RENDER». */
-    private static int drawView(GuiGraphicsExtractor g, Minecraft mc, int y) {
+    private static int drawView(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         boolean fl = com.farmmacro.camera.Freelook.active(), lr = com.farmmacro.visual.LowRender.active();
         boolean ug = com.farmmacro.camera.Ungrab.active(), pf = com.farmmacro.visual.PerformanceMode.active();
-        if (!fl && !lr && !ug && !pf) return y;
-        Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int w = PANEL_W + 20, x = sw - w - MARGIN, h = 15;
-        int col = 0xFF9BE07A;
-        java.util.List<String> parts = new java.util.ArrayList<>();
+        if (!fl && !lr && !ug && !pf) return 0;
+        List<String> parts = new ArrayList<>();
         if (fl) parts.add("FREELOOK");
         if (lr) parts.add("LOW RENDER " + ModConfig.INSTANCE.lowRenderRadius + " бл");
         if (pf) parts.add("PERF " + ModConfig.INSTANCE.perfFps + " FPS");
         if (ug) parts.add("КУРСОР ОТПУЩЕН");
-        String text = String.join(" · ", parts);
-        Ui.round(g, x, y, w, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
-        Ui.text(g, f, Ui.ellipsize(f, text, w - 14), x + 8, y + 4, col);
-        return y + h + 4;
+        return line(g, mc, x, y, w, String.join(" · ", parts), 0xFF9BE07A);
     }
 
     // ── Навигатор ────────────────────────────────────────────────────────────
@@ -347,25 +445,26 @@ public final class FarmHud {
         return new Target(title, hint, dist, dy, rel, arrived);
     }
 
-    private static void drawNavigator(GuiGraphicsExtractor g, Minecraft mc, int y, Target t) {
-        if (t == null || !ModConfig.INSTANCE.navHudEnabled) return;
+    private static int drawNavigator(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
+        Target t = target;
+        if (t == null || !ModConfig.INSTANCE.navHudEnabled) return 0;
+        int h = 36;
+        if (g == null) return h;
         Font f = mc.font;
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int x = sw - PANEL_W - MARGIN, h = 36;
         int accent = t.arrived() ? Ui.ON : accent();
 
         float pulse = (float) (0.55 + 0.45 * Math.sin(System.currentTimeMillis() / 300.0));
-        Ui.round(g, x, y, PANEL_W, h, 5, bg());
-        g.fill(x, y + 3, x + 2, y + h - 3, Ui.alpha(accent, 0.5f + 0.5f * pulse));
-        Ui.text(g, f, Ui.ellipsize(f, t.arrived() ? "✔ На месте" : t.title(), PANEL_W - 44), x + 8, y + 4,
+        panel(g, x, y, w, h, Ui.alpha(accent, 0.5f + 0.5f * pulse));
+        Ui.text(g, f, Ui.ellipsize(f, t.arrived() ? "✔ На месте" : t.title(), w - 44), x + 8, y + 4,
                 t.arrived() ? Ui.ON : accentHi());
         Ui.text(g, f, distText(t), x + 8, y + 15, Ui.TEXT);
-        Ui.text(g, f, Ui.ellipsize(f, t.hint(), PANEL_W - 40), x + 8, y + 25, Ui.SUB);
+        Ui.text(g, f, Ui.ellipsize(f, t.hint(), w - 40), x + 8, y + 25, Ui.SUB);
 
-        int ax = x + PANEL_W - 18, ay = y + h / 2;
+        int ax = x + w - 18, ay = y + h / 2;
         Ui.circle(g, ax, ay, 12, 0xFF1C2230);
         if (t.dist() < 0.75) Ui.circle(g, ax, ay, 4, Ui.ON);
         else drawArrow(g, ax, ay, t.relAngle(), t.arrived() ? Ui.ON : accentHi());
+        return h;
     }
 
     /** Маленькая стрелка вокруг прицела, указывает на цель; рядом расстояние. */

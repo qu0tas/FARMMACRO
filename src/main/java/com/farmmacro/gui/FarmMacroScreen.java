@@ -351,13 +351,31 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 2, 64, 1, 8, v -> Rows.num(v) + " бл").under(farm).adv());
         rows.add(number("Вес: блок на ферме", null, () -> cfg().suspWeightFarmBlock, v -> cfg().suspWeightFarmBlock = v,
                 0, 100, 0.5, 2, Rows::num).under(farm).adv());
+        java.util.function.BooleanSupplier bb = () -> cfg().panicEnabled && cfg().detectBedrockBurst;
+        rows.add(toggle("Бедрок очередью", "Сервер поставил несколько блоков бедрока рядом почти сразу (стройка клетки)",
+                () -> cfg().detectBedrockBurst, v -> cfg().detectBedrockBurst = v).enabledIf(master));
+        rows.add(number("Бедрок: блоков", null, () -> cfg().bedrockBurstMin, v -> cfg().bedrockBurstMin = (int) v,
+                1, 64, 1, 2, v -> (int) v + " шт.").integer().under(bb).adv());
+        rows.add(number("Бедрок: радиус", null, () -> cfg().bedrockBurstRadius, v -> cfg().bedrockBurstRadius = v,
+                1, 64, 1, 4, v -> Rows.num(v) + " бл").under(bb).adv());
+        rows.add(number("Бедрок: за время", null, () -> cfg().bedrockBurstMs, v -> cfg().bedrockBurstMs = (int) v,
+                50, 10000, 50, 250, v -> (int) v + " мс").integer().under(bb).adv());
+        java.util.function.BooleanSupplier cc = () -> cfg().panicEnabled && cfg().detectCageCount;
+        rows.add(toggle("Клетка по числу блоков", "Сервер поставил несколько твёрдых блоков у ног и головы почти сразу — любые, не только бедрок",
+                () -> cfg().detectCageCount, v -> cfg().detectCageCount = v).enabledIf(master));
+        rows.add(number("Клетка: блоков", null, () -> cfg().cageCountMin, v -> cfg().cageCountMin = (int) v,
+                2, 26, 1, 2, v -> (int) v + " шт.").integer().under(cc).adv());
+        rows.add(number("Клетка: радиус", "От ног и от головы", () -> cfg().cageCountRadius, v -> cfg().cageCountRadius = v,
+                0.5, 4, 0.25, 1, v -> Rows.num(v) + " бл").under(cc).adv());
+        rows.add(number("Клетка: за время", null, () -> cfg().cageCountMs, v -> cfg().cageCountMs = (int) v,
+                100, 10000, 100, 500, v -> (int) v + " мс").integer().under(cc).adv());
 
         rows.add(new Rows.Section("Чат и игроки").key("p.social").closed());
         java.util.function.BooleanSupplier chat = () -> cfg().panicEnabled && cfg().detectChat;
         rows.add(toggle("Чат", "Сообщение с твоим ником или словом из списка (свои — не считаются)",
                 () -> cfg().detectChat, v -> cfg().detectChat = v).enabledIf(master));
         rows.add(toggle("Чат: мой ник", null, () -> cfg().chatMentionName, v -> cfg().chatMentionName = v).under(chat));
-        rows.add(new Rows.TextField("Чат: слова", "Через запятую, без учёта регистра. Пусто — только ник", () -> cfg().chatKeywords, v -> {
+        rows.add(new Rows.TextField("Чат: слова", "Через запятую. Обычные — без учёта регистра; ЗАГЛАВНЫЕ (ROTATED) — точно и целым словом. Пусто — только ник", () -> cfg().chatKeywords, v -> {
             cfg().chatKeywords = v.strip();
             save();
             return true;
@@ -368,10 +386,62 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().detectPlayerNear, v -> cfg().detectPlayerNear = v).enabledIf(master));
         rows.add(number("Радиус", "Дальше — в подозрительность", () -> cfg().playerNearRadius, v -> cfg().playerNearRadius = v,
                 1, 128, 1, 8, v -> Rows.num(v) + " бл").under(() -> cfg().panicEnabled && cfg().detectPlayerNear));
+        rows.add(number("Игрок рядом: задержка", "Паника, только если игрок пробыл в радиусе столько секунд. 0 — сразу",
+                () -> cfg().playerNearDelaySec, v -> cfg().playerNearDelaySec = v,
+                0, 120, 0.5, 5, v -> v == 0 ? "сразу" : Rows.num(v) + " с").under(() -> cfg().panicEnabled && cfg().detectPlayerNear));
         rows.add(toggle("Наблюдатель", "Игрок в Tab стал наблюдателем (его не видно, а смену режима — видно)",
                 () -> cfg().detectSpectator, v -> cfg().detectSpectator = v).enabledIf(master));
         rows.add(toggle("Вход / выход игроков", "Зашёл кто-то или пропал из Tab (часто так выглядит «ваниш»)",
                 () -> cfg().detectPlayerJoin, v -> cfg().detectPlayerJoin = v).enabledIf(master));
+        java.util.function.BooleanSupplier staff = () -> cfg().panicEnabled && cfg().detectStaffNear;
+        rows.add(toggle("Staff рядом", "Игрок с [ADMIN], [MOD], [HELPER], [GM], [OWNER], [MOJANG] в имени рядом или появился в Tab ([YOUTUBE] — нет)",
+                () -> cfg().detectStaffNear, v -> cfg().detectStaffNear = v).enabledIf(master));
+        rows.add(number("Staff: радиус", null, () -> cfg().staffRadius, v -> cfg().staffRadius = v,
+                1, 128, 1, 8, v -> Rows.num(v) + " бл").under(staff).adv());
+        rows.add(toggle("Staff: появился в Tab", "Даже далеко — по префиксу в списке игроков", () -> cfg().staffTab, v -> cfg().staffTab = v).under(staff));
+        rows.add(toggle("Двойник", "Рядом другой игрок с твоим ником (подмена при проверке)",
+                () -> cfg().detectTwin, v -> cfg().detectTwin = v).enabledIf(master));
+        rows.add(number("Двойник: радиус", null, () -> cfg().twinRadius, v -> cfg().twinRadius = v,
+                1, 128, 1, 8, v -> Rows.num(v) + " бл").under(() -> cfg().panicEnabled && cfg().detectTwin).adv());
+        java.util.function.BooleanSupplier mass = () -> cfg().panicEnabled && cfg().detectMassTp;
+        rows.add(toggle("Массовый телепорт", "Сразу несколько игроков появились рядом. Не после своего телепорта/варпа и не в первые секунды в мире",
+                () -> cfg().detectMassTp, v -> cfg().detectMassTp = v).enabledIf(master));
+        rows.add(number("Массовый ТП: игроков", null, () -> cfg().massTpMin, v -> cfg().massTpMin = (int) v,
+                2, 50, 1, 5, v -> (int) v + " шт.").integer().under(mass));
+        rows.add(number("Массовый ТП: радиус", null, () -> cfg().massTpRadius, v -> cfg().massTpRadius = v,
+                1, 64, 1, 4, v -> Rows.num(v) + " бл").under(mass).adv());
+        rows.add(number("Массовый ТП: за время", null, () -> cfg().massTpWindowMs, v -> cfg().massTpWindowMs = (int) v,
+                100, 10000, 100, 500, v -> (int) v + " мс").integer().under(mass).adv());
+        rows.add(number("Массовый ТП: не в первые", "Секунды после входа в мир", () -> cfg().massTpWorldGraceSec, v -> cfg().massTpWorldGraceSec = (int) v,
+                0, 120, 1, 5, v -> (int) v + " с").integer().under(mass).adv());
+        java.util.function.BooleanSupplier nl = () -> cfg().panicEnabled && cfg().detectNameless;
+        rows.add(toggle("Игрок без имени", "Рядом стоит игрок без ника над головой (скрытый бот проверки). Невидимый с ником — нет",
+                () -> cfg().detectNameless, v -> cfg().detectNameless = v).enabledIf(master));
+        rows.add(number("Без имени: радиус", null, () -> cfg().namelessRadius, v -> cfg().namelessRadius = v,
+                1, 64, 1, 4, v -> Rows.num(v) + " бл").under(nl).adv());
+        rows.add(number("Без имени: дольше", null, () -> cfg().namelessDwellMs, v -> cfg().namelessDwellMs = (int) v,
+                50, 30000, 250, 1000, v -> (int) v + " мс").integer().under(nl).adv());
+        rows.add(toggle("Личные сообщения", "«From [RANK] Ник: …» — тебе написали в ЛС",
+                () -> cfg().detectPm, v -> cfg().detectPm = v).enabledIf(master));
+        rows.add(toggle("«You are AFK»", "Сервер предупредил, что ты AFK",
+                () -> cfg().detectAfkMsg, v -> cfg().detectAfkMsg = v).enabledIf(master));
+
+        rows.add(new Rows.Section("Друзья").key("p.friends").closed());
+        rows.add(new Rows.Note("Ники друзей: на них не срабатывают отмеченные ниже проверки. Регистр не важен.", Ui.SUB));
+        rows.add(new Rows.TextField("Друзья", "Ники через запятую", () -> cfg().friendNames, v -> {
+            cfg().friendNames = v.strip();
+            save();
+            return true;
+        }, null, 1000, 0));
+        rows.add(new Rows.Buttons(new Rows.Btn("Добавить игроков рядом", Rows.Style.SECONDARY, this::addNearbyFriends)
+                .tip("Все игроки из Tab в 32 блоках (NPC без записи в Tab — нет)")));
+        rows.add(new Rows.Note(() -> friendMsg, Ui.ACCENT));
+        rows.add(toggle("Не считать: игрок рядом", null, () -> cfg().friendsIgnoreNear, v -> cfg().friendsIgnoreNear = v));
+        rows.add(toggle("Не считать: вход / выход", null, () -> cfg().friendsIgnoreJoin, v -> cfg().friendsIgnoreJoin = v));
+        rows.add(toggle("Не считать: наблюдатель", null, () -> cfg().friendsIgnoreSpectator, v -> cfg().friendsIgnoreSpectator = v));
+        rows.add(toggle("Не считать: чат", null, () -> cfg().friendsIgnoreChat, v -> cfg().friendsIgnoreChat = v));
+        rows.add(toggle("Не считать: ЛС", null, () -> cfg().friendsIgnorePm, v -> cfg().friendsIgnorePm = v));
+        rows.add(toggle("Не считать: массовый телепорт", null, () -> cfg().friendsIgnoreMass, v -> cfg().friendsIgnoreMass = v));
 
         rows.add(new Rows.Section("Сервер и Skyblock").key("p.server").closed());
         rows.add(toggle("Лаги сервера", "Нет пакетов времени > 1.3 с: «Застрял» и «Аномалия скорости» ждут, поправки позиции — в подозрительность",
@@ -385,6 +455,10 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         }, Ui.SUB));
         rows.add(toggle("Отключение от сервера", "Кикнули или оборвалась связь во время макроса — сирена и запись в журнал",
                 () -> cfg().detectDisconnect, v -> cfg().detectDisconnect = v).enabledIf(master));
+        rows.add(toggle("Тишина сервера", "Ни одного пакета столько секунд — мод сам закрывает соединение, дальше как вылет (Переподключение)",
+                () -> cfg().detectSilence, v -> cfg().detectSilence = v).enabledIf(master));
+        rows.add(number("Тишина: секунд", null, () -> cfg().silenceSec, v -> cfg().silenceSec = (int) v,
+                10, 300, 5, 30, v -> (int) v + " с").integer().under(() -> cfg().panicEnabled && cfg().detectSilence));
         rows.add(toggle("Перезагрузка / лимбо", "«Server closing: 0:25» на табло (< 30 с), слова restart/reboot/перезагрузка/limbo в системном чате и титрах",
                 () -> cfg().detectRestart, v -> cfg().detectRestart = v).enabledIf(master));
         java.util.function.BooleanSupplier ban = () -> cfg().panicEnabled && cfg().detectBanwave;
@@ -499,6 +573,33 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             try { java.nio.file.Files.createDirectories(d); } catch (Exception ignored) {}
             openFolder(d);
         })).under(() -> cfg().eventLogEnabled).adv());
+        rows.add(toggle("Скриншот при панике", "config/farmmacro/screenshots/ — сохраняется сразу после стопа",
+                () -> cfg().panicScreenshot, v -> cfg().panicScreenshot = v));
+        rows.add(new Rows.Buttons(new Rows.Btn("Папка скриншотов", Rows.Style.SECONDARY, () -> {
+            java.nio.file.Path d = com.farmmacro.panic.PanicShot.dir();
+            try { java.nio.file.Files.createDirectories(d); } catch (Exception ignored) {}
+            openFolder(d);
+        })).under(() -> cfg().panicScreenshot).adv());
+        rows.add(toggle("Диагностика: стоит без дела", "Только запись в журнал, не паника: макрос играет, а ни одна клавиша не нажата",
+                () -> cfg().diagIdle, v -> cfg().diagIdle = v).enabledIf(() -> cfg().eventLogEnabled));
+        rows.add(number("Без дела дольше", null, () -> cfg().diagIdleSec, v -> cfg().diagIdleSec = (int) v,
+                3, 3600, 5, 30, v -> (int) v + " с").integer().under(() -> cfg().eventLogEnabled && cfg().diagIdle).adv());
+        rows.add(toggle("Диагностика: табло не читается", "Запись в журнал, если табло не читается минуту (нужно для перезагрузки и Jacob's)",
+                () -> cfg().diagScoreboard, v -> cfg().diagScoreboard = v).enabledIf(() -> cfg().eventLogEnabled));
+
+        rows.add(new Rows.Section("Discord").key("p.discord").closed());
+        java.util.function.BooleanSupplier wh = () -> cfg().webhookEnabled;
+        rows.add(toggle("Сообщать в Discord", "При панике — сообщение в свой канал через webhook (отдельный поток, игре не мешает)",
+                () -> cfg().webhookEnabled, v -> cfg().webhookEnabled = v));
+        rows.add(new Rows.TextField("Webhook URL", "Хранится отдельно (discord-webhook.txt), в профили и журнал не попадает. Пусто — удалить",
+                com.farmmacro.notify.DiscordNotify::maskedUrl, com.farmmacro.notify.DiscordNotify::setUrl,
+                null, 300, 0).errorText("Нужна ссылка https://discord.com/api/webhooks/…").under(wh));
+        rows.add(toggle("Прикладывать скриншот", "Нужен «Скриншот при панике»", () -> cfg().webhookScreenshot, v -> cfg().webhookScreenshot = v)
+                .under(() -> cfg().webhookEnabled && cfg().panicScreenshot));
+        rows.add(new Rows.Buttons(new Rows.Btn("Проверить", Rows.Style.SECONDARY, () -> com.farmmacro.notify.DiscordNotify.send(
+                "✅ FarmMacro: проверка вебхука · " + com.farmmacro.panic.PanicShot.humanTime(), null, "проверка")))
+                .under(() -> cfg().webhookEnabled && com.farmmacro.notify.DiscordNotify.configured()));
+        rows.add(new Rows.Note(() -> cfg().webhookEnabled ? com.farmmacro.notify.DiscordNotify.status() : "", Ui.SUB));
         rows.add(new Rows.End());
         rows.add(new Rows.Spacer(4));
         rows.add(new Rows.Buttons(new Rows.Btn("⚠ Проверить панику", Rows.Style.DANGER, () -> {
@@ -671,6 +772,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 5, 600, 5, 30, v -> (int) v + " с").integer().under(rc));
         rows.add(number("Попыток", null, () -> cfg().reconnectTries, v -> cfg().reconnectTries = (int) v,
                 1, 20, 1, 3, v -> String.valueOf((int) v)).integer().under(rc));
+        rows.add(toggle("Удваивать ожидание", "Каждая следующая попытка ждёт вдвое дольше (не больше 10 мин)",
+                () -> cfg().reconnectBackoff, v -> cfg().reconnectBackoff = v).under(rc));
         rows.add(new Rows.TextField("Команда после входа", "Через 3 с после входа, например /warp garden. Пусто — нет",
                 () -> cfg().reconnectCommand, v -> { cfg().reconnectCommand = v.strip(); save(); return true; }, null, 100, 0).under(rc));
         rows.add(toggle("Продолжить макрос", "Когда игрок снова у точки остановки (ждём до 75 с)",
@@ -935,6 +1038,12 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().suspicionHud, v -> cfg().suspicionHud = v).enabledIf(() -> cfg().panicEnabled && cfg().suspicionEnabled));
         rows.add(colorRow("Цвет HUD", "Акцент навигатора и стрелки у прицела", () -> cfg().hudAccentColor, v -> cfg().hudAccentColor = v).adv());
         rows.add(colorRow("Фон HUD", "Подложка панелей (полупрозрачная)", () -> cfg().hudBgColor, v -> cfg().hudBgColor = v).adv());
+        rows.add(toggle("Одна общая плашка", "Все блоки HUD — в одной панели вместо стопки",
+                () -> cfg().hudMerged, v -> cfg().hudMerged = v));
+        rows.add(new Rows.Buttons(new Rows.Btn("Редактор HUD", Rows.Style.PRIMARY, () -> {
+            save();
+            minecraft.setScreen(new com.farmmacro.hud.HudEditorScreen(this));
+        }).tip("Тащить, масштаб, скрыть. Клавиша: " + com.farmmacro.macro.MacroManager.keyName(com.farmmacro.FarmMacroMod.keyHudEdit))));
 
         java.util.function.BooleanSupplier on = () -> cfg().hatEnabled;
         rows.add(new Rows.Section("China Hat").key("v.hat"));
@@ -1244,6 +1353,27 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             }
             return false;
         }
+    }
+
+    private String friendMsg = "";
+
+    /** v1.14: дописать в друзья всех игроков из Tab в 32 блоках. */
+    private void addNearbyFriends() {
+        var mc = minecraft;
+        if (mc == null || mc.player == null || mc.level == null || mc.getConnection() == null) { friendMsg = "Нужно быть в мире"; return; }
+        String list = cfg().friendNames;
+        int added = 0;
+        for (var o : mc.level.players()) {
+            if (o == mc.player || o.distanceTo(mc.player) > 32) continue;
+            if (mc.getConnection().getPlayerInfo(o.getUUID()) == null) continue;
+            String name = o.getGameProfile().name();
+            if (!com.farmmacro.panic.PlayerRules.validName(name)) continue;
+            String next = com.farmmacro.panic.PlayerRules.addName(list, name);
+            if (!next.equals(list)) { list = next; added++; }
+        }
+        cfg().friendNames = list;
+        save();
+        friendMsg = added == 0 ? "Новых игроков рядом нет" : "Добавлено: " + added;
     }
 
     private void openFolder(java.nio.file.Path dir) {

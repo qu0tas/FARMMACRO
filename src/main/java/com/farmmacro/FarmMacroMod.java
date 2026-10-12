@@ -34,7 +34,7 @@ public class FarmMacroMod implements ClientModInitializer {
 
     public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
             keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold, keyMouseLock,
-            keyFreelook, keyLowRender, keyStartFrom, keyUngrab, keyPerf;
+            keyFreelook, keyLowRender, keyStartFrom, keyUngrab, keyPerf, keyHudEdit;
 
     private static KeyMapping makeKey(String id, int defaultCode) {
         return KeyMappingHelper.registerKeyMapping(new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
@@ -68,6 +68,8 @@ public class FarmMacroMod implements ClientModInitializer {
         keyStartFrom = makeKey("key.farmmacro.startfrom", 78);  // N (v1.12) — продолжить маршрут с места
         keyUngrab    = makeKey("key.farmmacro.ungrab", 85);     // U (v1.13.1) — отпустить курсор
         keyPerf      = makeKey("key.farmmacro.perf", 298);      // F9 (v1.13.1) — режим производительности
+        keyHudEdit   = makeKey("key.farmmacro.hudedit", 297);   // F8 (v1.14) — редактор HUD
+        com.farmmacro.macro.ReconnectScreenHook.register();
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
         // v1.13: отключение от сервера во время макроса — паника; новый сервер — сброс замера лагов
@@ -78,9 +80,11 @@ public class FarmMacroMod implements ClientModInitializer {
             boolean reconnect = com.farmmacro.macro.Reconnect.wouldReconnect(client, playing);
             Guard.run("macro/reconnect", () -> com.farmmacro.macro.Reconnect.onDisconnect(client, playing));
             Guard.run("panic/disconnect", () -> PanicDetector.INSTANCE.onDisconnect(client, playing && !reconnect));
+            com.farmmacro.panic.SilenceWatch.INSTANCE.reset();
         });
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             com.farmmacro.panic.LagGuard.INSTANCE.reset();
+            com.farmmacro.panic.SilenceWatch.INSTANCE.onJoin(System.currentTimeMillis());
             com.farmmacro.macro.Reconnect.onJoin(client);
         });
         LOGGER.info("FarmMacro загружен");
@@ -93,6 +97,8 @@ public class FarmMacroMod implements ClientModInitializer {
         Guard.run("macro/reconnect", () -> com.farmmacro.macro.Reconnect.tick(mc));
         Guard.run("visual/perf", () -> com.farmmacro.visual.PerformanceMode.tick(mc));
         Guard.run("camera/ungrab", () -> com.farmmacro.camera.Ungrab.tick(mc));
+        Guard.run("panic/always", () -> PanicDetector.INSTANCE.tickAlways(mc));
+        Guard.run("panic/silence", () -> checkSilence(mc));
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
             MouseHold.INSTANCE.tick(mc);     // без игрока — выключить зажим
@@ -119,6 +125,10 @@ public class FarmMacroMod implements ClientModInitializer {
         while (keyStartFrom.consumeClick()) macro.startRouteHere(mc);
         while (keyUngrab.consumeClick()) com.farmmacro.camera.Ungrab.toggle(mc);
         while (keyPerf.consumeClick()) com.farmmacro.visual.PerformanceMode.toggle(mc);
+        while (keyHudEdit.consumeClick()) {
+            if (macro.isActive()) macro.stopPlayback(mc, "§e■ Остановлено: открыт редактор HUD");
+            mc.setScreen(new com.farmmacro.hud.HudEditorScreen(null));
+        }
         Guard.run("editor/tick", () -> RouteEditor.tick(mc));
         while (keyCamApply.consumeClick()) CameraPresets.applySelected(mc);
         while (keyCamNext.consumeClick())  CameraPresets.next(mc);
@@ -138,5 +148,21 @@ public class FarmMacroMod implements ClientModInitializer {
         macro.tickPlayback(mc);
         Guard.run("macro/scheduler", () -> com.farmmacro.macro.Scheduler.tick(mc));
         Guard.run("hold/tick", () -> MouseHold.INSTANCE.tick(mc));
+    }
+
+    /**
+     * v1.14 «Тишина сервера»: ни одного пакета N с во время макроса — закрываем соединение сами.
+     * Дальше это обычный вылет: DISCONNECT → Reconnect (если включён) или паника «отключение».
+     */
+    private static void checkSilence(Minecraft mc) {
+        ModConfig c = ModConfig.INSTANCE;
+        if (!c.panicEnabled || !c.detectSilence || !MacroManager.INSTANCE.isPlaying()) return;
+        if (mc.isSingleplayer() || mc.getConnection() == null) return;
+        long now = System.currentTimeMillis();
+        if (!com.farmmacro.panic.SilenceWatch.INSTANCE.shouldClose(now, c.silenceSec * 1000L)) return;
+        com.farmmacro.panic.EventLog.log("SILENCE", "сервер молчит " + c.silenceSec + " с — закрываю соединение");
+        LOGGER.warn("FarmMacro: сервер молчит {} с — закрываю соединение", c.silenceSec);
+        mc.getConnection().getConnection().disconnect(
+                net.minecraft.network.chat.Component.literal("FarmMacro: сервер молчит " + c.silenceSec + " с"));
     }
 }
