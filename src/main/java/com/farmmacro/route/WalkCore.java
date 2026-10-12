@@ -274,6 +274,21 @@ public final class WalkCore {
         return dx * vx + dz * vz > 0 && Math.abs(dx * vz - dz * vx) < 0.6;
     }
 
+    /** v1.15: расстояние по XZ от линии текущего отрезка (NaN — первый подход, спуск или конец). */
+    public double offLine(double x, double z) {
+        if (target <= 0 || done || pts.isEmpty() || dropPhase != D_NONE || target >= pts.size()) return Double.NaN;
+        RoutePoint t = pts.get(target);
+        return RouteBuffer.distToSegmentXZ(x, z, segStartX(), segStartZ(), t.x, t.z);
+    }
+
+    /** v1.15: высота ног по отрезку в проекции (x, z) (NaN — как у {@link #offLine}). */
+    public double expectedY(double x, double z) {
+        if (target <= 0 || done || pts.isEmpty() || dropPhase != D_NONE || target >= pts.size()) return Double.NaN;
+        double f = segmentFraction(x, z);
+        RoutePoint a = pts.get(target - 1), b = pts.get(target);
+        return a.y + (b.y - a.y) * f;
+    }
+
     /** Прогресс на отрезке к target: 0…1 (для раскраски «пройдено»). */
     public double segmentFraction(double x, double z) {
         if (target == 0 || pts.isEmpty()) return 0;

@@ -47,6 +47,8 @@ public final class FarmHud {
             new Block("mouselock", "Блокировка мыши", WIDE, FarmHud::drawMouseLock),
             new Block("view", "Freelook · Low render · PERF", WIDE, FarmHud::drawView),
             new Block("human", "Случайность", WIDE, FarmHud::drawHuman),
+            new Block("return", "Возврат на маршрут", WIDE, FarmHud::drawReturn),
+            new Block("delays", "Задержки рук (отладка)", 210, FarmHud::drawDelays),
             new Block("susp", "Подозрительность", WIDE, FarmHud::drawSuspicion),
             new Block("server", "TPS · BPS · баны", WIDE, FarmHud::drawServer),
             new Block("schedule", "Расписание и выход", WIDE, FarmHud::drawSchedule),
@@ -87,7 +89,7 @@ public final class FarmHud {
         List<Rect> out = new ArrayList<>();
         Font f = mc.font;
         if (c.hudMerged) {
-            int w = WIDE;
+            int w = c.hudWidth + 20;
             List<Block> list = new ArrayList<>();
             List<Integer> hs = new ArrayList<>();
             merged = true;
@@ -107,7 +109,7 @@ public final class FarmHud {
             for (int h : hs) total += Math.abs(h) + 2;
             total = Math.max(total, 16);
             HudSlot all = slot("all");
-            double sc = all != null ? all.scale : 1;
+            double sc = (all != null ? all.scale : 1) * c.hudScale;
             int pw = (int) Math.round(w * sc), ph = (int) Math.round(total * sc);
             int[] pos = all != null && all.placed ? HudLayout.place(all, pw, ph, sw, sh) : new int[]{sw - pw - MARGIN, MARGIN};
             out.add(new Rect("all", "Общая плашка", pos[0], pos[1], pw, ph, false, false));
@@ -144,12 +146,13 @@ public final class FarmHud {
             HudSlot sl = slot(b.id());
             boolean hid = sl != null && sl.hidden;
             if (hid && !edit) continue;
-            int h = b.drawer().draw(null, mc, 0, 0, b.width());
+            int bw = width(b);
+            int h = b.drawer().draw(null, mc, 0, 0, bw);
             boolean empty = h <= 0;
             if (empty && !edit) continue;
             if (empty) h = 15;
-            double sc = sl != null ? sl.scale : 1;
-            int pw = (int) Math.round(b.width() * sc), ph = (int) Math.round(h * sc);
+            double sc = (sl != null ? sl.scale : 1) * c.hudScale;
+            int pw = (int) Math.round(bw * sc), ph = (int) Math.round(h * sc);
             int x, y;
             if (sl != null && sl.placed) { int[] p = HudLayout.place(sl, pw, ph, sw, sh); x = p[0]; y = p[1]; }
             else { x = sw - pw - MARGIN; y = stack; stack += ph + GAP; }
@@ -161,10 +164,10 @@ public final class FarmHud {
                 pose.translate(x, y);
                 pose.scale((float) sc, (float) sc);
                 if (empty) {
-                    Ui.round(g, 0, 0, b.width(), h, 5, 0x90101420);
-                    Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", b.width() - 14), 8, 4, Ui.DIM);
-                } else b.drawer().draw(g, mc, 0, 0, b.width());
-                if (edit && hid) dimHidden(g, f, 0, 0, b.width(), h);
+                    Ui.round(g, 0, 0, bw, h, 5, 0x90101420);
+                    Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", bw - 14), 8, 4, Ui.DIM);
+                } else b.drawer().draw(g, mc, 0, 0, bw);
+                if (edit && hid) dimHidden(g, f, 0, 0, bw, h);
             } finally {
                 pose.popMatrix();
             }
@@ -296,7 +299,11 @@ public final class FarmHud {
         String issue = com.farmmacro.visual.RouteRenderer.editorIssue;
         if (issue != null && com.farmmacro.visual.RouteRenderer.editorIssueCount > 1)
             issue += " (+" + (com.farmmacro.visual.RouteRenderer.editorIssueCount - 1) + ")";
-        int h = 26 + EDITOR_HINTS.length * 10 + (issue != null ? 10 : 0);
+        List<String> body = new ArrayList<>();
+        List<Integer> bodyCol = new ArrayList<>();
+        if (issue != null) for (String l : wrap(f, "⚠ " + issue, w - 14)) { body.add(l); bodyCol.add(0xFFFF5A5A); }
+        for (String hint : EDITOR_HINTS) for (String l : wrap(f, hint, w - 14)) { body.add(l); bodyCol.add(Ui.SUB); }
+        int h = 26 + body.size() * 10;
         if (g == null) return h;
         int col = 0xFFD08CFF;
         panel(g, x, y, w, h, col);
@@ -309,19 +316,50 @@ public final class FarmHud {
                 + (rb.isDirty() ? " · не сохранён" : "");
         Ui.text(g, f, Ui.ellipsize(f, line, w - 14), x + 8, y + 15, Ui.TEXT);
         int ly = y + 26;
-        if (issue != null) { Ui.text(g, f, Ui.ellipsize(f, "⚠ " + issue, w - 14), x + 8, ly, 0xFFFF5A5A); ly += 10; }
-        for (String hint : EDITOR_HINTS) { Ui.text(g, f, Ui.ellipsize(f, hint, w - 14), x + 8, ly, Ui.SUB); ly += 10; }
+        for (int i = 0; i < body.size(); i++) { Ui.text(g, f, body.get(i), x + 8, ly, bodyCol.get(i)); ly += 10; }
         return h;
     }
 
     // ── Однострочные плашки ──────────────────────────────────────────────────
 
-    /** Однострочная плашка высотой 15. */
+    /**
+     * v1.15.1: ширина блока — из «Визуал → HUD → Ширина» (узкие — статус и навигатор, остальные на 20 шире).
+     */
+    static int width(Block b) {
+        int base = ModConfig.INSTANCE.hudWidth;
+        return b.width() == PANEL_W ? base : b.width() == WIDE ? base + 20 : Math.max(b.width(), base + 60);
+    }
+
+    /** v1.15.1: перенос по словам (длинное слово — по символам) в ширину maxW; без переноса — одна строка с «…». */
+    static List<String> wrap(Font f, String s, int maxW) {
+        List<String> out = new ArrayList<>();
+        if (!ModConfig.INSTANCE.hudWrap || f.width(s) <= maxW) { out.add(f.width(s) <= maxW ? s : Ui.ellipsize(f, s, maxW)); return out; }
+        StringBuilder cur = new StringBuilder();
+        for (String word : s.split(" ")) {
+            String tryS = cur.length() == 0 ? word : cur + " " + word;
+            if (f.width(tryS) <= maxW) { cur.setLength(0); cur.append(tryS); continue; }
+            if (cur.length() > 0) { out.add(cur.toString()); cur.setLength(0); }
+            while (f.width(word) > maxW) {
+                int n = 1;
+                while (n < word.length() && f.width(word.substring(0, n + 1)) <= maxW) n++;
+                out.add(word.substring(0, n));
+                word = word.substring(n);
+            }
+            cur.append(word);
+        }
+        if (cur.length() > 0) out.add(cur.toString());
+        if (out.size() > 6) { List<String> cut = new ArrayList<>(out.subList(0, 6)); cut.set(5, Ui.ellipsize(f, cut.get(5) + "…", maxW)); return cut; }
+        return out;
+    }
+
+    /** Плашка с текстом: одна строка — высота 15, длинный текст переносится (+10 на строку). */
     private static int line(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w, String text, int col) {
-        if (g == null) return 15;
-        panel(g, x, y, w, 15, col);
-        Ui.text(g, mc.font, Ui.ellipsize(mc.font, text, w - 14), x + 8, y + 4, col);
-        return 15;
+        List<String> ls = wrap(mc.font, text, w - 14);
+        int h = 5 + ls.size() * 10;
+        if (g == null) return h;
+        panel(g, x, y, w, h, col);
+        for (int i = 0; i < ls.size(); i++) Ui.text(g, mc.font, ls.get(i), x + 8, y + 4 + i * 10, col);
+        return h;
     }
 
     /** Плашка «ЗАЖИМ ЛКМ» — ручной зажим или зажим от играющего макроса. */
@@ -340,6 +378,46 @@ public final class FarmHud {
         var h = com.farmmacro.macro.Humanizer.ACTIVE;
         if (h == null || !MacroManager.INSTANCE.isPlaying()) return 0;
         return line(g, mc, x, y, w, "СЛУЧАЙНОСТЬ · " + h.status() + " · сид " + h.seed, 0xFFE08CFF);
+    }
+
+    /** v1.15: плашка «ВОЗВРАТ НА МАРШРУТ · N бл» — пока идёт свой путь к маршруту. */
+    private static int drawReturn(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
+        MacroManager m = MacroManager.INSTANCE;
+        if (!m.isReturning()) return 0;
+        var rw = m.returnWalker();
+        String text = rw.turningToRoute() ? "ВОЗВРАТ · поворот к маршруту"
+                : String.format(java.util.Locale.ROOT, "ВОЗВРАТ %s · %.1f бл%s", rw.what(), rw.remaining(mc.player),
+                rw.replans() > 0 ? " · путь ×" + (rw.replans() + 1) : "");
+        return line(g, mc, x, y, w, text, 0xFF7FD8FF);
+    }
+
+    /** v1.15: оверлей «Задержки рук»: усталость, отвлечения, последние задержки и разброс по видам. */
+    private static int drawDelays(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
+        ModConfig c = ModConfig.INSTANCE;
+        if (!c.delayDebugHud || !c.delayLayers) return 0;
+        var model = com.farmmacro.macro.HandDelays.MODEL;
+        var last = model.last(6);
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        java.util.List<Integer> cols = new java.util.ArrayList<>();
+        boolean on = com.farmmacro.macro.HandDelays.active();
+        lines.add(String.format(java.util.Locale.ROOT, "ЗАДЕРЖКИ · усталость ×%.2f · отвлечений %d%s",
+                model.fatigue(System.currentTimeMillis(), com.farmmacro.macro.HandDelays.params()), model.distracts(), on ? "" : " · ждут"));
+        cols.add(0xFFFFD27F);
+        for (int i = last.size() - 1; i >= 0; i--) { lines.add(last.get(i).line()); cols.add(last.get(i).distractMs() > 0 ? Ui.WARN : Ui.SUB); }
+        for (var k : com.farmmacro.macro.DelayModel.Kind.values()) {
+            var st = model.stats(k);
+            if (st.n() == 0) continue;
+            lines.add(String.format(java.util.Locale.ROOT, "%s: %.0f±%.0f мс, %.0f–%.0f (n=%d)", k.label, st.mean(), st.sd(), st.min(), st.max(), st.n()));
+            cols.add(0xFFB0E0FF);
+        }
+        List<String> wl = new ArrayList<>();
+        List<Integer> wc = new ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) for (String l : wrap(mc.font, lines.get(i), w - 14)) { wl.add(l); wc.add(cols.get(i)); }
+        int h = 6 + wl.size() * 10;
+        if (g == null) return h;
+        panel(g, x, y, w, h, 0xFFFFD27F);
+        for (int i = 0; i < wl.size(); i++) Ui.text(g, mc.font, wl.get(i), x + 8, y + 4 + i * 10, wc.get(i));
+        return h;
     }
 
     /** v1.11: полоска «ПОДОЗР. N/10» — очки «Подозрительности», пока играет макрос. */

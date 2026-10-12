@@ -54,7 +54,7 @@ tasks.register('routeStress', JavaExec) {
 	description = 'Упрощение маршрута макроса на 70 000 кадров: точки, вершины, время'
 	classpath = sourceSets.stress.runtimeClasspath
 	mainClass = 'com.farmmacro.visual.RouteStress'
-	jvmArgs = ['-Xmx512m', '-Dstdout.encoding=UTF-8']
+	jvmArgs = ['-Xmx512m', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
 }
 
 // Подбор «Случайности» вне игры: ./gradlew configSweep [-Pcandidates=3000 -Plaps=40]. В build не входит.

@@ -32,6 +32,9 @@ public final class RouteStress {
         com.farmmacro.panic.BigPanicCheck.main();
         com.farmmacro.panic.PlayersCheck.main();
         com.farmmacro.panic.DetectorsCheck.main();
+        com.farmmacro.route.PathCheck.main();
+        com.farmmacro.macro.DelayCheck.main();
+        com.farmmacro.route.FlyCheck.main();
         try { com.farmmacro.panic.SuspicionCheck.main(); } catch (Exception e) { throw new IllegalStateException(e); }
     }
 

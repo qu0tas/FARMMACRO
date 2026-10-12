@@ -78,6 +78,22 @@ public class MacroManager {
     private long sessionStartMs;
     private int  sessionRuns;
 
+    // v1.15 «Возврат на маршрут»: идём своим путём (A*) к точке старта/остановки или обратно на маршрут
+    private final com.farmmacro.route.ReturnWalker approach = new com.farmmacro.route.ReturnWalker();
+    private static final int AP_NONE = 0, AP_START = 1, AP_REJOIN = 2;
+    private int approachKind = AP_NONE;
+    /** Цели пути, найденного при запуске (null — идти не нужно), с какой точки продолжать и что пишем игроку. */
+    private List<com.farmmacro.route.PathFinder.Goal> pendingGoals;
+    private int pendingJoin;
+    private String pendingWhat = "";
+    /** Запуск «продолжить» через возврат: точку остановки сбросить, только когда дошли. */
+    private boolean pendingResume, approachResume;
+    /** REJOIN: какая точка маршрута была целью, когда сбили (для точки остановки, если возврат не удался). */
+    private int rejoinResume;
+    private int rejoinsThisRun;
+    /** Сколько раз за запуск можно вернуться после толчка (дальше — обычные «Сошёл с маршрута»/паника). */
+    public static final int REJOIN_MAX_PER_RUN = 20;
+
     // точка остановки для «возобновить»
     private boolean hasSavedPosition;
     private SourceKind savedKind;
@@ -195,8 +211,27 @@ public class MacroManager {
         var hit = com.farmmacro.route.RouteProjection.nearest(rb.route().points, mc.player.getX(), mc.player.getY(), mc.player.getZ());
         double max = ModConfig.INSTANCE.resumeAnywhereMaxDist;
         if (hit.dist() > max || hit.dy() > 1.5) {
-            msg(mc, String.format(Locale.ROOT, "§cДо дороги %.1f бл%s — встань на маршрут (до %.1f бл)",
-                    hit.dist(), hit.dy() > 1.5 ? String.format(Locale.ROOT, ", по высоте %.1f", hit.dy()) : "", max));
+            ModConfig c = ModConfig.INSTANCE;
+            String far = String.format(Locale.ROOT, "%.1f бл%s", hit.dist(), hit.dy() > 1.5 ? String.format(Locale.ROOT, ", по высоте %.1f", hit.dy()) : "");
+            String dim = rb.route().dimension;
+            if (dim != null && !dim.equals(com.farmmacro.route.RouteBuffer.dimensionId(mc))) {
+                msg(mc, "§cМаршрут построен в другом измерении (" + dim + ")");
+                return;
+            }
+            if (c.returnEnabled) {
+                // v1.15: далеко — дойти до ближайшего места маршрута своим путём
+                var goals = com.farmmacro.route.PathFinder.routeGoals(rb.route().points, mc.player.getY(), -1, 0);
+                var r = com.farmmacro.route.ReturnWalker.plan(mc, goals);
+                if (r.ok) {
+                    useRouteSource();
+                    msg(mc, "§aДо дороги " + far + " — иду к маршруту, отрезок " + (r.goal.seg + 1) + " → " + (r.goal.join + 1));
+                    launch(mc, r.goal.join, false, goals, r.goal.join, "к маршруту (N)");
+                    return;
+                }
+                msg(mc, "§cДо дороги " + far + ", путь не найден: " + r.reason);
+                return;
+            }
+            msg(mc, String.format(Locale.ROOT, "§cДо дороги %s — встань на маршрут (до %.1f бл)", far, max));
             return;
         }
         useRouteSource();
@@ -222,6 +257,16 @@ public class MacroManager {
 
     private void startPlayback(Minecraft mc, int index, boolean resume) { startPlayback(mc, index, resume, -1); }
 
+    /** v1.15: переподключение — продолжить, дойдя до точки остановки своим путём (без пути — не стартовать). */
+    private boolean reconnectWalk;
+
+    /** Для {@link Reconnect}: игрок далеко от точки остановки (после /warp) — дойти и продолжить. @return запущено */
+    public boolean resumeWalking(Minecraft mc) {
+        reconnectWalk = true;
+        try { resumeFromSaved(mc); } finally { reconnectWalk = false; }
+        return isActive();
+    }
+
     /** onRoad ≥ 0 — старт «с места»: расстояние до дороги уже проверено, до точки index не меряем. */
     private void startPlayback(Minecraft mc, int index, boolean resume, double onRoad) {
         if (state == State.RECORDING) { msg(mc, "§cСначала останови запись"); return; }
@@ -246,18 +291,57 @@ public class MacroManager {
         double[] at = src.position(index);
         double dist = onRoad >= 0 ? 0 : resume ? distanceTo(mc.player, savedX, savedY, savedZ) : distanceTo(mc.player, at[0], at[1], at[2]);
         String where = resume ? "точки остановки" : "точки старта";
-        if (dist > c.startPointWarnDistance) {
-            if (c.requireStartPoint) {
+        List<com.farmmacro.route.PathFinder.Goal> goals = null;
+        int join = index;
+        if (dist > c.startPointWarnDistance && c.returnEnabled && (c.returnToStart || reconnectWalk)) {
+            // v1.15: далеко — дойти своим путём (A*), а не просить подойти
+            List<com.farmmacro.route.PathFinder.Goal> g = approachGoals(mc, src, index, resume);
+            var r = com.farmmacro.route.ReturnWalker.plan(mc, g);
+            if (r.ok) {
+                goals = g; join = r.goal.join;
+                msg(mc, String.format(Locale.ROOT, "§aДо %s %.1f бл — дойду сам (%d точек пути)", where, dist, r.points.size()));
+            } else {
+                msg(mc, String.format(Locale.ROOT, "§6Путь до %s не найден: %s", where, r.reason));
+            }
+        }
+        if (goals == null && dist > c.startPointWarnDistance) {
+            if (c.requireStartPoint || reconnectWalk) {
                 msg(mc, String.format(Locale.ROOT, "§cДо %s %.1f бл — подойди ближе (стрелка в HUD)", where, dist));
                 return;
             }
             msg(mc, String.format(Locale.ROOT, "§6Внимание: до %s %.1f бл", where, dist));
         }
+        launch(mc, index, resume, goals, join, resume ? "к точке остановки" : "к точке старта");
+    }
 
+    /** Цели пути к месту запуска: точка маршрута/кадр записи; «продолжить» маршрут — линия маршрута около точки остановки. */
+    private List<com.farmmacro.route.PathFinder.Goal> approachGoals(Minecraft mc, PlaybackSource src, int index, boolean resume) {
+        if (src == recordingSource) {
+            double[] at = resume ? new double[]{savedX, savedY, savedZ} : src.position(index);
+            return com.farmmacro.route.PathFinder.pointGoal(at[0], at[1], at[2], index);
+        }
+        var pts = com.farmmacro.route.RouteBuffer.INSTANCE.route().points;
+        if (resume && pts.size() >= 2) {
+            var hit = com.farmmacro.route.RouteProjection.nearest(pts, savedX, savedY, savedZ);
+            return com.farmmacro.route.PathFinder.routeGoals(pts, mc.player.getY(), hit.seg(), hit.t());
+        }
+        double[] at = src.position(index);
+        return com.farmmacro.route.PathFinder.pointGoal(at[0], at[1], at[2], index);
+    }
+
+    /** Общий запуск: поворот к культуре, отсчёт; goals != null — сначала дойти (approach). */
+    private void launch(Minecraft mc, int index, boolean resume, List<com.farmmacro.route.PathFinder.Goal> goals, int join, String what) {
+        ModConfig c = ModConfig.INSTANCE;
+        PlaybackSource src = selectSource();
+        if (src == null) return;
         PanicDetector.INSTANCE.silence();
         com.farmmacro.route.RouteEditor.setActive(mc, false);
         navDismissed = false;
-        if (resume) clearSavedPosition();
+        pendingGoals = goals;
+        pendingJoin = join;
+        pendingWhat = what;
+        pendingResume = resume && goals != null;
+        if (resume && goals == null) clearSavedPosition();
         pendingStartIndex = index;
         pendingSource = src;
         boolean turning = applyLaunchCrop(mc, src);
@@ -325,15 +409,122 @@ public class MacroManager {
                 + ", с " + (pendingStartIndex + 1) + (human != null ? ", случайность, сид " + human.seed : ", без случайности"));
         if (human != null) com.farmmacro.panic.EventLog.log("SEED", human.seed + (human.s.seed != 0 ? " (задан в настройках — проход повторяется)"
                 : " (новый на этот запуск)"));
-        startPass(mc, pendingStartIndex);
+        rejoinsThisRun = 0;
+        if (pendingGoals != null) {
+            var goals = pendingGoals;
+            pendingGoals = null;
+            float[] cam = endCamera(mc, source, pendingJoin);
+            approachKind = AP_START;
+            approachResume = pendingResume;
+            MouseHold.INSTANCE.suspend(true);
+            if (!approach.begin(mc, goals, cam[0], cam[1], pendingWhat)) {
+                finish(mc, "§c✖ Не дошёл " + pendingWhat + ": " + approach.failText() + " — стоп", true);
+                return;
+            }
+            msg(mc, "§a▶ Иду " + pendingWhat + " §7(" + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — стоп)");
+        } else {
+            approachKind = AP_NONE;
+            startPass(mc, pendingStartIndex);
+        }
         if (ModConfig.INSTANCE.mouseLockOnStart) com.farmmacro.camera.MouseLock.lock(mc, "старт макроса");
         if (ModConfig.INSTANCE.ungrabOnStart) com.farmmacro.camera.Ungrab.on(mc, "старт макроса");
         LOGGER.info("Старт ({}), пороги: {}", source == recordingSource ? "запись" : "маршрут",
                 ModConfig.INSTANCE.describeThresholds());
+        if (approachKind != AP_NONE) return;
         String what = source == recordingSource ? (pendingStartIndex > 0 ? " с кадра " + pendingStartIndex : "")
                 : " маршрута" + (pendingStartIndex > 0 ? " с точки " + (pendingStartIndex + 1) : "");
         msg(mc, "§a▶ Воспроизведение" + what + (human != null ? " §d· случайность" : "")
                 + " §7(" + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — стоп)");
+    }
+
+    /**
+     * Камера, к которой повернуться в конце пути: пресет привязки макроса/маршрута на точке join, у записи с
+     * «Повторять камеру» — кадр join, иначе — текущая (после поворота к культуре).
+     */
+    private float[] endCamera(Minecraft mc, PlaybackSource src, int join) {
+        LocalPlayer p = mc.player;
+        MacroSettings ms = src == recordingSource ? settings : com.farmmacro.route.RouteBuffer.INSTANCE.settings();
+        if (ms.camera.active()) {
+            var ch = ms.camera.at(join);
+            if (ch != null) return new float[]{ch.yaw(), ch.pitch()};
+        }
+        if (src == recordingSource && ModConfig.INSTANCE.replayCamera && !frames.isEmpty()) {
+            MacroFrame f = frames.get(Math.max(0, Math.min(frames.size() - 1, join)));
+            return new float[]{f.yaw, f.pitch};
+        }
+        return new float[]{p.getYRot(), p.getXRot()};
+    }
+
+    /** Тик возврата: идём; дошли — круг с точки join; не нашли путь — обычный стоп с сообщением. */
+    private void tickApproach(Minecraft mc, ModConfig c) {
+        MouseHold.INSTANCE.suspend(true);
+        var st = approach.tick(mc, c);
+        if (st == com.farmmacro.route.ReturnWalker.Status.RUNNING) return;
+        if (st == com.farmmacro.route.ReturnWalker.Status.FAIL) {
+            String what = approachKind == AP_REJOIN ? "Возврат на маршрут не удался" : "Не дошёл " + approach.what();
+            finish(mc, "§c✖ " + what + ": " + approach.failText() + " — стоп", true);
+            return;
+        }
+        int kind = approachKind, j = approach.joinIndex();
+        approachKind = AP_NONE;
+        if (kind == AP_START) {
+            if (approachResume) clearSavedPosition();
+            approachResume = false;
+            startPass(mc, Math.min(j, source.length() - 1));
+            String what = source == recordingSource ? (j > 0 ? " с кадра " + j : "") : " маршрута с точки " + (j + 1);
+            msg(mc, "§a▶ Дошёл — воспроизведение" + what + (Humanizer.ACTIVE != null ? " §d· случайность" : ""));
+        } else {
+            MouseHold.INSTANCE.suspend(false);
+            source.startPass(mc, Math.min(j, source.length() - 1));
+            PanicDetector.INSTANCE.snapshot(mc);
+            msg(mc, "§a↩ Вернулся на маршрут, дальше с точки " + (j + 1));
+        }
+    }
+
+    /**
+     * v1.15: автоход сбили с линии (толчок, откат, упал на другой этаж) — остановить его и дойти обратно своим путём.
+     * prefSeg/prefT — где был на маршруте (дальше по ходу дешевле), yaw/pitch — взгляд на маршруте до толчка.
+     * @return true — автоход в этот тик больше не играет (идёт возврат или стоп)
+     */
+    public boolean requestRejoin(Minecraft mc, int prefSeg, double prefT, float yaw, float pitch, String why) {
+        if (state != State.PLAYING || approachKind != AP_NONE || source != com.farmmacro.route.RouteWalker.INSTANCE || mc.player == null) return false;
+        if (rejoinsThisRun >= REJOIN_MAX_PER_RUN) return false;
+        rejoinsThisRun++;
+        var pts = com.farmmacro.route.RouteBuffer.INSTANCE.route().points;
+        var goals = com.farmmacro.route.PathFinder.routeGoals(pts, mc.player.getY(), prefSeg, prefT);
+        rejoinResume = Math.min(pts.size() - 1, prefSeg + 1);
+        source.stop(mc);
+        approachKind = AP_REJOIN;
+        MouseHold.INSTANCE.suspend(true);
+        com.farmmacro.panic.EventLog.log("RETURN", "сбили с маршрута: " + why + " (отрезок " + (prefSeg + 1) + ")");
+        if (!approach.begin(mc, goals, yaw, pitch, "обратно на маршрут")) {
+            finish(mc, "§c✖ Сбили с маршрута (" + why + "), путь назад не найден: " + approach.failText() + " — стоп", true);
+            return true;
+        }
+        msg(mc, "§e↩ Сбили с маршрута (" + why + ") — возвращаюсь");
+        return true;
+    }
+
+    /** v1.15: поставить слот от макроса — с задержкой смены («Задержки рук»), детектору — фактический слот. */
+    public static void selectSlot(LocalPlayer p, int want) {
+        if (p == null || want < 0 || want > 8) return;
+        int cur = p.getInventory().getSelectedSlot();
+        int s = HandDelays.slot(cur, want);
+        if (s != cur) p.getInventory().setSelectedSlot(s);
+        PanicDetector.INSTANCE.expectSlot(s);
+    }
+
+    /** Точка остановки: при возврате — своя (REJOIN — точка, к которой шли до толчка; START — прежняя не трогается). */
+    private void saveStop(double x, double y, double z) {
+        if (source == null) return;
+        if (approachKind == AP_START) return;
+        if (approachKind == AP_REJOIN) savedIndex = rejoinResume;
+        else if (source != recordingSource || playbackIndex > 0) savedIndex = source.resumeIndex();
+        else return;
+        savedKind = source == recordingSource ? SourceKind.RECORDING : SourceKind.ROUTE;
+        savedX = x; savedY = y; savedZ = z;
+        hasSavedPosition = true;
+        navDismissed = false;
     }
 
     private void startPass(Minecraft mc, int index) {
@@ -358,13 +549,10 @@ public class MacroManager {
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) {          // вышли из мира — без следов
             // v1.13.1: вылет — запомнить точку остановки по последней позиции (для переподключения и O)
-            if (source != null && lastPosValid && (source != recordingSource || playbackIndex > 0)) {
-                savedIndex = source.resumeIndex();
-                savedKind = source == recordingSource ? SourceKind.RECORDING : SourceKind.ROUTE;
-                savedX = lastX; savedY = lastY; savedZ = lastZ;
-                hasSavedPosition = true;
-                navDismissed = false;
-            }
+            if (source != null && lastPosValid) saveStop(lastX, lastY, lastZ);
+            approach.stop(mc);
+            approachKind = AP_NONE;
+            HandDelays.reset();
             lostWorldMs = System.currentTimeMillis();
             lastPosValid = false;
             Humanizer.ACTIVE = null;
@@ -387,6 +575,10 @@ public class MacroManager {
             finish(mc, "§a✔ Инвентарь полон — стоп", true);
             return;
         }
+
+        HandDelays.tick();
+        // ── v1.15: идём к маршруту своим путём ──
+        if (approachKind != AP_NONE) { tickApproach(mc, c); return; }
 
         // ── конец круга ──
         if (source.passDone()) {
@@ -458,8 +650,7 @@ public class MacroManager {
 
             // ── применяем кадр ──
             MacroFrame f = frames.get(playbackIndex);
-            p.getInventory().setSelectedSlot(f.selectedSlot);
-            PanicDetector.INSTANCE.expectSlot(f.selectedSlot);
+            selectSlot(p, f.selectedSlot);
             if (settings.camera.active()) {
                 camTracker.update(mc, settings.camera, playbackIndex, "кадр " + (playbackIndex + 1));
             } else if (c.replayCamera) {
@@ -487,8 +678,10 @@ public class MacroManager {
             press(o.keyJump, f.jump);
             press(o.keyShift, f.sneak);
             press(o.keySprint, f.sprint);
-            press(o.keyAttack, rs != null ? rs.attack(f.attackPressed && !stop) : f.attackPressed);
-            press(o.keyUse, rs != null ? rs.use(f.usePressed && !stop) : f.usePressed);
+            // v1.15: «Задержки рук» сами сдвигают нажатия/отпускания — без своего смазывания записи
+            boolean delays = HandDelays.active();
+            press(o.keyAttack, delays ? f.attackPressed && !stop : rs != null ? rs.attack(f.attackPressed && !stop) : f.attackPressed);
+            press(o.keyUse, delays ? f.usePressed && !stop : rs != null ? rs.use(f.usePressed && !stop) : f.usePressed);
 
             if (rs == null) { playbackIndex++; return false; }
             int step = rs.advance(idle(playbackIndex), idle(playbackIndex + 1), playbackIndex);
@@ -604,6 +797,10 @@ public class MacroManager {
         state = State.IDLE;
         playbackIndex = 0;
         source = null;
+        com.farmmacro.util.Guard.run("stop/return", () -> approach.stop(mc));
+        approachKind = AP_NONE;
+        pendingGoals = null;
+        HandDelays.reset();
         releaseAll(mc);
         com.farmmacro.util.Guard.run("transient/clear", MacroManager::clearTransient);
     }
@@ -651,16 +848,12 @@ public class MacroManager {
 
     private void stopInternal(Minecraft mc, boolean keepResume) {
         cancelLaunchTurn();
-        if (keepResume && state == State.PLAYING && source != null && mc.player != null
-                && (source != recordingSource || playbackIndex > 0)) {
-            savedIndex = source.resumeIndex();
-            savedKind = source == recordingSource ? SourceKind.RECORDING : SourceKind.ROUTE;
-            savedX = mc.player.getX();
-            savedY = mc.player.getY();
-            savedZ = mc.player.getZ();
-            hasSavedPosition = true;
-            navDismissed = false;
-        }
+        if (keepResume && state == State.PLAYING && source != null && mc.player != null)
+            saveStop(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+        approach.stop(mc);
+        approachKind = AP_NONE;
+        pendingGoals = null;
+        HandDelays.reset();
         if (source != null) source.stop(mc);
         source = null;
         Humanizer.ACTIVE = null;
@@ -677,7 +870,9 @@ public class MacroManager {
     /** Нажать/отпустить клавишу от источника. ЛКМ/ПКМ остаются зажатыми, если их держит «Зажим мыши». */
     public static void press(KeyMapping key, boolean down) {
         // жмём ту клавишу, на которую игрок реально назначил действие
-        KeyMapping.set(KeyMappingHelper.getBoundKeyOf(key), down || MouseHold.INSTANCE.wants(Minecraft.getInstance(), key));
+        // v1.15: ЛКМ/ПКМ — через «Задержки рук» (нажать/отпустить с задержкой), остальные как есть
+        boolean want = down || MouseHold.INSTANCE.wants(Minecraft.getInstance(), key);
+        KeyMapping.set(KeyMappingHelper.getBoundKeyOf(key), HandDelays.gate(key, want));
     }
 
     /** Отпустить всё — без учёта «Зажима мыши» (его выключают до этого). */
@@ -723,7 +918,11 @@ public class MacroManager {
 
     public long getSessionStartMs() { return sessionStartMs; }
     public int  getSessionRuns()    { return sessionRuns; }
-    public void resetStats()        { sessionStartMs = 0; sessionRuns = 0; }
+    public void resetStats()        { sessionStartMs = 0; sessionRuns = 0; HandDelays.MODEL.resetSession(); }
+
+    /** v1.15: идёт возврат на маршрут (к точке старта/остановки или после толчка). */
+    public boolean isReturning()       { return state == State.PLAYING && approachKind != AP_NONE && approach.active(); }
+    public com.farmmacro.route.ReturnWalker returnWalker() { return approach; }
 
     public boolean hasSavedPosition()   { return hasSavedPosition; }
     public double  getSavedX()          { return savedX; }

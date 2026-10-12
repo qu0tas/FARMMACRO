@@ -3,5 +3,6 @@
   "panic.klaxon": { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/klaxon", "stream": false } ] },
   "panic.alarm":  { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/alarm",  "stream": false } ] },
   "panic.alert":  { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/alert",  "stream": false } ] },
+  "panic.foxy":   { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/foxy",   "stream": false } ] },
   "done":         { "subtitle": "subtitles.farmmacro.done",  "sounds": [ { "name": "farmmacro:panic/done",   "stream": false } ] }
 }

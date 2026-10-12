@@ -278,6 +278,12 @@ public class ModConfig {
     public boolean reconnectBackoff    = false;
     /** HUD: все плашки в одной общей панели. */
     public boolean hudMerged           = false;
+    /** v1.15.1: ширина плашек HUD (узких; остальные на 20 шире), масштаб всего HUD, перенос длинного текста. */
+    public int     hudWidth            = 190;
+    /** v1.15.1: главное меню (Правый Shift) сдвинуто от центра на столько (тащить за заголовок, двойной клик — в центр). */
+    public int     guiOffsetX          = 0, guiOffsetY = 0;
+    public double  hudScale            = 1.0;
+    public boolean hudWrap             = true;
 
     // ── v1.14.2-pre: реестр детекторов (panic/Detectors) и мастер первого запуска ──
     /** Своё действие детектора: id → "susp"/"log"/"panic" (нет записи — по умолчанию). Выкл — прежнее поле detectX. */
@@ -353,6 +359,43 @@ public class ModConfig {
     public int     lowRenderRev          = 1;
     /** v1.12 «Продолжить с места» (N): дальше этого от линии маршрута — не стартует. */
     public double  resumeAnywhereMaxDist = 3.0;
+
+    // ── v1.15 «Возврат на маршрут» (свой A* по блокам) ──
+    /** Общий выключатель: дойти до маршрута по найденному пути (N издалека, точка старта, переподключение, сбили с пути). */
+    public boolean returnEnabled         = true;
+    /** Предел: маршрут дальше по горизонтали — не идём (обычный стоп с сообщением). */
+    public double  returnMaxDist         = 64;
+    /** Старт/«Продолжить» (O) дальше допуска точки старта — дойти самому (иначе — как раньше: предупреждение/отказ). */
+    public boolean returnToStart         = true;
+    /** Маршрут по точкам: сбили с линии (толчок, откат) дальше returnOffRoute — вернуться по пути (если это не паника). */
+    public boolean returnAfterPush       = true;
+    /** Сбили с пути: дальше этого от линии отрезка (или на другом этаже), блоков. */
+    public double  returnOffRoute        = 2.0;
+    /** После переподключения (и /warp) не у точки остановки — дойти до маршрута. */
+    public boolean returnAfterReconnect  = true;
+    /** Скорость поворота камеры при возврате (всегда «как мышь»), °/с. */
+    public double  returnTurnSpeed       = 180;
+    /** Сколько раз перестроить путь за один возврат (сбили, застрял, упал). */
+    public int     returnReplans         = 5;
+    /** v1.15.1 «Есть полёт» (предмет/способность): путь возврата может лететь (двойной прыжок — взлёт, Shift — вниз). */
+    public boolean returnFly             = false;
+    /** Полёт: не выше этого над стартом/целью, блоков. */
+    public int     returnFlyCeil         = 12;
+
+    // ── v1.15 «Задержки рук (3 слоя)»: база (гаусс) × усталость за сессию + редкие отвлечения ──
+    public boolean delayLayers           = true;
+    public int     delayPressMean = 95,   delayPressSd = 35,   delayPressMin = 35,   delayPressMax = 260;
+    public int     delayReleaseMean = 75, delayReleaseSd = 30, delayReleaseMin = 25, delayReleaseMax = 220;
+    public int     delaySlotMean = 170,   delaySlotSd = 60,    delaySlotMin = 70,    delaySlotMax = 450;
+    /** Усталость: к концу разгона задержки длиннее на N %, разгон — минут. */
+    public double  fatiguePct = 25, fatigueRampMin = 90;
+    /** Дрейф: ± N % плавно, время изменения — минут. */
+    public double  driftPct = 8, driftMin = 12;
+    /** Отвлечение: шанс на событие, %, и добавка от–до, мс. */
+    public double  distractChance = 1.5;
+    public int     distractMinMs = 400, distractMaxMs = 2500;
+    /** Оверлей HUD: последние задержки и разброс. */
+    public boolean delayDebugHud         = false;
     /** v1.12 (не используется с 1.12.2): дальность 2 чанка на время Low render. Оставлено для чтения старых файлов. */
     public boolean lowRenderChunks       = false;
     /** Служебное: дальность до Low render (0 — не меняли); вернуть при запуске игры, если закрылась в режиме. */
@@ -487,6 +530,21 @@ public class ModConfig {
         if (lowRenderRev < 1) { lowRenderRadius = 3; lowRenderChunks = false; lowRenderRev = 1; }   // 1.12 → 1.12.2
         lowRenderRadius       = Math.max(1, Math.min(32, lowRenderRadius));
         resumeAnywhereMaxDist = clamp(resumeAnywhereMaxDist, 0.5, 16);
+        returnMaxDist         = clamp(returnMaxDist, 8, 256);
+        returnOffRoute        = clamp(returnOffRoute, 0.5, 16);
+        returnTurnSpeed       = clamp(returnTurnSpeed, 20, 720);
+        returnReplans         = clamp(returnReplans, 0, 20);
+        returnFlyCeil         = clamp(returnFlyCeil, 2, 64);
+        delayPressMin   = clamp(delayPressMin, 0, 5000);   delayPressMax   = clamp(delayPressMax, delayPressMin, 5000);
+        delayPressMean  = clamp(delayPressMean, delayPressMin, delayPressMax);       delayPressSd   = clamp(delayPressSd, 0, 2000);
+        delayReleaseMin = clamp(delayReleaseMin, 0, 5000); delayReleaseMax = clamp(delayReleaseMax, delayReleaseMin, 5000);
+        delayReleaseMean = clamp(delayReleaseMean, delayReleaseMin, delayReleaseMax); delayReleaseSd = clamp(delayReleaseSd, 0, 2000);
+        delaySlotMin    = clamp(delaySlotMin, 0, 5000);    delaySlotMax    = clamp(delaySlotMax, delaySlotMin, 5000);
+        delaySlotMean   = clamp(delaySlotMean, delaySlotMin, delaySlotMax);          delaySlotSd    = clamp(delaySlotSd, 0, 2000);
+        fatiguePct      = clamp(fatiguePct, 0, 200);       fatigueRampMin  = clamp(fatigueRampMin, 5, 600);
+        driftPct        = clamp(driftPct, 0, 50);          driftMin        = clamp(driftMin, 1, 120);
+        distractChance  = clamp(distractChance, 0, 20);
+        distractMinMs   = clamp(distractMinMs, 50, 20000); distractMaxMs   = clamp(distractMaxMs, distractMinMs, 20000);
         lowRenderSavedChunks  = Math.max(0, Math.min(64, lowRenderSavedChunks));
         yawThreshold          = clamp(yawThreshold, 0.001f, 180f);
         pitchThreshold        = clamp(pitchThreshold, 0.001f, 180f);
@@ -563,6 +621,9 @@ public class ModConfig {
         com.farmmacro.panic.Detectors.sanitize(this);
         if (!"skyblock".equals(welcomeWhere) && !"friends".equals(welcomeWhere) && !"other".equals(welcomeWhere)) welcomeWhere = "skyblock";
         if (!"optimal".equals(welcomePreset) && !"careful".equals(welcomePreset) && !"soft".equals(welcomePreset)) welcomePreset = "optimal";
+        hudWidth = clamp(hudWidth, 120, 480);
+        guiOffsetX = clamp(guiOffsetX, -4000, 4000); guiOffsetY = clamp(guiOffsetY, -4000, 4000);
+        hudScale = clamp(hudScale, 0.5, 3.0);
         if (hudSlots == null) hudSlots = new java.util.LinkedHashMap<>();
         hudSlots.values().removeIf(java.util.Objects::isNull);
         if (hudSlots.size() > 64) hudSlots.clear();
@@ -652,7 +713,10 @@ public class ModConfig {
                         + "1.14: staff=%s %.0f бл tab=%s двойник=%s %.0f бл масс.тп=%s %d/%.0f бл/%d мс без имени=%s %.0f бл %d мс "
                         + "ЛС=%s AFK=%s бедрок=%s %d/%.0f бл/%d мс клетка-число=%s %d/%.1f бл/%d мс тишина=%s %d с | "
                         + "друзей=%d (рядом=%s вход=%s набл=%s чат=%s ЛС=%s масс=%s) задержка рядом=%.1f с | "
-                        + "скриншот=%s discord=%s диагн=%s %d с/%s | 1.14.2: действия детекторов={%s}",
+                        + "скриншот=%s discord=%s диагн=%s %d с/%s | 1.14.2: действия детекторов={%s} | "
+                        + "1.15: возврат=%s %.0f бл старт=%s толчок=%s %.1f бл переподкл=%s %.0f°/с перепланов %d | "
+                        + "задержки=%s нажать %d±%d (%d–%d) отпустить %d±%d (%d–%d) слот %d±%d (%d–%d) мс усталость +%.0f%%/%.0f мин "
+                        + "дрейф ±%.0f%%/%.0f мин отвлечение %.1f%% %d–%d мс",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
@@ -678,7 +742,11 @@ public class ModConfig {
                 detectCageCount, cageCountMin, cageCountRadius, cageCountMs, detectSilence, silenceSec,
                 com.farmmacro.panic.PlayerRules.parseNames(friendNames).size(), friendsIgnoreNear, friendsIgnoreJoin,
                 friendsIgnoreSpectator, friendsIgnoreChat, friendsIgnorePm, friendsIgnoreMass, playerNearDelaySec,
-                panicScreenshot, webhookEnabled, diagIdle, diagIdleSec, diagScoreboard, com.farmmacro.panic.Detectors.describe(this));
+                panicScreenshot, webhookEnabled, diagIdle, diagIdleSec, diagScoreboard, com.farmmacro.panic.Detectors.describe(this),
+                returnEnabled, returnMaxDist, returnToStart, returnAfterPush, returnOffRoute, returnAfterReconnect, returnTurnSpeed, returnReplans,
+                delayLayers, delayPressMean, delayPressSd, delayPressMin, delayPressMax, delayReleaseMean, delayReleaseSd, delayReleaseMin,
+                delayReleaseMax, delaySlotMean, delaySlotSd, delaySlotMin, delaySlotMax, fatiguePct, fatigueRampMin, driftPct, driftMin,
+                distractChance, distractMinMs, distractMaxMs);
     }
 
     private static String colorOrDefault(String id) {

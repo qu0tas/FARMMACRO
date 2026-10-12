@@ -47,6 +47,7 @@ public class FarmMacroMod implements ClientModInitializer {
         ModConfig cfg = ModConfig.INSTANCE;
 
         FarmHud.register();
+        com.farmmacro.fun.Foxy.register();
         PanicOverlayRenderer.register();
         ChinaHatRenderer.register();
         RouteRenderer.register();
@@ -97,6 +98,7 @@ public class FarmMacroMod implements ClientModInitializer {
         Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
         Guard.run("panic/banwave", com.farmmacro.panic.BanwaveWatch::tick);
         Guard.run("macro/reconnect", () -> com.farmmacro.macro.Reconnect.tick(mc));
+        Guard.run("fun/foxy", () -> com.farmmacro.fun.Foxy.tick(mc));
         Guard.run("visual/perf", () -> com.farmmacro.visual.PerformanceMode.tick(mc));
         Guard.run("camera/ungrab", () -> com.farmmacro.camera.Ungrab.tick(mc));
         Guard.run("panic/always", () -> PanicDetector.INSTANCE.tickAlways(mc));

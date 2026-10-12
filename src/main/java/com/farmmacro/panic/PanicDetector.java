@@ -228,6 +228,10 @@ public class PanicDetector {
     public double suspicionScore() { return suspicion.lastScore; }
 
     /** Автоход в спуске: урон от падения ещё N тиков не паника (падение — часть маршрута). */
+    /** v1.15.1: возврат сам включает/выключает полёт — «Сервер сменил полёт» по флагу «летит» до этого момента не считаем. */
+    private long flightGraceUntil;
+    public void allowFlightToggle(int ticks) { flightGraceUntil = Math.max(flightGraceUntil, System.currentTimeMillis() + ticks * 50L); }
+
     public void allowFall(int ticks) { fallGraceTicks = Math.max(fallGraceTicks, ticks); }
 
     /** Макрос сам поставил этот слот — это не «внешняя» смена. */
@@ -495,7 +499,8 @@ public class PanicDetector {
         ModConfig c = ModConfig.INSTANCE;
         if (p == null || !armed()) return;
         var a = p.getAbilities();
-        if (c.detectGameMode && (a.flying != flying || a.mayfly != canFly))
+        boolean flyOwn = System.currentTimeMillis() < flightGraceUntil;
+        if (c.detectGameMode && ((a.flying != flying && !flyOwn) || a.mayfly != canFly))
             flag("gameMode", "Сервер сменил полёт (летит: " + yes(flying) + ", может летать: " + yes(canFly) + ")");
         if (c.detectMoveAttrs) {
             if (SyncMath.changed(a.getWalkingSpeed(), walkSpeed, c.attrEpsilon))

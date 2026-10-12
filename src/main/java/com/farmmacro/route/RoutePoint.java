@@ -35,6 +35,8 @@ public class RoutePoint {
     public int     landPauseTicks;
     /** В полёте держать клавишу направления (иначе отпустить — падать почти вертикально). */
     public boolean airHold;
+    /** v1.15.1, только путь возврата (в файл не пишется): к этой точке — летим. */
+    public transient boolean fly;
     /** Ожидаемая высота падения, блоков (считает редактор по миру; 0 — неизвестно, не проверяется). */
     public double  dropDepth;
 
@@ -48,6 +50,7 @@ public class RoutePoint {
         p.slot = slot; p.pauseTicks = pauseTicks; p.hold = hold;
         p.ox = ox; p.oz = oz;
         p.drop = drop; p.dropDir = dropDir; p.landPauseTicks = landPauseTicks; p.airHold = airHold; p.dropDepth = dropDepth;
+        p.fly = fly;
         return p;
     }
 

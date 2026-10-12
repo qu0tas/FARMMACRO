@@ -93,6 +93,9 @@ public final class Reconnect {
         EventLog.log("RECONNECT", why + ": попытка " + tries + "/" + c.reconnectTries + " через " + sec + " с");
     }
 
+    /** v1.15: уже пробовали дойти до точки остановки после захода. */
+    private static boolean walkTried;
+
     /** Каждый тик (и на экране отключения). */
     public static void tick(Minecraft mc) {
         ModConfig c = ModConfig.INSTANCE;
@@ -110,7 +113,7 @@ public final class Reconnect {
             }
             case CONNECTING -> {
                 if (mc.player != null && mc.level != null) {
-                    state = State.JOINED; joinedTicks = 0; commandSent = false;
+                    state = State.JOINED; joinedTicks = 0; commandSent = false; walkTried = false;
                     EventLog.log("RECONNECT", "зашёл");
                     return;
                 }
@@ -138,6 +141,12 @@ public final class Reconnect {
                     EventLog.log("RECONNECT", "продолжаю с точки остановки");
                     m.resumeFromSaved(mc);
                     state = State.OFF; tries = 0;
+                } else if (!near && !walkTried && joinedTicks >= 200 && m.hasSavedPosition()
+                        && c.returnEnabled && c.returnAfterReconnect) {
+                    // v1.15: через 10 с всё ещё не у точки (варп в другое место) — дойти своим путём, один раз
+                    walkTried = true;
+                    EventLog.log("RECONNECT", "далеко от точки остановки — иду к ней сам");
+                    if (m.resumeWalking(mc)) { state = State.OFF; tries = 0; }
                 } else if (joinedTicks > 20 * 75) {
                     EventLog.log("RECONNECT", "не у точки остановки — не продолжаю");
                     m.msgPublic(mc, "§6Переподключился, но ты не у точки остановки — макрос не продолжен");

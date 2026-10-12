@@ -35,7 +35,18 @@ public final class SmoothTurn {
      * Начать (или перенацелить) поворот.
      * @param degPerSec ≤ 0 — мгновенно (в ближайший кадр)
      */
-    public static void turnTo(float yaw, float pitch, double degPerSec) {
+    public static void turnTo(float yaw, float pitch, double degPerSec) { turnTo(yaw, pitch, degPerSec, false); }
+
+    /**
+     * v1.15 «Возврат на маршрут»: поворот всегда «как мышь» ({@link MouseTurn}: пиксели при текущей чувствительности,
+     * разгон/торможение, лёгкий перелёт), даже если в «Камере» выбран «плавно».
+     */
+    public static void turnMouse(float yaw, float pitch, double degPerSec) { turnTo(yaw, pitch, degPerSec, true); }
+
+    public static float targetYaw()   { return targetYaw; }
+    public static float targetPitch() { return targetPitch; }
+
+    private static void turnTo(float yaw, float pitch, double degPerSec, boolean forceMouse) {
         if (!active) lastNs = 0;
         targetYaw = yaw;
         targetPitch = Mth.clamp(pitch, -90f, 90f);
@@ -46,10 +57,10 @@ public final class SmoothTurn {
         com.farmmacro.config.ModConfig c = com.farmmacro.config.ModConfig.INSTANCE;
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
-        if (c.camMouseLike && degPerSec > 0 && p != null) {
+        if ((c.camMouseLike || forceMouse) && degPerSec > 0 && p != null) {
             double sens = mc.options.sensitivity().get();
             mouse = new MouseTurn(p.getYRot(), p.getXRot(), Mth.wrapDegrees(targetYaw - p.getYRot()), targetPitch - p.getXRot(),
-                    sens, speed, c.camOvershootPct / 100.0, new java.util.SplittableRandom(System.nanoTime()));
+                    sens, speed, (forceMouse ? Math.max(1, c.camOvershootPct) : c.camOvershootPct) / 100.0, new java.util.SplittableRandom(System.nanoTime()));
         }
         active = true;
     }

@@ -58,8 +58,13 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private int winW()  { return Math.max(Math.min(width - 16, 500), Math.min(width - 4, 300)); }
     private int winH()  { return Math.max(Math.min(height - 16, 330), Math.min(height - 4, 180)); }
-    private int winX()  { return (width - winW()) / 2; }
-    private int winY()  { return (height - winH()) / 2; }
+    /** v1.15.1: окно можно таскать за заголовок — сдвиг от центра (guiOffsetX/Y), не за край экрана. */
+    private int winX()  { return Math.max(0, Math.min(width - winW(), (width - winW()) / 2 + cfg().guiOffsetX)); }
+    private int winY()  { return Math.max(0, Math.min(height - winH(), (height - winH()) / 2 + cfg().guiOffsetY)); }
+    private boolean draggingWindow;
+    private double dragFromX, dragFromY;
+    private int dragOffX, dragOffY;
+    private long lastHeaderClick;
     private int sideW() { return winW() < 400 ? 30 : 104; }  // узкое окно — только иконки
     private static final int HEADER_H = 30;
     private int contX() { return winX() + sideW() + 10; }
@@ -220,6 +225,22 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                                java.util.function.DoubleConsumer set, double min, double max, double step,
                                double big, java.util.function.DoubleFunction<String> fmt) {
         return new Rows.Number(label, hint, get, v -> { set.accept(v); save(); }, min, max, step, big, fmt);
+    }
+
+    /** v1.15: база задержки одного вида — среднее, разброс, мин, макс (мс). */
+    private void addDelayKind(String label, java.util.function.BooleanSupplier on,
+                              java.util.function.IntSupplier mean, java.util.function.IntConsumer setMean,
+                              java.util.function.IntSupplier sd, java.util.function.IntConsumer setSd,
+                              java.util.function.IntSupplier min, java.util.function.IntConsumer setMin,
+                              java.util.function.IntSupplier max, java.util.function.IntConsumer setMax) {
+        rows.add(number(label + ": среднее", "Слой 1: база (нормальное распределение)", mean::getAsInt, v -> setMean.accept((int) v),
+                0, 5000, 5, 50, v -> (int) v + " мс").integer().under(on));
+        rows.add(number(label + ": разброс σ", null, sd::getAsInt, v -> setSd.accept((int) v),
+                0, 2000, 5, 25, v -> (int) v + " мс").integer().under(on).adv());
+        rows.add(number(label + ": не меньше", null, min::getAsInt, v -> setMin.accept((int) v),
+                0, 5000, 5, 50, v -> (int) v + " мс").integer().under(on).adv());
+        rows.add(number(label + ": не больше", null, max::getAsInt, v -> setMax.accept((int) v),
+                0, 5000, 5, 50, v -> (int) v + " мс").integer().under(on).adv());
     }
 
     private static String f1(double v) { return String.format(Locale.ROOT, "%.1f", v); }
@@ -740,6 +761,36 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 ? "Сейчас для всех — общая: «Конфиги → Общая случайность»."
                 : "Своя у каждого макроса/маршрута: ⚙ → «Случайность». Одну на всех — «Конфиги → Общая случайность».", Ui.SUB));
 
+        // v1.15 «Задержки рук (3 слоя)»
+        rows.add(new Rows.Section("Задержки рук (3 слоя)").key("l.delays").closed());
+        java.util.function.BooleanSupplier dl = () -> cfg().delayLayers;
+        rows.add(toggle("Задержки рук", "ЛКМ/ПКМ (нажать и отпустить) и смена слота — с задержкой: база + усталость + отвлечения. "
+                + "Только со «Случайностью», не на идеальном круге", dl, v -> cfg().delayLayers = v));
+        addDelayKind("Нажать ЛКМ/ПКМ", dl, () -> cfg().delayPressMean, v -> cfg().delayPressMean = v, () -> cfg().delayPressSd, v -> cfg().delayPressSd = v,
+                () -> cfg().delayPressMin, v -> cfg().delayPressMin = v, () -> cfg().delayPressMax, v -> cfg().delayPressMax = v);
+        addDelayKind("Отпустить ЛКМ/ПКМ", dl, () -> cfg().delayReleaseMean, v -> cfg().delayReleaseMean = v, () -> cfg().delayReleaseSd, v -> cfg().delayReleaseSd = v,
+                () -> cfg().delayReleaseMin, v -> cfg().delayReleaseMin = v, () -> cfg().delayReleaseMax, v -> cfg().delayReleaseMax = v);
+        addDelayKind("Смена слота", dl, () -> cfg().delaySlotMean, v -> cfg().delaySlotMean = v, () -> cfg().delaySlotSd, v -> cfg().delaySlotSd = v,
+                () -> cfg().delaySlotMin, v -> cfg().delaySlotMin = v, () -> cfg().delaySlotMax, v -> cfg().delaySlotMax = v);
+        rows.add(number("Усталость", "Слой 2: к концу разгона задержки длиннее на столько (за сессию, сброс — «Сбросить статистику»)",
+                () -> cfg().fatiguePct, v -> cfg().fatiguePct = v, 0, 200, 1, 10, v -> Rows.num(v) + " %").under(dl));
+        rows.add(number("Разгон усталости", "За сколько минут сессии усталость набирается полностью",
+                () -> cfg().fatigueRampMin, v -> cfg().fatigueRampMin = v, 5, 600, 5, 30, v -> Rows.num(v) + " мин").under(dl).adv());
+        rows.add(number("Дрейф", "Слой 2: медленные колебания темпа ± столько",
+                () -> cfg().driftPct, v -> cfg().driftPct = v, 0, 50, 1, 5, v -> Rows.num(v) + " %").under(dl).adv());
+        rows.add(number("Период дрейфа", "За сколько минут темп заметно меняется",
+                () -> cfg().driftMin, v -> cfg().driftMin = v, 1, 120, 1, 10, v -> Rows.num(v) + " мин").under(dl).adv());
+        rows.add(number("Отвлечения", "Слой 3: шанс на действие, что рука «задумается»",
+                () -> cfg().distractChance, v -> cfg().distractChance = v, 0, 20, 0.1, 1, v -> Rows.num(v) + " %").under(dl));
+        rows.add(number("Отвлечение от", null, () -> cfg().distractMinMs, v -> cfg().distractMinMs = (int) v,
+                50, 20000, 50, 500, v -> (int) v + " мс").integer().under(dl).adv());
+        rows.add(number("Отвлечение до", null, () -> cfg().distractMaxMs, v -> cfg().distractMaxMs = (int) v,
+                50, 20000, 50, 500, v -> (int) v + " мс").integer().under(dl).adv());
+        rows.add(toggle("Оверлей задержек (HUD)", "Последние задержки, усталость, среднее и разброс — для отладки",
+                () -> cfg().delayDebugHud, v -> cfg().delayDebugHud = v).under(dl));
+        rows.add(new Rows.Note(() -> cfg().delayLayers ? "Задержки округляются до тиков (50 мс) случайно, в среднем — как задано. "
+                + "Стоп, паника и End отпускают всё сразу, без задержек." : "", Ui.SUB));
+
         rows.add(new Rows.Section("Блокировка мыши").key("l.mouse"));
         rows.add(toggle("Блокировать при старте", "Мышь не крутит камеру, пока идёт макрос (клавиша M — вручную)",
                 () -> cfg().mouseLockOnStart, v -> cfg().mouseLockOnStart = v));
@@ -1046,6 +1097,12 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(colorRow("Фон HUD", "Подложка панелей (полупрозрачная)", () -> cfg().hudBgColor, v -> cfg().hudBgColor = v).adv());
         rows.add(toggle("Одна общая плашка", "Все блоки HUD — в одной панели вместо стопки",
                 () -> cfg().hudMerged, v -> cfg().hudMerged = v));
+        rows.add(number("Ширина плашек", "Шире — длинный текст влезает в строку (v1.15.1: было 132)",
+                () -> cfg().hudWidth, v -> cfg().hudWidth = (int) v, 120, 480, 10, 40, v -> (int) v + " px").integer());
+        rows.add(number("Размер HUD", "Весь HUD крупнее/мельче (вместе с масштабом плашек в F8)",
+                () -> cfg().hudScale, v -> cfg().hudScale = v, 0.5, 3, 0.05, 0.25, v -> Math.round(v * 100) + " %"));
+        rows.add(toggle("Переносить длинный текст", "Не обрезать «…», а переносить на следующую строку",
+                () -> cfg().hudWrap, v -> cfg().hudWrap = v));
         rows.add(new Rows.Buttons(new Rows.Btn("Редактор HUD", Rows.Style.PRIMARY, () -> {
             save();
             minecraft.setScreen(new com.farmmacro.hud.HudEditorScreen(this));
@@ -1128,9 +1185,39 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn(() -> "Продолжить с места (" + MacroManager.keyName(FarmMacroMod.keyStartFrom) + ")", () -> Rows.Style.PRIMARY,
                         () -> { if (minecraft != null) { onClose(); MacroManager.INSTANCE.startRouteHere(minecraft); } })
                         .enabledIf(() -> !rb.isEmpty() && !MacroManager.INSTANCE.isActive())
-                        .tip("Встань в любом месте дороги — автоход найдёт ближайший отрезок и пойдёт дальше. Следующие круги — с начала")));
-        rows.add(number("До дороги не дальше", "«Продолжить с места»: насколько можно отойти от линии маршрута",
+                        .tip("Встань в любом месте дороги — автоход найдёт ближайший отрезок и пойдёт дальше. "
+                                + "Дальше допуска — сам дойдёт до маршрута (если включён «Возврат на маршрут»). Следующие круги — с начала")));
+        rows.add(number("До дороги не дальше", "«Продолжить с места»: дальше — идёт к маршруту своим путём (или отказ, если возврат выключен)",
                 () -> cfg().resumeAnywhereMaxDist, v -> cfg().resumeAnywhereMaxDist = v, 0.5, 16, 0.5, 1, v -> Rows.num(v) + " бл"));
+
+        // v1.15 «Возврат на маршрут»
+        rows.add(new Rows.Section("Возврат на маршрут").key("r.return"));
+        java.util.function.BooleanSupplier ret = () -> cfg().returnEnabled;
+        rows.add(toggle("Возврат на маршрут", "Сам ищет путь (подъём на 1 блок прыжком, спуск до 3, плиты, грядки, заборы; "
+                + "вода и лава — в обход) и идёт к маршруту, камера — как мышью", ret, v -> cfg().returnEnabled = v));
+        rows.add(number("Не дальше", "Маршрут дальше по горизонтали — не идёт, обычный стоп с сообщением",
+                () -> cfg().returnMaxDist, v -> cfg().returnMaxDist = v, 8, 256, 4, 16, v -> Rows.num(v) + " бл").integer().under(ret));
+        rows.add(toggle("Дойти до точки старта", "Старт (" + MacroManager.keyName(FarmMacroMod.keyPlay) + ") и «Продолжить» ("
+                + MacroManager.keyName(FarmMacroMod.keyResume) + ") издалека — дойти самому, а не просить подойти",
+                () -> cfg().returnToStart, v -> cfg().returnToStart = v).under(ret));
+        rows.add(toggle("После толчка / отката", "Маршрут: сбили с линии (или упал на другой этаж) — вернуться по пути, а не стоп «Сошёл с маршрута»",
+                () -> cfg().returnAfterPush, v -> cfg().returnAfterPush = v).under(ret));
+        rows.add(number("Сбили, если дальше", "От линии текущего отрезка (≥ 4 тиков подряд)",
+                () -> cfg().returnOffRoute, v -> cfg().returnOffRoute = v, 0.5, 16, 0.25, 1, v -> Rows.num(v) + " бл")
+                .under(() -> cfg().returnEnabled && cfg().returnAfterPush));
+        rows.add(toggle("После переподключения", "Зашёл после вылета/варпа не у точки остановки — через 10 с дойти до неё и продолжить",
+                () -> cfg().returnAfterReconnect, v -> cfg().returnAfterReconnect = v).under(ret));
+        rows.add(toggle("Есть полёт", "Можешь летать (предмет, способность): путь может идти по воздуху — взлёт двойным прыжком, "
+                + "Пробел — вверх, Shift — вниз, сядет у маршрута. Не вышло взлететь — путь пешком",
+                () -> cfg().returnFly, v -> cfg().returnFly = v).under(ret));
+        rows.add(number("Полёт не выше", "Над стартом и маршрутом, блоков", () -> cfg().returnFlyCeil, v -> cfg().returnFlyCeil = (int) v,
+                2, 64, 1, 4, v -> (int) v + " бл").integer().under(() -> cfg().returnEnabled && cfg().returnFly).adv());
+        rows.add(number("Скорость поворота", "Камера при возврате — плавно, как мышью (через чувствительность)",
+                () -> cfg().returnTurnSpeed, v -> cfg().returnTurnSpeed = v, 20, 720, 10, 60, v -> Rows.num(v) + "°/с").under(ret).adv());
+        rows.add(number("Перестроить путь", "Сколько раз за один возврат искать путь заново (сбили, застрял, упал)",
+                () -> cfg().returnReplans, v -> cfg().returnReplans = (int) v, 0, 20, 1, 5, v -> (int) v + " раз").integer().under(ret).adv());
+        rows.add(new Rows.Note(() -> cfg().returnEnabled ? "Во время возврата ЛКМ/ПКМ отпущены, слот не меняется; «Аномалия скорости» "
+                + "и «Препятствие впереди» не проверяются. Путь не найден — обычный стоп с сообщением (не паника)." : "", Ui.SUB));
 
         rows.add(new Rows.Section("Автоход и редактор").key("r.walk"));
         rows.add(number("Точка достигнута", "Радиус по горизонтали", () -> cfg().routeReachRadius,
@@ -1745,6 +1832,20 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         // закрыть
         if (Ui.inside(mx, my, x + w - 24, y + 7, 16, 16)) { clickSound(); onClose(); return true; }
         if (modeW > 0 && Ui.inside(mx, my, modeX, y + 8, modeW, 14)) { clickSound(); toggleAdvanced(); return true; }
+        // v1.15.1: заголовок — тащить окно; двойной клик — обратно в центр
+        if (Ui.inside(mx, my, x, y, w - 28, HEADER_H)) {
+            long now = System.currentTimeMillis();
+            if (now - lastHeaderClick < 350) {
+                cfg().guiOffsetX = 0; cfg().guiOffsetY = 0; save();
+                lastHeaderClick = 0;
+                return true;
+            }
+            lastHeaderClick = now;
+            draggingWindow = true;
+            dragFromX = mx; dragFromY = my;
+            dragOffX = winX() - (width - winW()) / 2; dragOffY = winY() - (height - winH()) / 2;
+            return true;
+        }
         // вкладки
         int ty = y + HEADER_H + 6;
         for (int i = 0; i < TABS.length; i++) {
@@ -1786,12 +1887,20 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
     @Override
     public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) {
         if (draggingScrollbar) { dragScroll(e.y()); return true; }
+        if (draggingWindow) {
+            int ox = dragOffX + (int) Math.round(e.x() - dragFromX), oy = dragOffY + (int) Math.round(e.y() - dragFromY);
+            int maxX = (width - winW() + 1) / 2, maxY = (height - winH() + 1) / 2;
+            cfg().guiOffsetX = Math.max(-maxX, Math.min(maxX, ox));
+            cfg().guiOffsetY = Math.max(-maxY, Math.min(maxY, oy));
+            return true;
+        }
         return super.mouseDragged(e, dx, dy);
     }
 
     @Override
     public boolean mouseReleased(MouseButtonEvent e) {
         draggingScrollbar = false;
+        if (draggingWindow) { draggingWindow = false; save(); }
         return super.mouseReleased(e);
     }
 

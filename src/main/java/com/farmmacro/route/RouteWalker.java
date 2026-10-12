@@ -81,6 +81,7 @@ public final class RouteWalker implements PlaybackSource {
         velocity.reset();
         unstuckLeft = 0;
         lastJump = false; lastOnGround = mc.player != null && mc.player.onGround(); moveDir = null;
+        offTicks = 0; goodYaw = Float.NaN;
         int from = Math.max(0, core.segment());
         camTracker.update(mc, camera, from, "старт, точка " + (from + 1));
         started = true;
@@ -97,6 +98,7 @@ public final class RouteWalker implements PlaybackSource {
     @Override
     public void stop(Minecraft mc) {
         started = false;
+        offTicks = 0;
         shaper = null;
         moveDir = null;
     }
@@ -146,6 +148,8 @@ public final class RouteWalker implements PlaybackSource {
         core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), c.routeReachRadius,
                 on && c.detectStuck, c.stuckThresholdTicks, on && c.detectDrift, c.driftThreshold, on && c.detectFloor, out);
         if (core.dropPhase() != WalkCore.D_NONE) PanicDetector.INSTANCE.allowFall(10);  // урон от спуска — не паника
+        // v1.15 «Возврат на маршрут»: толкнули/откатили далеко от линии (или на другой этаж) — дойти обратно своим путём
+        if (rejoinCheck(mc, p, c)) return true;
         if (out.panic != null && out.panic.startsWith("Застрял") && c.antiStuckTries > 0) {
             long now = System.currentTimeMillis();
             if (now - lastUnstuckMs > 30_000) unstuckTries = 0;           // давно не застревал — попытки заново
@@ -162,6 +166,11 @@ public final class RouteWalker implements PlaybackSource {
         }
         if (out.panic != null) {
             // v1.14.2-pre: через реестр детекторов (действие «Подозрительность»/«Журнал» — идём дальше)
+            String id = out.panic.startsWith("Застрял") ? "stuck" : out.panic.startsWith("Сошёл") ? "drift" : "floor";
+            // v1.15: уже решаем «вернуться на маршрут» (вне линии < REJOIN_TICKS) — «Сошёл»/«Не тот этаж» не поднимать
+            if (offTicks > 0 && !"stuck".equals(id)) out.panic = null;
+        }
+        if (out.panic != null) {
             String id = out.panic.startsWith("Застрял") ? "stuck" : out.panic.startsWith("Сошёл") ? "drift" : "floor";
             if (PanicDetector.INSTANCE.fire(mc, id, out.panic)) return true;
         }
@@ -235,9 +244,35 @@ public final class RouteWalker implements PlaybackSource {
     }
 
     private static void applySlot(LocalPlayer p, int slot) {
-        if (slot < 0 || slot > 8) return;
-        if (p.getInventory().getSelectedSlot() != slot) p.getInventory().setSelectedSlot(slot);
-        PanicDetector.INSTANCE.expectSlot(slot);
+        MacroManager.selectSlot(p, slot);              // v1.15: с задержкой смены слота («Задержки рук»)
+    }
+
+    /** v1.15: сколько тиков подряд далеко от линии; последний взгляд, пока шли по линии. */
+    private int offTicks;
+    private float goodYaw = Float.NaN, goodPitch;
+    /** Тиков подряд вне линии, после которых начинается возврат. */
+    public static final int REJOIN_TICKS = 4;
+
+    /** @return true — начат возврат (или стоп): дальше этот тик не играть */
+    private boolean rejoinCheck(Minecraft mc, LocalPlayer p, ModConfig c) {
+        double off = core.offLine(p.getX(), p.getZ());
+        if (Double.isNaN(off)) { offTicks = 0; return false; }
+        double ey = core.expectedY(p.getX(), p.getZ());
+        boolean far = off > c.returnOffRoute || (p.onGround() && Math.abs(p.getY() - ey) > WalkCore.OTHER_FLOOR_DY);
+        if (!far) {
+            offTicks = 0;
+            if (off < 0.8) { goodYaw = p.getYRot(); goodPitch = p.getXRot(); }
+            return false;
+        }
+        if (!c.returnEnabled || !c.returnAfterPush) { offTicks = 0; return false; }
+        if (++offTicks < REJOIN_TICKS) return false;
+        offTicks = 0;
+        int seg = Math.max(0, core.target() - 1);
+        double t = core.segmentFraction(p.getX(), p.getZ());
+        float yaw = Float.isNaN(goodYaw) ? p.getYRot() : goodYaw, pitch = Float.isNaN(goodYaw) ? p.getXRot() : goodPitch;
+        String why = String.format(java.util.Locale.ROOT, "%.1f бл от линии%s", off,
+                p.onGround() && Math.abs(p.getY() - ey) > WalkCore.OTHER_FLOOR_DY ? String.format(java.util.Locale.ROOT, ", по высоте %.1f", p.getY() - ey) : "");
+        return MacroManager.INSTANCE.requestRejoin(mc, seg, t, yaw, pitch, why);
     }
 
     private static void release(Options o) {
