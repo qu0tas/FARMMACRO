@@ -16,5 +16,7 @@
   "key.farmmacro.mouselock": "FarmMacro: Блокировка мыши вкл/выкл",
   "key.farmmacro.freelook": "FarmMacro: Freelook (смотреть на себя со стороны)",
   "key.farmmacro.lowrender": "FarmMacro: Low render (прорисовка рядом с игроком)",
-  "key.farmmacro.startfrom": "FarmMacro: Продолжить маршрут с места"
+  "key.farmmacro.startfrom": "FarmMacro: Продолжить маршрут с места",
+  "key.farmmacro.ungrab": "FarmMacro: Отпустить курсор (макрос фармит дальше)",
+  "key.farmmacro.perf": "FarmMacro: Режим производительности"
 }

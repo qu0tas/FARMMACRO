@@ -100,6 +100,9 @@ public final class ConfigProfiles {
         loaded.camNextId = cur.camNextId;
         loaded.camDefaultsRev = cur.camDefaultsRev;
         loaded.lowRenderSavedChunks = cur.lowRenderSavedChunks;   // служебное, не часть профиля
+        loaded.perfSavedFps = cur.perfSavedFps; loaded.perfSavedClouds = cur.perfSavedClouds;
+        loaded.perfSavedParticles = cur.perfSavedParticles; loaded.perfSavedShadows = cur.perfSavedShadows;
+        loaded.perfSavedEntityDist = cur.perfSavedEntityDist;
         loaded.uiAdvanced = cur.uiAdvanced; loaded.uiSections = cur.uiSections;    // вид меню — не часть профиля
         loaded.keyRecord = cur.keyRecord; loaded.keyPlay = cur.keyPlay; loaded.keyClear = cur.keyClear; loaded.keyOpenGui = cur.keyOpenGui;
         loaded.sanitize();

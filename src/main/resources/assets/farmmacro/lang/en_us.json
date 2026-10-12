@@ -16,5 +16,7 @@
   "key.farmmacro.mouselock": "FarmMacro: Mouse lock on/off",
   "key.farmmacro.freelook": "FarmMacro: Freelook (third-person free camera)",
   "key.farmmacro.lowrender": "FarmMacro: Low render (render only near player)",
-  "key.farmmacro.startfrom": "FarmMacro: Continue route from here"
+  "key.farmmacro.startfrom": "FarmMacro: Continue route from here",
+  "key.farmmacro.ungrab": "FarmMacro: Release cursor (macro keeps farming)",
+  "key.farmmacro.perf": "FarmMacro: Performance mode"
 }

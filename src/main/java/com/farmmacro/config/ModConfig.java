@@ -183,6 +183,36 @@ public class ModConfig {
     /** Плашка HUD: TPS сервера, BPS, баны (во время макроса). */
     public boolean serverHud           = true;
 
+    // ── v1.13.1: расписание, выход, переподключение, анти-застревание, курсор, производительность ──
+    /** Расписание: фармить N мин, потом перерыв M мин (оба ± разброс %), потом продолжить с места. */
+    public boolean schedEnabled        = false;
+    public int     schedFarmMin        = 60;
+    public int     schedBreakMin       = 10;
+    public int     schedJitterPct      = 20;
+    /** Таймер выхода: через N мин после старта (перерывы считаются) — стоп и выход с сервера. 0 — выкл. */
+    public int     leaveAfterMin       = 0;
+    /** Переподключение после вылета (не после паники ≤ 60 с и не после выхода через меню). */
+    public boolean autoReconnect       = false;
+    public int     reconnectDelaySec   = 15;
+    public int     reconnectTries      = 3;
+    /** Команда после входа (например «/warp garden»), пусто — нет. */
+    public String  reconnectCommand    = "";
+    /** Продолжить макрос с точки остановки, когда игрок снова рядом с ней. */
+    public boolean reconnectResume     = true;
+    /** Анти-застревание (только маршрут по точкам): столько раз отойти назад с прыжком, потом — паника «Застрял». 0 — сразу паника. */
+    public int     antiStuckTries      = 0;
+    /** «Отпустить курсор» (клавиша U): курсор свободен, макрос дальше ломает и ходит; при старте — по настройке. */
+    public boolean ungrabOnStart       = false;
+    /** Режим производительности (F9): FPS-лимит, без облаков/теней, минимум частиц; при старте — по настройке. */
+    public boolean perfOnStart         = false;
+    public int     perfFps             = 30;
+    /** Служебное: настройки графики до режима производительности (−1 / null — не сохранено). Возвращаются при запуске игры. */
+    public int     perfSavedFps        = -1;
+    public String  perfSavedClouds     = null;
+    public String  perfSavedParticles  = null;
+    public int     perfSavedShadows    = -1;
+    public double  perfSavedEntityDist = -1;
+
     // ── Реакция на панику ────────────────────────────────────────────────────
     public boolean panicSoundEnabled          = true;
     /** builtin:siren|klaxon|alarm|alert, mc:<id> или file:<имя файла в config/farmmacro/sounds> */
@@ -409,6 +439,16 @@ public class ModConfig {
         banwaveWindowMin      = clamp(banwaveWindowMin, 2, 60);
         jacobLimit            = clamp(jacobLimit, 0, 2_000_000_000);
         suspWeightLagback     = clamp(suspWeightLagback, 0, 100);
+        schedFarmMin          = clamp(schedFarmMin, 1, 1440);
+        schedBreakMin         = clamp(schedBreakMin, 1, 1440);
+        schedJitterPct        = clamp(schedJitterPct, 0, 90);
+        leaveAfterMin         = clamp(leaveAfterMin, 0, 10080);
+        reconnectDelaySec     = clamp(reconnectDelaySec, 5, 600);
+        reconnectTries        = clamp(reconnectTries, 1, 20);
+        if (reconnectCommand == null) reconnectCommand = "";
+        if (reconnectCommand.length() > 100) reconnectCommand = reconnectCommand.substring(0, 100);
+        antiStuckTries        = clamp(antiStuckTries, 0, 5);
+        perfFps               = clamp(perfFps, 10, 260);
         if (chatKeywords == null) chatKeywords = "";
         if (chatKeywords.length() > 1000) chatKeywords = chatKeywords.substring(0, 1000);
         humanGlobal           = com.farmmacro.macro.HumanSettings.sanitize(humanGlobal);
@@ -490,7 +530,8 @@ public class ModConfig {
                         + "культура=%s пресетов=%d | поворот камеры=%s %.0f°/с перелёт до %.1f%% | "
                         + "1.13: лаги=%s огонь=%s паутина=%s %.0f бл клетка=%s блок на ферме=%s %.0f бл вес %.1f | "
                         + "BPS=%s <%.1f за %.0f с рассинхрон=%s %.0f%% | инвентарь-паника=%s отключение=%s перезагрузка=%s | "
-                        + "банвейв=%s %d/%d мин staff=%s | jacob=%s %d гость=%s откат назад=%s %.1f",
+                        + "банвейв=%s %d/%d мин staff=%s | jacob=%s %d гость=%s откат назад=%s %.1f | "
+                        + "1.13.1: расписание=%s %d/%d мин ±%d%% выход=%d мин переподкл=%s %d с ×%d продолжить=%s анти-застр=%d",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
@@ -507,7 +548,9 @@ public class ModConfig {
                 lagGuard, detectFire, detectSticky, stickyRadius, detectCage, detectFarmBlock, farmBlockRadius, suspWeightFarmBlock,
                 detectBps, bpsMin, bpsWindowSec, detectDesync, desyncPct, panicInventoryFull, detectDisconnect, detectRestart,
                 detectBanwave, banwaveThreshold, banwaveWindowMin, banwaveWithStaff, detectJacob, jacobLimit, detectVisitor,
-                lagbackSoft, suspWeightLagback);
+                lagbackSoft, suspWeightLagback,
+                schedEnabled, schedFarmMin, schedBreakMin, schedJitterPct, leaveAfterMin,
+                autoReconnect, reconnectDelaySec, reconnectTries, reconnectResume, antiStuckTries);
     }
 
     private static String colorOrDefault(String id) {

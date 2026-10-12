@@ -12,7 +12,9 @@
     "LowRenderRegionMixin",
     "MouseLockMixin",
     "PanicGuiMixin",
-    "PanicPacketMixin"
+    "PanicPacketMixin",
+    "UngrabAttackMixin",
+    "UngrabMixin"
   ],
   "injectors": {
     "defaultRequire": 1

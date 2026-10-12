@@ -44,6 +44,13 @@ public final class RouteWalker implements PlaybackSource {
 
     private RouteWalker() {}
 
+    // v1.13.1 «Анти-застревание»: отойти назад (обратно нажатым клавишам) с прыжком, потом снова по маршруту
+    private static final int UNSTUCK_TICKS = 12;
+    private int unstuckLeft, unstuckTries;
+    private long lastUnstuckMs;
+    private boolean lf, lb, ll, lr;              // клавиши хода прошлого тика
+    private boolean uf, ub, ul, ur;              // клавиши манёвра
+
     @Override public int length() { return RouteBuffer.INSTANCE.size(); }
 
     @Override
@@ -72,6 +79,7 @@ public final class RouteWalker implements PlaybackSource {
         camera = r.settings.camera;
         camTracker.reset();
         velocity.reset();
+        unstuckLeft = 0;
         lastJump = false; lastOnGround = mc.player != null && mc.player.onGround(); moveDir = null;
         int from = Math.max(0, core.segment());
         camTracker.update(mc, camera, from, "старт, точка " + (from + 1));
@@ -128,6 +136,7 @@ public final class RouteWalker implements PlaybackSource {
         // «Случайность»: встать посреди пути / заминка — до решения WalkCore (он сам не жмёт клавиши и не ждёт «Застрял»)
         if (shaper != null) core.pauseExternal(shaper.stopNow(core.target(), core.dropPhase(), p.onGround(), core.pausing()));
         com.farmmacro.camera.SmoothTurn.look(human, p, core.externalPause() > 0 ? core.externalPause() + 1 : 0);
+        if (unstuckLeft > 0) { unstuckTick(mc, p, o); return false; }
         boolean velOn = on && c.detectVelocity;
         String vel = velocity.observe(p.getX(), p.getZ(), !velOn || velocityExcused(p), c.velocityAnomaly);
         if (vel != null) {
@@ -138,6 +147,20 @@ public final class RouteWalker implements PlaybackSource {
         core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), c.routeReachRadius,
                 on && c.detectStuck, c.stuckThresholdTicks, on && c.detectDrift, c.driftThreshold, on && c.detectFloor, out);
         if (core.dropPhase() != WalkCore.D_NONE) PanicDetector.INSTANCE.allowFall(10);  // урон от спуска — не паника
+        if (out.panic != null && out.panic.startsWith("Застрял") && c.antiStuckTries > 0) {
+            long now = System.currentTimeMillis();
+            if (now - lastUnstuckMs > 30_000) unstuckTries = 0;           // давно не застревал — попытки заново
+            if (unstuckTries < c.antiStuckTries && (lf || lb || ll || lr)) {
+                unstuckTries++;
+                lastUnstuckMs = now;
+                unstuckLeft = UNSTUCK_TICKS;
+                uf = lb; ub = lf; ul = lr; ur = ll;                        // назад от того, куда шёл
+                com.farmmacro.panic.EventLog.log("UNSTUCK", "попытка " + unstuckTries + "/" + c.antiStuckTries + ": " + out.panic);
+                unstuckTick(mc, p, o);
+                return false;
+            }
+            out.panic = out.panic + " (после " + unstuckTries + " попыток отойти)";
+        }
         if (out.panic != null) {
             PanicDetector.INSTANCE.triggerPanic(mc, out.panic);
             return true;
@@ -174,6 +197,7 @@ public final class RouteWalker implements PlaybackSource {
                 && core.dropPhase() == WalkCore.D_NONE && tgt >= 0 && tgt < core.points().size()
                 && core.points().get(tgt).y > p.getY() + 0.4) out.jump = true;
         velocity.command(out, p.getYRot());
+        lf = out.forward; lb = out.back; ll = out.left; lr = out.right;
         lastJump = out.jump; lastOnGround = p.onGround();
         boolean keys = out.forward || out.back || out.left || out.right;
         moveDir = keys ? WalkCore.moveDir(out, p.getYRot()) : null;
@@ -187,6 +211,27 @@ public final class RouteWalker implements PlaybackSource {
         MacroManager.press(o.keyUse, out.use);
         MacroManager.press(o.keyJump, out.jump);
         return false;
+    }
+
+    /** Тик манёвра: 8 т назад (прыжок на 3-м), 4 т стоять; конец — окна «Застрял» и скорости заново. */
+    private void unstuckTick(Minecraft mc, LocalPlayer p, Options o) {
+        int t = UNSTUCK_TICKS - unstuckLeft;          // 0…11
+        boolean move = t < 8;
+        MacroManager.press(o.keyUp, move && uf);
+        MacroManager.press(o.keyDown, move && ub);
+        MacroManager.press(o.keyLeft, move && ul);
+        MacroManager.press(o.keyRight, move && ur);
+        MacroManager.press(o.keyJump, t == 2 || t == 3);
+        MacroManager.press(o.keySprint, false);
+        MacroManager.press(o.keyShift, false);
+        MacroManager.press(o.keyAttack, false);
+        MacroManager.press(o.keyUse, false);
+        lastJump = true; lastOnGround = p.onGround();
+        if (--unstuckLeft <= 0) {
+            core.resetStuckWindow();
+            velocity.reset();
+            core.resteer(p.getX(), p.getZ(), p.getYRot(), out);
+        }
     }
 
     private static void applySlot(LocalPlayer p, int slot) {

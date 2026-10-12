@@ -34,7 +34,7 @@ public class FarmMacroMod implements ClientModInitializer {
 
     public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
             keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold, keyMouseLock,
-            keyFreelook, keyLowRender, keyStartFrom;
+            keyFreelook, keyLowRender, keyStartFrom, keyUngrab, keyPerf;
 
     private static KeyMapping makeKey(String id, int defaultCode) {
         return KeyMappingHelper.registerKeyMapping(new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
@@ -66,16 +66,23 @@ public class FarmMacroMod implements ClientModInitializer {
         keyFreelook  = makeKey("key.farmmacro.freelook", 295);  // F6 (v1.12)
         keyLowRender = makeKey("key.farmmacro.lowrender", 296); // F7 (v1.12)
         keyStartFrom = makeKey("key.farmmacro.startfrom", 78);  // N (v1.12) — продолжить маршрут с места
+        keyUngrab    = makeKey("key.farmmacro.ungrab", 85);     // U (v1.13.1) — отпустить курсор
+        keyPerf      = makeKey("key.farmmacro.perf", 298);      // F9 (v1.13.1) — режим производительности
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
         // v1.13: отключение от сервера во время макроса — паника; новый сервер — сброс замера лагов
+        // v1.13.1: при переподключении — не паника, а повторный вход (Reconnect)
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            boolean playing = MacroManager.INSTANCE.isPlaying()
+            boolean playing = MacroManager.INSTANCE.playingOrJustLost()
                     && (client.screen == null || client.screen instanceof net.minecraft.client.gui.screens.ChatScreen);
-            Guard.run("panic/disconnect", () -> PanicDetector.INSTANCE.onDisconnect(client, playing));
+            boolean reconnect = com.farmmacro.macro.Reconnect.wouldReconnect(client, playing);
+            Guard.run("macro/reconnect", () -> com.farmmacro.macro.Reconnect.onDisconnect(client, playing));
+            Guard.run("panic/disconnect", () -> PanicDetector.INSTANCE.onDisconnect(client, playing && !reconnect));
         });
-        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register((handler, sender, client) ->
-                com.farmmacro.panic.LagGuard.INSTANCE.reset());
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            com.farmmacro.panic.LagGuard.INSTANCE.reset();
+            com.farmmacro.macro.Reconnect.onJoin(client);
+        });
         LOGGER.info("FarmMacro загружен");
     }
 
@@ -83,6 +90,9 @@ public class FarmMacroMod implements ClientModInitializer {
         MacroManager macro = MacroManager.INSTANCE;
         Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
         Guard.run("panic/banwave", com.farmmacro.panic.BanwaveWatch::tick);
+        Guard.run("macro/reconnect", () -> com.farmmacro.macro.Reconnect.tick(mc));
+        Guard.run("visual/perf", () -> com.farmmacro.visual.PerformanceMode.tick(mc));
+        Guard.run("camera/ungrab", () -> com.farmmacro.camera.Ungrab.tick(mc));
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
             MouseHold.INSTANCE.tick(mc);     // без игрока — выключить зажим
@@ -107,6 +117,8 @@ public class FarmMacroMod implements ClientModInitializer {
         while (keyLowRender.consumeClick()) com.farmmacro.visual.LowRender.toggle(mc);
         Guard.run("visual/lowrender", () -> com.farmmacro.visual.LowRender.tick(mc));
         while (keyStartFrom.consumeClick()) macro.startRouteHere(mc);
+        while (keyUngrab.consumeClick()) com.farmmacro.camera.Ungrab.toggle(mc);
+        while (keyPerf.consumeClick()) com.farmmacro.visual.PerformanceMode.toggle(mc);
         Guard.run("editor/tick", () -> RouteEditor.tick(mc));
         while (keyCamApply.consumeClick()) CameraPresets.applySelected(mc);
         while (keyCamNext.consumeClick())  CameraPresets.next(mc);
@@ -124,6 +136,7 @@ public class FarmMacroMod implements ClientModInitializer {
             Guard.run("panic/stop-on-error", () -> macro.stopPlayback(mc, "§c⚠ Ошибка детекторов, макрос остановлен"));
         }
         macro.tickPlayback(mc);
+        Guard.run("macro/scheduler", () -> com.farmmacro.macro.Scheduler.tick(mc));
         Guard.run("hold/tick", () -> MouseHold.INSTANCE.tick(mc));
     }
 }
