@@ -51,6 +51,11 @@ public class PanicDetector {
 
     /** Первая причина паники, пришедшая из пакета/GUI за этот тик. Только главный поток. */
     private volatile String pendingReason;
+    /** v1.14.2-pre: id детектора (реестр {@link Detectors}) у pendingReason и у причины этого тика — для своего звука. */
+    private String pendingId, lastHitId, tickReason, tickId;
+    /** Звук текущей паники (повторы) — свой у детектора или null (общий). */
+    private String soundId;
+    private boolean lagWas;
 
     // захват состояния перед обработкой пакета движения
     private boolean moveCaptured;
@@ -102,12 +107,45 @@ public class PanicDetector {
         return MacroManager.INSTANCE.isPlaying() && ModConfig.INSTANCE.panicEnabled;
     }
 
-    void flag(String reason) {
+    /** Срабатывание из пакета/GUI: через реестр; паника — в следующем тике. */
+    void flag(String id, String reason) {
+        if (hit(id, reason) == null) return;
         EventLog.log("FLAG", reason);
         if (pendingReason == null) {
             pendingReason = reason;
+            pendingId = id;
             LOGGER.warn("[Флаг] {}", reason);
         }
+    }
+
+    /**
+     * v1.14.2-pre: срабатывание детектора id через реестр {@link Detectors}.
+     * @return причина, если действие — паника (или своё действие); null — очки/журнал/выключен/повтор
+     */
+    String hit(String id, String reason) {
+        if (reason == null) return null;
+        Detectors.Action a = Detectors.record(id, reason, System.currentTimeMillis());
+        if (a == null) return null;
+        switch (a) {
+            case PANIC -> { lastHitId = id; return reason; }
+            case SUSP -> suspectRaw(Detectors.name(id), reason, Detectors.weight(id));
+            case LOG -> EventLog.log("DETECT", Detectors.name(id) + " (только журнал): " + reason);
+            default -> {}
+        }
+        return null;
+    }
+
+    /** Причина этого тика: первая непустая (как раньше «if (reason == null) reason = …»). */
+    private void offer(String r) {
+        if (tickReason == null && r != null) { tickReason = r; tickId = lastHitId; }
+    }
+
+    /** Срабатывание вне тика детекторов (маршрут, запись): через реестр и сразу паника. @return была ли паника */
+    public boolean fire(Minecraft mc, String id, String reason) {
+        String r = hit(id, reason);
+        if (r == null) return false;
+        triggerPanic(mc, id, r);
+        return true;
     }
 
     /** Запомнить исходное состояние при старте/новом круге макроса. */
@@ -165,12 +203,21 @@ public class PanicDetector {
         if (!wasPlaying) return;
         mc.execute(() -> {
             ModConfig c = ModConfig.INSTANCE;
-            if (c.panicEnabled && c.detectDisconnect) triggerPanic(mc, "Отключение от сервера");
+            if (c.panicEnabled && c.detectDisconnect) fire(mc, "disconnect", "Отключение от сервера");
         });
     }
 
-    /** v1.11: мелкое событие ниже порогов → очки подозрительности (и строка журнала). */
-    void suspect(String type, String detail, double weight) {
+    /**
+     * v1.11: мелкое событие детектора id ниже порогов → очки подозрительности (и строка журнала).
+     * v1.14.2-pre: считается в реестре; действие детектора «Журнал» — только строка журнала, без очков.
+     */
+    void suspect(String id, String type, String detail, double weight) {
+        if (!armed()) return;
+        if (Detectors.soft(id, type + ": " + detail, System.currentTimeMillis())) suspectRaw(type, detail, weight);
+        else EventLog.log("DETECT", Detectors.name(id) + " (только журнал): " + type + " (" + detail + ")");
+    }
+
+    private void suspectRaw(String type, String detail, double weight) {
         ModConfig c = ModConfig.INSTANCE;
         if (!armed() || !c.suspicionEnabled || !(weight > 0)) return;
         double s = suspicion.add(type, detail, weight, System.currentTimeMillis(), c.suspicionHalfLifeSec);
@@ -204,7 +251,7 @@ public class PanicDetector {
                 || screen instanceof com.farmmacro.gui.PointEditScreen
                 || screen instanceof com.farmmacro.gui.MacroSettingsScreen
                 || screen instanceof com.farmmacro.hud.HudEditorScreen) return;
-        flag("Открылось окно: " + screen.getTitle().getString()
+        flag("gui", "Открылось окно: " + screen.getTitle().getString()
                 + " (" + screen.getClass().getSimpleName() + ")");
     }
 
@@ -237,30 +284,30 @@ public class PanicDetector {
             // v1.13 «Откат назад»: вернули на место, где игрок был за последние ~3 с — похоже на лаг-откат античита
             String d = String.format(Locale.ROOT, "%.2f бл%s", dist, lag ? ", сервер лагает" : "");
             EventLog.log("SYNC", "откат назад: " + d);
-            suspect("откат назад", d, c.suspWeightLagback);
+            suspect("lagback", "откат назад", d, c.suspWeightLagback);
         } else if (dist >= c.serverMoveThreshold) {
-            flag(String.format(Locale.ROOT, "Сервер телепортировал (%.1f бл)", dist));
+            flag("serverMove", String.format(Locale.ROOT, "Сервер телепортировал (%.1f бл)", dist));
         } else if (rot >= c.serverRotateThreshold) {
-            flag(String.format(Locale.ROOT, "Сервер повернул камеру (%.3f° ≥ %.3f°)", rot, c.serverRotateThreshold));
+            flag("serverMove", String.format(Locale.ROOT, "Сервер повернул камеру (%.3f° ≥ %.3f°)", rot, c.serverRotateThreshold));
         } else if (lag && (syncOver || c.serverMoveAny)) {
             // v1.13 «Лаги сервера»: во время лага поправка позиции — норма, только подозрительность
             String d = String.format(Locale.ROOT, "%.3f бл, %.3f°, сервер лагает", dist, rot);
             EventLog.log("SYNC", "лаг: пакет " + mvKind + " " + d);
-            suspect("откат при лаге", d, syncOver ? c.suspWeightRollback : c.suspWeightSync);
+            suspect("serverMove", "откат при лаге", d, syncOver ? c.suspWeightRollback : c.suspWeightSync);
         } else if (c.detectServerSync && syncOver) {
-            flag(SyncMath.syncReason(mvKind, dist, c.serverPosEpsilon, dYaw, dPitch, c.serverRotEpsilon));
+            flag("serverSync", SyncMath.syncReason(mvKind, dist, c.serverPosEpsilon, dYaw, dPitch, c.serverRotEpsilon));
         } else if (c.serverMoveAny) {
-            flag(String.format(Locale.ROOT, "Пакет %s от сервера (сдвиг %.3f бл, поворот %.3f°)", mvKind, dist, rot));
+            flag("serverMove", String.format(Locale.ROOT, "Пакет %s от сервера (сдвиг %.3f бл, поворот %.3f°)", mvKind, dist, rot));
         } else if (syncOver) {
             // «Синхронизация» выключена: сдвиг больше эпсилона, но меньше порогов — похоже на лаг-откат
             String d = String.format(Locale.ROOT, "%.3f бл, %.3f°", dist, rot);
             EventLog.log("SYNC", "откат: пакет " + mvKind + " " + d);
-            suspect("лаг-откат", d, c.suspWeightRollback);
+            suspect("serverMove", "лаг-откат", d, c.suspWeightRollback);
         } else {
             String d = String.format(Locale.ROOT, "%.4f бл, yaw %.4f° pitch %.4f°", dist, dYaw, dPitch);
             LOGGER.info("[Синхр] пакет {} ниже эпсилона: {} (≤ {} бл / {}°)", mvKind, d, c.serverPosEpsilon, c.serverRotEpsilon);
             EventLog.log("SYNC", "ниже эпсилона: пакет " + mvKind + " " + d);
-            suspect("пакет " + mvKind + " ниже эпсилона", String.format(Locale.ROOT, "%.3f бл", dist), c.suspWeightSync);
+            suspect("serverMove", "пакет " + mvKind + " ниже эпсилона", String.format(Locale.ROOT, "%.3f бл", dist), c.suspWeightSync);
         }
         // Поворот от сервера — не движение мыши: детектор мыши сравнивает с уже повёрнутой камерой,
         // иначе мелкий серверный поворот (ниже порога сервера) засчитывался бы как «Камера повернулась».
@@ -288,7 +335,7 @@ public class PanicDetector {
             AABB zone = p.getBoundingBox().inflate(c.blockDetectRadius);
             for (AABB box : shape.toAabbs()) {
                 if (box.move(pos).intersects(zone)) {
-                    flag("Рядом появился блок: " + newState.getBlock().getName().getString()
+                    flag("blockNear", "Рядом появился блок: " + newState.getBlock().getName().getString()
                             + " " + pos.toShortString());
                     return;
                 }
@@ -359,7 +406,7 @@ public class PanicDetector {
         if (p == null || entityId != p.getId() || !armed() || !ModConfig.INSTANCE.detectPotionEffect) return;
         MobEffectInstance cur = p.getEffect(effect);
         if (cur != null && cur.getAmplifier() == amplifier) return; // продление (маяк/проводник) — норма
-        flag("Эффект: " + effect.value().getDisplayName().getString() + " " + (amplifier + 1));
+        flag("effects", "Эффект: " + effect.value().getDisplayName().getString() + " " + (amplifier + 1));
     }
 
     public void onEffectRemoved(int entityId, Holder<MobEffect> effect) {
@@ -369,7 +416,7 @@ public class PanicDetector {
         if (cur == null) return;
         // Естественное окончание — норма; снятие задолго до конца (молоко, /effect clear) — нет.
         if (cur.isInfiniteDuration() || cur.getDuration() > 40) {
-            flag("Сняли эффект: " + effect.value().getDisplayName().getString());
+            flag("effects", "Сняли эффект: " + effect.value().getDisplayName().getString());
         }
     }
 
@@ -385,9 +432,9 @@ public class PanicDetector {
         if (!ModConfig.INSTANCE.detectKnockback || mv == null) return;
         double v = mv.length();
         if (v >= ModConfig.INSTANCE.knockbackThreshold)
-            flag(String.format(Locale.ROOT, "Сервер толкнул (скорость %.2f бл/т)", v));
+            flag("knockback", String.format(Locale.ROOT, "Сервер толкнул (скорость %.2f бл/т)", v));
         else if (v > 0.001)
-            suspect("слабый толчок", String.format(Locale.ROOT, "%.3f бл/т", v), ModConfig.INSTANCE.suspWeightKnock);
+            suspect("knockback", "слабый толчок", String.format(Locale.ROOT, "%.3f бл/т", v), ModConfig.INSTANCE.suspWeightKnock);
     }
 
     public void onExplosion(java.util.Optional<net.minecraft.world.phys.Vec3> knockback) {
@@ -396,9 +443,9 @@ public class PanicDetector {
         if (!ModConfig.INSTANCE.detectKnockback) return;
         double v = knockback.get().length();
         if (v >= ModConfig.INSTANCE.knockbackThreshold)
-            flag(String.format(Locale.ROOT, "Отдача взрыва (%.2f бл/т)", v));
+            flag("knockback", String.format(Locale.ROOT, "Отдача взрыва (%.2f бл/т)", v));
         else if (v > 0.001)
-            suspect("слабый толчок", String.format(Locale.ROOT, "взрыв %.3f бл/т", v), ModConfig.INSTANCE.suspWeightKnock);
+            suspect("knockback", "слабый толчок", String.format(Locale.ROOT, "взрыв %.3f бл/т", v), ModConfig.INSTANCE.suspWeightKnock);
     }
 
     /** Чат: system — сообщение сервера/плагина; sender — автор сообщения игрока (null — неизвестен). */
@@ -418,17 +465,17 @@ public class PanicDetector {
                 String key = clip(text, 80).replaceAll("\\d", "#");
                 if (actionSeen.add(key)) {
                     if (actionSeen.size() > 64) actionSeen.remove(actionSeen.iterator().next());
-                    suspect("надпись над хотбаром", "«" + clip(text, 30) + "»", c.suspWeightActionBar);
+                    suspect("title", "надпись над хотбаром", "«" + clip(text, 30) + "»", c.suspWeightActionBar);
                 }
             }
             return;
         }
         EventLog.log("CHAT", hit + (senderName != null ? " от " + senderName : "") + ": «" + clip(text, 120) + "»");
         if (c.chatWordsSoft && !"ник".equals(hit)) {
-            suspect("слово в чате", hit, c.suspWeightChatWord);
+            suspect("chat", "слово в чате", hit, c.suspWeightChatWord);
             return;
         }
-        flag((overlay ? "Надпись над хотбаром" : "Чат") + " (" + hit + ")" + (senderName != null ? " от " + senderName : "")
+        flag("chat", (overlay ? "Надпись над хотбаром" : "Чат") + " (" + hit + ")" + (senderName != null ? " от " + senderName : "")
                 + ": «" + clip(text, 60) + "»");
     }
 
@@ -436,11 +483,11 @@ public class PanicDetector {
         if (!armed() || text == null || text.isBlank()) return;
         world.onServerText(text, subtitle ? "подзаголовок" : "титр");
         if (!ModConfig.INSTANCE.detectTitle) return;
-        flag((subtitle ? "Подзаголовок" : "Титр") + " на экране: «" + clip(text, 60) + "»");
+        flag("title", (subtitle ? "Подзаголовок" : "Титр") + " на экране: «" + clip(text, 60) + "»");
     }
 
     public void onGameModeChanged(String to) {
-        if (armed() && ModConfig.INSTANCE.detectGameMode) flag("Сервер сменил режим игры" + (to != null ? ": " + to : ""));
+        if (armed() && ModConfig.INSTANCE.detectGameMode) flag("gameMode", "Сервер сменил режим игры" + (to != null ? ": " + to : ""));
     }
 
     public void onAbilities(boolean flying, boolean canFly, float walkSpeed, float flySpeed) {
@@ -449,12 +496,12 @@ public class PanicDetector {
         if (p == null || !armed()) return;
         var a = p.getAbilities();
         if (c.detectGameMode && (a.flying != flying || a.mayfly != canFly))
-            flag("Сервер сменил полёт (летит: " + yes(flying) + ", может летать: " + yes(canFly) + ")");
+            flag("gameMode", "Сервер сменил полёт (летит: " + yes(flying) + ", может летать: " + yes(canFly) + ")");
         if (c.detectMoveAttrs) {
             if (SyncMath.changed(a.getWalkingSpeed(), walkSpeed, c.attrEpsilon))
-                flag(attrReason("скорость ходьбы (abilities)", a.getWalkingSpeed(), walkSpeed));
+                flag("moveAttrs", attrReason("скорость ходьбы (abilities)", a.getWalkingSpeed(), walkSpeed));
             else if (SyncMath.changed(a.getFlyingSpeed(), flySpeed, c.attrEpsilon))
-                flag(attrReason("скорость полёта (abilities)", a.getFlyingSpeed(), flySpeed));
+                flag("moveAttrs", attrReason("скорость полёта (abilities)", a.getFlyingSpeed(), flySpeed));
         }
     }
 
@@ -479,7 +526,7 @@ public class PanicDetector {
             double before = SyncMath.value(inst.getBaseValue(), mods(inst.getModifiers()));
             double after = SyncMath.value(snap.base(), mods(snap.modifiers()));
             if (SyncMath.changed(before, after, c.attrEpsilon)) {
-                flag(attrReason(SyncMath.attrLabel(MOVE_ATTR_PATHS[i]), before, after));
+                flag("moveAttrs", attrReason(SyncMath.attrLabel(MOVE_ATTR_PATHS[i]), before, after));
                 return;
             }
         }
@@ -497,7 +544,7 @@ public class PanicDetector {
     }
 
     public void onRespawn() {
-        if (armed() && ModConfig.INSTANCE.detectGameMode) flag("Респавн / смена мира");
+        if (armed() && ModConfig.INSTANCE.detectGameMode) flag("gameMode", "Респавн / смена мира");
     }
 
     public void onPassengers(int vehicle, int[] passengers) {
@@ -505,7 +552,7 @@ public class PanicDetector {
         if (p == null || passengers == null || !armed() || !ModConfig.INSTANCE.detectGameMode) return;
         for (int id : passengers)
             if (id == p.getId() && (p.getVehicle() == null || p.getVehicle().getId() != vehicle)) {
-                flag("Посадили на сущность #" + vehicle);
+                flag("gameMode", "Посадили на сущность #" + vehicle);
                 return;
             }
     }
@@ -514,7 +561,7 @@ public class PanicDetector {
         LocalPlayer p = player();
         if (p == null || !armed() || !ModConfig.INSTANCE.detectSlotChange) return;
         int cur = p.getInventory().getSelectedSlot();
-        if (slot != cur) flag("Сервер сменил слот: " + (cur + 1) + " → " + (slot + 1));
+        if (slot != cur) flag("slot", "Сервер сменил слот: " + (cur + 1) + " → " + (slot + 1));
     }
 
     /** Событие урона (приходит и на урон 0, и при поглощении — здоровье может не измениться). */
@@ -522,7 +569,7 @@ public class PanicDetector {
         LocalPlayer p = player();
         if (p == null || entityId != p.getId() || !armed() || !ModConfig.INSTANCE.detectDamage) return;
         if (fall && fallGraceTicks > 0) return;
-        flag(fall ? "Урон от падения" : "Получен урон (событие сервера)");
+        flag("damage", fall ? "Урон от падения" : "Получен урон (событие сервера)");
     }
 
     /** Список игроков (Tab): кто стал наблюдателем, кто зашёл. Вызывается до применения — в списке старое состояние. */
@@ -542,12 +589,12 @@ public class PanicDetector {
             if (add && old == null) {
                 if (c.detectSpectator && mode && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR
                         && !(friend && c.friendsIgnoreSpectator)) {
-                    flag("Зашёл игрок наблюдателем: " + name); return;
+                    flag("spectator", "Зашёл игрок наблюдателем: " + name); return;
                 }
-                if (c.detectPlayerJoin && !(friend && c.friendsIgnoreJoin)) { flag("Зашёл игрок: " + name); return; }
+                if (c.detectPlayerJoin && !(friend && c.friendsIgnoreJoin)) { flag("playerJoin", "Зашёл игрок: " + name); return; }
             } else if (mode && c.detectSpectator && !(friend && c.friendsIgnoreSpectator) && e.gameMode() == net.minecraft.world.level.GameType.SPECTATOR
                     && old != null && old.getGameMode() != net.minecraft.world.level.GameType.SPECTATOR) {
-                flag("Игрок стал наблюдателем: " + name); return;
+                flag("spectator", "Игрок стал наблюдателем: " + name); return;
             }
         }
     }
@@ -560,7 +607,7 @@ public class PanicDetector {
             if (id.equals(p.getUUID())) continue;
             var old = mc.getConnection().getPlayerInfo(id);
             if (old != null && ModConfig.INSTANCE.friendsIgnoreJoin && players.isFriend(old.getProfile().name())) continue;
-            flag("Игрок пропал из списка (вышел или ваниш): " + (old != null ? old.getProfile().name() : id.toString()));
+            flag("playerJoin", "Игрок пропал из списка (вышел или ваниш): " + (old != null ? old.getProfile().name() : id.toString()));
             return;
         }
     }
@@ -580,40 +627,49 @@ public class PanicDetector {
         if (p == null) return;
         ModConfig c = ModConfig.INSTANCE;
 
-        String reason = pendingReason;
-        pendingReason = null;
+        tickReason = pendingReason; tickId = pendingId;
+        pendingReason = null; pendingId = null;
 
         if (pushGraceTicks > 0) pushGraceTicks--;
         if (!c.panicEnabled) { updatePrev(p); obstacles.clear(); return; }
 
+        // v1.14.2-pre: «Лаги сервера» — защита, в реестре считаются эпизоды лага
+        boolean lagNow = c.lagGuard && LagGuard.INSTANCE.lagging();
+        if (lagNow && !lagWas) {
+            double tps = LagGuard.INSTANCE.tps();
+            Detectors.record("lagGuard", Double.isNaN(tps) ? "сервер лагает" : String.format(Locale.ROOT, "сервер лагает, TPS %.1f", tps),
+                    System.currentTimeMillis());
+        }
+        lagWas = lagNow;
+
         if (c.detectObstacle && mc.level != null) {
             String o = checkObstacles(p, mc.level, c.obstacleRange);
-            if (reason == null) reason = o;
+            if (tickReason == null) offer(hit("obstacle", o));
         } else obstacles.clear();
 
-        if (reason == null && c.detectRotation) {
+        if (tickReason == null && c.detectRotation) {
             float dy = angleDiff(p.getYRot(), prevYaw);
             float dp = Math.abs(p.getXRot() - prevPitch);
             if (dy > c.yawThreshold)
-                reason = String.format(Locale.ROOT, "Камера повернулась (yaw %.3f° > %.3f°)", dy, c.yawThreshold);
+                offer(hit("rotation", String.format(Locale.ROOT, "Камера повернулась (yaw %.3f° > %.3f°)", dy, c.yawThreshold)));
             else if (dp > c.pitchThreshold)
-                reason = String.format(Locale.ROOT, "Камера повернулась (pitch %.3f° > %.3f°)", dp, c.pitchThreshold);
+                offer(hit("rotation", String.format(Locale.ROOT, "Камера повернулась (pitch %.3f° > %.3f°)", dp, c.pitchThreshold)));
         }
 
-        if (reason == null && c.detectSlotChange) {
+        if (tickReason == null && c.detectSlotChange) {
             int real = p.getInventory().getSelectedSlot();
-            if (real != expectedSlot) reason = "Слот сменился: " + (expectedSlot + 1) + " → " + (real + 1);
+            if (real != expectedSlot) offer(hit("slot", "Слот сменился: " + (expectedSlot + 1) + " → " + (real + 1)));
         }
 
         // предмет в руке сменился/пропал сам — слот тот же (смену слота макросом не считаем)
         var stack = p.getMainHandItem();
         int sel = p.getInventory().getSelectedSlot();
-        if (reason == null && c.detectHeldItem && sel == heldSlot && heldItem != null) {
+        if (tickReason == null && c.detectHeldItem && sel == heldSlot && heldItem != null) {
             if (stack.isEmpty()) {
-                if (!heldStackable) reason = "Предмет в руке пропал: " + heldItem.getName(heldItem.getDefaultInstance()).getString();
+                if (!heldStackable) offer(hit("heldItem", "Предмет в руке пропал: " + heldItem.getName(heldItem.getDefaultInstance()).getString()));
             } else if (stack.getItem() != heldItem) {
-                reason = "Предмет в руке сменился: " + heldItem.getName(heldItem.getDefaultInstance()).getString()
-                        + " → " + stack.getHoverName().getString();
+                offer(hit("heldItem", "Предмет в руке сменился: " + heldItem.getName(heldItem.getDefaultInstance()).getString()
+                        + " → " + stack.getHoverName().getString()));
             }
         }
         heldSlot = sel;
@@ -637,7 +693,7 @@ public class PanicDetector {
                 if (d > r) {
                     // v1.11: виден, но дальше радиуса — раз за запуск на игрока (кто был на старте — нет)
                     if (farSeen.add(other.getUUID()) && !firstFar)
-                        suspect("игрок за радиусом", String.format(Locale.ROOT, "%s %.0f бл", nm, d),
+                        suspect("playerNear", "игрок за радиусом", String.format(Locale.ROOT, "%s %.0f бл", nm, d),
                                 c.suspWeightPlayerFar);
                     continue;
                 }
@@ -651,9 +707,9 @@ public class PanicDetector {
             nearSeen = now;
             nearFresh = fresh;
             long delayMs = Math.round(c.playerNearDelaySec * 1000);
-            UUID hit = nearDwell.update(nowMs, fresh, delayMs);
-            if (reason == null && c.detectPlayerNear && hit != null)
-                reason = "Рядом игрок: " + info.get(hit) + (delayMs > 0 ? String.format(Locale.ROOT, ", стоит %.1f с)", nearDwell.elapsed(hit, nowMs) / 1000.0) : ")");
+            UUID near = nearDwell.update(nowMs, fresh, delayMs);
+            if (tickReason == null && c.detectPlayerNear && near != null)
+                offer(hit("playerNear", "Рядом игрок: " + info.get(near) + (delayMs > 0 ? String.format(Locale.ROOT, ", стоит %.1f с)", nearDwell.elapsed(near, nowMs) / 1000.0) : ")")));
         }
 
         // v1.14 диагностика (только журнал): нет нажатых клавиш дольше обычного
@@ -668,23 +724,26 @@ public class PanicDetector {
         float hp = p.getHealth();
         boolean fallOk = fallGraceTicks > 0;
         if (fallGraceTicks > 0) fallGraceTicks--;
-        if (reason == null && c.detectDamage && !fallOk && hp < expectedHealth - 0.01f) {
-            reason = String.format(Locale.ROOT, "Получен урон (−%.1f ❤)", (expectedHealth - hp) / 2f);
+        if (tickReason == null && c.detectDamage && !fallOk && hp < expectedHealth - 0.01f) {
+            offer(hit("damage", String.format(Locale.ROOT, "Получен урон (−%.1f ❤)", (expectedHealth - hp) / 2f)));
         }
         expectedHealth = hp;
 
-        String w = world.tick(mc, p, c);                 // v1.13: мир и сервер (состояние обновляется всегда)
-        if (reason == null) reason = w;
-        String pl = players.tick(mc, p, c);              // v1.14: staff, двойник, массовый телепорт, без имени
-        if (reason == null) reason = pl;
+        offer(world.tick(mc, p, c));                     // v1.13: мир и сервер (состояние обновляется всегда)
+        offer(players.tick(mc, p, c));                   // v1.14: staff, двойник, массовый телепорт, без имени
         if (!MacroManager.INSTANCE.isPlaying()) return;    // Jacob's Contest: обычный стоп по лимиту
 
         if (c.suspicionEnabled) {
             String s = suspicion.reasonIfOver(System.currentTimeMillis(), c.suspicionHalfLifeSec, c.suspicionLimit);
-            if (reason == null) reason = s;
+            if (tickReason == null && s != null) {
+                offer(hit("suspicion", s));
+                if (tickReason == null) suspicion.reset();     // «Журнал»: записали и начали копить заново
+            }
         }
 
-        if (reason != null) triggerPanic(mc, reason);
+        String reason = tickReason, id = tickId;
+        tickReason = null; tickId = null;
+        if (reason != null) triggerPanic(mc, id, reason);
         else updatePrev(p);
     }
 
@@ -695,7 +754,7 @@ public class PanicDetector {
             if (soundRepeatDelay > 0) soundRepeatDelay--;
             else {
                 soundRepeatsLeft--;
-                Guard.run("panic/repeat-sound", PanicSound::playPanic);
+                Guard.run("panic/repeat-sound", () -> PanicSound.playPanic(soundId));
                 soundRepeatDelay = ModConfig.INSTANCE.panicSoundRepeatDelayTicks;
             }
         }
@@ -705,8 +764,12 @@ public class PanicDetector {
      * Аварийный стоп. Только останавливает макрос и подаёт сигнал.
      * Каждый шаг защищён отдельно: ошибка в логе/звуке/экране не мешает остановке и не роняет игру.
      */
-    public void triggerPanic(Minecraft mc, String reason) {
+    public void triggerPanic(Minecraft mc, String reason) { triggerPanic(mc, null, reason); }
+
+    /** v1.14.2-pre: id — детектор из реестра (свой звук); null — общий звук. */
+    public void triggerPanic(Minecraft mc, String id, String reason) {
         ModConfig c = ModConfig.INSTANCE;
+        soundId = Detectors.sound(id);
         Guard.run("panic/event-log", () -> EventLog.log("PANIC", reason));
         Guard.run("panic/log", () -> {
             LocalPlayer p = mc.player;
@@ -738,7 +801,7 @@ public class PanicDetector {
         if (c.panicSoundEnabled) {
             soundRepeatsLeft = Math.max(0, c.panicSoundRepeats - 1);
             soundRepeatDelay = c.panicSoundRepeatDelayTicks;
-            Guard.run("panic/sound", PanicSound::playPanic);
+            Guard.run("panic/sound", () -> PanicSound.playPanic(soundId));
         }
         // 3. Красный экран.
         if (c.panicRedScreenEnabled) redScreenTicksLeft = c.panicRedScreenTicks;
@@ -747,13 +810,18 @@ public class PanicDetector {
     }
 
     /** Проверка из меню: те же звук и красный экран, но без остановки и без записи в «последнюю панику». */
-    public void preview(Minecraft mc) {
+    public void preview(Minecraft mc) { preview(mc, "Проверка — так выглядит паника", null); }
+
+    /** v1.14.2-pre «Тест ▶» в таблице детекторов: экран, звук детектора и пример причины — без остановки макроса. */
+    public void preview(Minecraft mc, String text, String sound) {
         ModConfig c = ModConfig.INSTANCE;
-        overlayText = "Проверка — так выглядит паника";
+        overlayText = text;
+        soundId = sound;
+        EventLog.log("TEST", text);
         if (c.panicSoundEnabled) {
             soundRepeatsLeft = Math.max(0, c.panicSoundRepeats - 1);
             soundRepeatDelay = c.panicSoundRepeatDelayTicks;
-            Guard.run("panic/sound", PanicSound::playPanic);
+            Guard.run("panic/sound", () -> PanicSound.playPanic(sound));
         }
         redScreenTicksLeft = c.panicRedScreenEnabled ? c.panicRedScreenTicks : 0;
     }

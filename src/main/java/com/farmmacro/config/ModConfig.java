@@ -278,6 +278,19 @@ public class ModConfig {
     public boolean reconnectBackoff    = false;
     /** HUD: все плашки в одной общей панели. */
     public boolean hudMerged           = false;
+
+    // ── v1.14.2-pre: реестр детекторов (panic/Detectors) и мастер первого запуска ──
+    /** Своё действие детектора: id → "susp"/"log"/"panic" (нет записи — по умолчанию). Выкл — прежнее поле detectX. */
+    public java.util.Map<String, String> detectorActions = new java.util.LinkedHashMap<>();
+    /** Свой звук паники детектора: id → звук ("builtin:…", "file:…", "mc:…"); нет записи — общий. */
+    public java.util.Map<String, String> detectorSounds = new java.util.LinkedHashMap<>();
+    /** Вес очков для действия «Подозрительность»: id → 0–100 (нет записи — 3). */
+    public java.util.Map<String, Double> detectorWeights = new java.util.LinkedHashMap<>();
+    /** Мастер первого запуска пройден или пропущен (старые конфиги без поля — считаются пройденными). */
+    public boolean welcomeDone         = false;
+    /** Ответы мастера: где играешь (skyblock/friends/other) и набор (optimal/careful/soft). */
+    public String  welcomeWhere        = "skyblock";
+    public String  welcomePreset       = "optimal";
     /** HUD: места, масштаб и скрытие плашек (редактор HUD). Ключ — id плашки, "all" — общая панель. */
     public java.util.Map<String, HudSlot> hudSlots = new java.util.LinkedHashMap<>();
 
@@ -547,6 +560,9 @@ public class ModConfig {
         if (friendNames.length() > 1000) friendNames = friendNames.substring(0, 1000);
         playerNearDelaySec    = clamp(playerNearDelaySec, 0, 120);
         diagIdleSec           = clamp(diagIdleSec, 3, 3600);
+        com.farmmacro.panic.Detectors.sanitize(this);
+        if (!"skyblock".equals(welcomeWhere) && !"friends".equals(welcomeWhere) && !"other".equals(welcomeWhere)) welcomeWhere = "skyblock";
+        if (!"optimal".equals(welcomePreset) && !"careful".equals(welcomePreset) && !"soft".equals(welcomePreset)) welcomePreset = "optimal";
         if (hudSlots == null) hudSlots = new java.util.LinkedHashMap<>();
         hudSlots.values().removeIf(java.util.Objects::isNull);
         if (hudSlots.size() > 64) hudSlots.clear();
@@ -636,7 +652,7 @@ public class ModConfig {
                         + "1.14: staff=%s %.0f бл tab=%s двойник=%s %.0f бл масс.тп=%s %d/%.0f бл/%d мс без имени=%s %.0f бл %d мс "
                         + "ЛС=%s AFK=%s бедрок=%s %d/%.0f бл/%d мс клетка-число=%s %d/%.1f бл/%d мс тишина=%s %d с | "
                         + "друзей=%d (рядом=%s вход=%s набл=%s чат=%s ЛС=%s масс=%s) задержка рядом=%.1f с | "
-                        + "скриншот=%s discord=%s диагн=%s %d с/%s",
+                        + "скриншот=%s discord=%s диагн=%s %d с/%s | 1.14.2: действия детекторов={%s}",
                 panicEnabled, detectRotation, yawThreshold, pitchThreshold,
                 detectServerMove, serverMoveThreshold, serverRotateThreshold,
                 detectBlockInFace, blockDetectRadius, detectSlotChange, detectGuiOpen, detectDamage, detectPotionEffect,
@@ -662,7 +678,7 @@ public class ModConfig {
                 detectCageCount, cageCountMin, cageCountRadius, cageCountMs, detectSilence, silenceSec,
                 com.farmmacro.panic.PlayerRules.parseNames(friendNames).size(), friendsIgnoreNear, friendsIgnoreJoin,
                 friendsIgnoreSpectator, friendsIgnoreChat, friendsIgnorePm, friendsIgnoreMass, playerNearDelaySec,
-                panicScreenshot, webhookEnabled, diagIdle, diagIdleSec, diagScoreboard);
+                panicScreenshot, webhookEnabled, diagIdle, diagIdleSec, diagScoreboard, com.farmmacro.panic.Detectors.describe(this));
     }
 
     private static String colorOrDefault(String id) {
@@ -682,9 +698,12 @@ public class ModConfig {
             save();
             return;
         }
-        try (Reader r = Files.newBufferedReader(CONFIG_PATH, StandardCharsets.UTF_8)) {
-            ModConfig loaded = GSON.fromJson(r, ModConfig.class);
+        try {
+            String json = Files.readString(CONFIG_PATH, StandardCharsets.UTF_8);
+            ModConfig loaded = GSON.fromJson(json, ModConfig.class);
             INSTANCE = loaded != null ? loaded : new ModConfig();
+            // v1.14.2-pre: конфиг старой версии (без поля) — мастер первого запуска не показываем, он есть в меню
+            if (loaded != null && !json.contains("\"welcomeDone\"")) INSTANCE.welcomeDone = true;
         } catch (Exception e) {
             LOGGER.error("Не удалось прочитать farmmacro.json, беру настройки по умолчанию", e);
             INSTANCE = new ModConfig();

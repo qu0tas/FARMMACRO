@@ -97,7 +97,7 @@ final class WorldGuards {
         double dist = Math.sqrt(p.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
         String name = now.getBlock().getName().getString();
         if (c.detectSticky && sticky(now) && !sticky(old) && dist <= c.stickyRadius) {
-            d.flag(String.format(Locale.ROOT, "Сервер поставил %s рядом (%.1f бл)", name, dist));
+            d.flag("sticky", String.format(Locale.ROOT, "Сервер поставил %s рядом (%.1f бл)", name, dist));
             return;
         }
         if (c.detectCage && cageBlock(now) && !cageBlock(old) && dist <= 4 && cageBlocks.size() < 256) cageBlocks.add(pos.asLong());
@@ -107,7 +107,7 @@ final class WorldGuards {
             bedrockBurst.add(ms, pos.asLong());
             int n = bedrockBurst.count(ms, c.bedrockBurstMs);
             if (n >= c.bedrockBurstMin) {
-                d.flag(String.format(Locale.ROOT, "Бедрок очередью: %d блоков ближе %.0f бл за %d мс", n, c.bedrockBurstRadius, c.bedrockBurstMs));
+                d.flag("bedrockBurst", String.format(Locale.ROOT, "Бедрок очередью: %d блоков ближе %.0f бл за %d мс", n, c.bedrockBurstRadius, c.bedrockBurstMs));
                 return;
             }
         }
@@ -120,7 +120,7 @@ final class WorldGuards {
                 cageBurst.add(ms, pos.asLong());
                 int n = cageBurst.count(ms, c.cageCountMs);
                 if (n >= c.cageCountMin) {
-                    d.flag(String.format(Locale.ROOT, "Клетка: %d блоков у ног/головы за %.1f с (последний %s)", n, c.cageCountMs / 1000.0, name));
+                    d.flag("cageCount", String.format(Locale.ROOT, "Клетка: %d блоков у ног/головы за %.1f с (последний %s)", n, c.cageCountMs / 1000.0, name));
                     return;
                 }
             }
@@ -130,7 +130,7 @@ final class WorldGuards {
                 && !PanicDetector.grownOrMoved(now) && !brokenRecently(pos.asLong())) {
             if (farmBlocks.size() < 512) farmBlocks.put(pos.asLong(), ms + 60_000);
             EventLog.log("FARMBLOCK", name + " " + pos.toShortString() + String.format(Locale.ROOT, " (%.1f бл)", dist));
-            d.suspect("блок на ферме", name + " " + pos.toShortString(), c.suspWeightFarmBlock);
+            d.suspect("farmBlock", "блок на ферме", name + " " + pos.toShortString(), c.suspWeightFarmBlock);
         }
     }
 
@@ -156,9 +156,9 @@ final class WorldGuards {
         if (text == null || text.isBlank()) return;
         if (c.detectRestart) {
             String w = ServerText.restartWord(text);
-            if (w != null) { d.flag("Перезагрузка / лимбо (" + where + ", «" + w + "»): «" + clip(text) + "»"); return; }
+            if (w != null) { d.flag("restart", "Перезагрузка / лимбо (" + where + ", «" + w + "»): «" + clip(text) + "»"); return; }
         }
-        if (c.detectVisitor && ServerText.isVisitor(text)) d.flag("Гость на ферме: «" + clip(text) + "»");
+        if (c.detectVisitor && ServerText.isVisitor(text)) d.flag("visitor", "Гость на ферме: «" + clip(text) + "»");
     }
 
     /** Новая позиция после пакета телепорта — на пути за последние ~3 с (откат назад)? */
@@ -184,15 +184,15 @@ final class WorldGuards {
 
         // горение
         if (!p.isOnFire()) fireAtStart = false;
-        else if (c.detectFire && !fireAtStart) r = "Игрок горит";
+        else if (c.detectFire && !fireAtStart) r = d.hit("fire", "Игрок горит");
 
         // паутина / ягоды / снег в хитбоксе
         String st = stickyAt(p);
         if (st == null) stickyAtStart = false;
-        else if (r == null && c.detectSticky && !stickyAtStart) r = "Застрял в блоке: " + st;
+        else if (r == null && c.detectSticky && !stickyAtStart) r = d.hit("sticky", "Застрял в блоке: " + st);
 
         // клетка из бедрока/барьера (хотя бы один блок поставил сервер во время запуска)
-        if (r == null && c.detectCage && level != null && !cageBlocks.isEmpty() && tickNo % 5 == 0) r = cage(p, level);
+        if (r == null && c.detectCage && level != null && !cageBlocks.isEmpty() && tickNo % 5 == 0) r = d.hit("cage", cage(p, level));
 
         // упёрся в блок, поставленный сервером на ферме
         if (!farmBlocks.isEmpty()) {
@@ -203,9 +203,9 @@ final class WorldGuards {
                 for (long lp : farmBlocks.keySet()) {
                     BlockPos pos = BlockPos.of(lp);
                     if (bb.intersects(new AABB(pos)) && !level.getBlockState(pos).getCollisionShape(level, pos).isEmpty()) {
-                        r = "Упёрся в блок, поставленный сервером: " + level.getBlockState(pos).getBlock().getName().getString()
-                                + " " + pos.toShortString();
-                        break;
+                        r = d.hit("farmBlock", "Упёрся в блок, поставленный сервером: " + level.getBlockState(pos).getBlock().getName().getString()
+                                + " " + pos.toShortString());
+                        if (r != null) break;
                     }
                 }
             }
@@ -218,7 +218,7 @@ final class WorldGuards {
         bps.tick(working, (int) Math.round(c.bpsWindowSec * 20));
         lastBps = bps.bps();
         if (r == null && c.detectBps && bps.ready() && bps.bps() < c.bpsMin)
-            r = String.format(Locale.ROOT, "Урожай не ломается: %.1f блоков/с < %.1f", bps.bps(), c.bpsMin);
+            r = d.hit("bps", String.format(Locale.ROOT, "Урожай не ломается: %.1f блоков/с < %.1f", bps.bps(), c.bpsMin));
 
         // рассинхрон: сломанные блоки через 1 с снова на месте (ровно то же состояние — пересадка не считается)
         while (!pendingDesync.isEmpty() && pendingDesync.peekFirst().due() <= tickNo) {
@@ -233,14 +233,14 @@ final class WorldGuards {
             if (back * 100.0 / desyncResults.size() >= c.desyncPct) {
                 String detail = back + " из " + desyncResults.size() + " сломанных блоков вернулись";
                 desyncResults.clear();
-                if (lag) d.suspect("рассинхрон при лаге", detail, c.suspWeightRollback);
-                else if (r == null) r = "Рассинхрон: " + detail;
+                if (lag) d.suspect("desync", "рассинхрон при лаге", detail, c.suspWeightRollback);
+                else if (r == null) r = d.hit("desync", "Рассинхрон: " + detail);
             }
         }
 
         // полный инвентарь ≈ 0.55 с подряд
         if (c.panicInventoryFull && p.getInventory().getFreeSlot() == -1) {
-            if (++invFullTicks >= 11 && r == null) r = "Инвентарь полон";
+            if (++invFullTicks >= 11 && r == null) r = d.hit("inventoryFull", "Инвентарь полон");
         } else invFullTicks = 0;
 
         // табло: перезагрузка сервера, Jacob's Contest
@@ -257,14 +257,19 @@ final class WorldGuards {
             } else { boardMissingSince = -1; boardLogged = false; }
             if (r == null && c.detectRestart) {
                 int sec = ServerText.closingSeconds(lines);
-                if (sec >= 0 && sec < 30) r = "Сервер перезагружается через " + sec + " с (табло)";
+                if (sec >= 0 && sec < 30) r = d.hit("restart", "Сервер перезагружается через " + sec + " с (табло)");
             }
             if (c.detectJacob && c.jacobLimit > 0) {
                 long got = ServerText.jacobCollected(lines);
                 if (got >= c.jacobLimit) {
-                    EventLog.log("JACOB", "собрано " + got + " ≥ " + c.jacobLimit);
-                    MacroManager.INSTANCE.stopByLimit(mc, "§a✔ Jacob's Contest: собрано " + got + " ≥ " + c.jacobLimit + " — стоп");
-                    return null;
+                    String text = "Jacob's Contest: собрано " + got + " ≥ " + c.jacobLimit;
+                    Detectors.Action a = Detectors.record("jacob", text, System.currentTimeMillis());
+                    if (a == Detectors.Action.PANIC) {
+                        EventLog.log("JACOB", "собрано " + got + " ≥ " + c.jacobLimit);
+                        MacroManager.INSTANCE.stopByLimit(mc, "§a✔ " + text + " — стоп");
+                        return null;
+                    }
+                    if (a == Detectors.Action.LOG) EventLog.log("DETECT", Detectors.name("jacob") + " (только журнал): " + text);
                 }
             }
         }
@@ -273,7 +278,7 @@ final class WorldGuards {
         if (r == null && c.detectBanwave) {
             long b = BanwaveWatch.bans();
             if (b >= c.banwaveThreshold)
-                r = "Банвейв: " + b + " банов за " + c.banwaveWindowMin + " мин (порог " + c.banwaveThreshold + ")";
+                r = d.hit("banwave", "Банвейв: " + b + " банов за " + c.banwaveWindowMin + " мин (порог " + c.banwaveThreshold + ")");
         }
         return r;
     }

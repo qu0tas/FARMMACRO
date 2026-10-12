@@ -90,6 +90,8 @@ public class FarmMacroMod implements ClientModInitializer {
         LOGGER.info("FarmMacro загружен");
     }
 
+    private static boolean welcomeShown;
+
     private static void onTick(Minecraft mc) {
         MacroManager macro = MacroManager.INSTANCE;
         Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
@@ -99,6 +101,11 @@ public class FarmMacroMod implements ClientModInitializer {
         Guard.run("camera/ungrab", () -> com.farmmacro.camera.Ungrab.tick(mc));
         Guard.run("panic/always", () -> PanicDetector.INSTANCE.tickAlways(mc));
         Guard.run("panic/silence", () -> checkSilence(mc));
+        // v1.14.2-pre: мастер первого запуска — один раз, в главном меню
+        if (!ModConfig.INSTANCE.welcomeDone && !welcomeShown && mc.screen instanceof net.minecraft.client.gui.screens.TitleScreen) {
+            welcomeShown = true;
+            mc.setScreen(new com.farmmacro.gui.WelcomeScreen(mc.screen));
+        }
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
             MouseHold.INSTANCE.tick(mc);     // без игрока — выключить зажим
@@ -160,6 +167,13 @@ public class FarmMacroMod implements ClientModInitializer {
         if (mc.isSingleplayer() || mc.getConnection() == null) return;
         long now = System.currentTimeMillis();
         if (!com.farmmacro.panic.SilenceWatch.INSTANCE.shouldClose(now, c.silenceSec * 1000L)) return;
+        // v1.14.2-pre: через реестр детекторов («Журнал» — только строка, связь не закрываем)
+        var a = com.farmmacro.panic.Detectors.record("silence", "сервер молчит " + c.silenceSec + " с", now);
+        if (a == null) return;
+        if (a == com.farmmacro.panic.Detectors.Action.LOG) {
+            com.farmmacro.panic.EventLog.log("DETECT", "Молчание сервера (только журнал): сервер молчит " + c.silenceSec + " с");
+            return;
+        }
         com.farmmacro.panic.EventLog.log("SILENCE", "сервер молчит " + c.silenceSec + " с — закрываю соединение");
         LOGGER.warn("FarmMacro: сервер молчит {} с — закрываю соединение", c.silenceSec);
         mc.getConnection().getConnection().disconnect(

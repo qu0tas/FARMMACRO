@@ -524,9 +524,8 @@ public class MacroManager {
                 double recorded = Math.hypot(b.x - a.x, b.z - a.z);
                 double actual   = Math.hypot(actualX[i] - actualX[i - n], actualZ[i] - actualZ[i - n]);
                 if (recorded >= 1.0 && actual < Math.min(0.3, recorded * 0.15)) {
-                    PanicDetector.INSTANCE.triggerPanic(mc, String.format(Locale.ROOT,
-                            "Застрял: по записи %.1f бл за %.1f с, прошёл %.2f", recorded, n / 20.0, actual));
-                    return true;
+                    if (PanicDetector.INSTANCE.fire(mc, "stuck", String.format(Locale.ROOT,
+                            "Застрял: по записи %.1f бл за %.1f с, прошёл %.2f", recorded, n / 20.0, actual))) return true;
                 }
             }
         }
@@ -534,9 +533,8 @@ public class MacroManager {
             MacroFrame f = frames.get(i);
             double drift = Math.hypot(p.getX() - offX - f.x, p.getZ() - offZ - f.z);
             if (drift > c.driftThreshold) {
-                PanicDetector.INSTANCE.triggerPanic(mc, String.format(Locale.ROOT,
-                        "Сошёл с маршрута на %.1f бл", drift));
-                return true;
+                if (PanicDetector.INSTANCE.fire(mc, "drift", String.format(Locale.ROOT,
+                        "Сошёл с маршрута на %.1f бл", drift))) return true;
             }
         }
         return false;

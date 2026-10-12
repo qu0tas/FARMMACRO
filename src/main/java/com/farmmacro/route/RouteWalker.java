@@ -140,8 +140,7 @@ public final class RouteWalker implements PlaybackSource {
         boolean velOn = on && c.detectVelocity;
         String vel = velocity.observe(p.getX(), p.getZ(), !velOn || velocityExcused(p), c.velocityAnomaly);
         if (vel != null) {
-            PanicDetector.INSTANCE.triggerPanic(mc, vel);
-            return true;
+            if (PanicDetector.INSTANCE.fire(mc, "velocity", vel)) return true;
         }
         if (on && c.lagGuard && com.farmmacro.panic.LagGuard.INSTANCE.lagging()) core.resetStuckWindow();   // v1.13: лаг — не «Застрял»
         core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), c.routeReachRadius,
@@ -162,8 +161,9 @@ public final class RouteWalker implements PlaybackSource {
             out.panic = out.panic + " (после " + unstuckTries + " попыток отойти)";
         }
         if (out.panic != null) {
-            PanicDetector.INSTANCE.triggerPanic(mc, out.panic);
-            return true;
+            // v1.14.2-pre: через реестр детекторов (действие «Подозрительность»/«Журнал» — идём дальше)
+            String id = out.panic.startsWith("Застрял") ? "stuck" : out.panic.startsWith("Сошёл") ? "drift" : "floor";
+            if (PanicDetector.INSTANCE.fire(mc, id, out.panic)) return true;
         }
         passTicks++;
         if (core.done()) {

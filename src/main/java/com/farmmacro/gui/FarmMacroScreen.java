@@ -240,6 +240,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Note("Детекторы разложены по группам — нажми на заголовок, чтобы развернуть. Пороги появляются, "
                 + "когда детектор включён; тонкие пороги — в расширенном режиме.", Ui.SUB).adv());
 
+        DetectorTable.addTo(rows, this);   // v1.14.2-pre: сводная таблица (отдельный модуль, можно убрать этой строкой)
+
         rows.add(new Rows.Section("Камера и руки").key("p.hands").closed());
         java.util.function.BooleanSupplier rot = () -> cfg().panicEnabled && cfg().detectRotation;
         rows.add(toggle("Поворот камеры", "Камеру сдвинули мышью во время макроса",
@@ -623,6 +625,10 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 profileMsg = "Применён набор «" + p.label() + "»";
                 buildTab();
             }).tip(p.tip())));
+
+        rows.add(new Rows.Buttons(new Rows.Btn("Мастер настройки", Rows.Style.SECONDARY,
+                () -> minecraft.setScreen(new WelcomeScreen(this)))
+                .tip("Пошагово: где играешь, друзья, осторожность, звук и экран паники, удобство")));
 
         rows.add(new Rows.Section("Мои профили"));
         rows.add(new Rows.Note("Профиль — все настройки мода (детекторы, реакция, запуск, визуал, общая случайность), "

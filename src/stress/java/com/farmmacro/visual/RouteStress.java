@@ -31,6 +31,7 @@ public final class RouteStress {
         com.farmmacro.camera.CropPresetsCheck.main();
         com.farmmacro.panic.BigPanicCheck.main();
         com.farmmacro.panic.PlayersCheck.main();
+        com.farmmacro.panic.DetectorsCheck.main();
         try { com.farmmacro.panic.SuspicionCheck.main(); } catch (Exception e) { throw new IllegalStateException(e); }
     }
 

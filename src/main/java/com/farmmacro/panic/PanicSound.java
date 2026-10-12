@@ -168,9 +168,12 @@ public final class PanicSound {
 
     // ── Воспроизведение ──────────────────────────────────────────────────────
 
-    public static void playPanic() {
+    public static void playPanic() { playPanic(null); }
+
+    /** v1.14.2-pre: свой звук детектора (null — общий «Сигнал»); громкость, тон и вывод — общие. */
+    public static void playPanic(String own) {
         ModConfig c = ModConfig.INSTANCE;
-        play(c.panicSound, !c.panicSoundSafe && c.panicSoundSystem, c.panicSoundVolume, c.panicSoundPitch);
+        play(own != null ? own : c.panicSound, !c.panicSoundSafe && c.panicSoundSystem, c.panicSoundVolume, c.panicSoundPitch);
     }
 
     public static void playDone() {

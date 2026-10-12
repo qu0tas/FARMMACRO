@@ -75,19 +75,19 @@ final class PlayerGuards {
             String disp = o.getDisplayName().getString();
             if (r == null && c.detectStaffNear && dd <= c.staffRadius) {
                 String tag = PlayerRules.staffRank(disp);
-                if (tag != null) r = String.format(Locale.ROOT, "Staff рядом: [%s] %s (%.1f бл)", tag, name, dd);
+                if (tag != null) r = d.hit("staff", String.format(Locale.ROOT, "Staff рядом: [%s] %s (%.1f бл)", tag, name, dd));
             }
             if (r == null && c.detectTwin && dd <= c.twinRadius && me != null && me.equalsIgnoreCase(name))
-                r = String.format(Locale.ROOT, "Двойник: игрок с твоим ником в %.1f бл", dd);
+                r = d.hit("twin", String.format(Locale.ROOT, "Двойник: игрок с твоим ником в %.1f бл", dd));
             if (dd <= c.namelessRadius && PlayerRules.nameless(name, disp)) hiddenNear.add(o.getId());
             if (!(c.friendsIgnoreMass && isFriend(name))) dist.put(o.getId(), dd);
         }
         int n = arrivals.tick(now, dist, c.massTpRadius, c.massTpWindowMs, c.massTpWorldGraceSec * 1000L);
         if (r == null && c.detectMassTp && n >= c.massTpMin)
-            r = String.format(Locale.ROOT, "Массовый телепорт: %d игроков появились ближе %.0f бл за %.1f с", n, c.massTpRadius, c.massTpWindowMs / 1000.0);
+            r = d.hit("massTp", String.format(Locale.ROOT, "Массовый телепорт: %d игроков появились ближе %.0f бл за %.1f с", n, c.massTpRadius, c.massTpWindowMs / 1000.0));
         Integer h = hidden.update(now, hiddenNear, c.namelessDwellMs);
         if (r == null && c.detectNameless && h != null)
-            r = String.format(Locale.ROOT, "Игрок без имени ближе %.0f бл дольше %.1f с (сущность #%d)", c.namelessRadius, c.namelessDwellMs / 1000.0, h);
+            r = d.hit("nameless", String.format(Locale.ROOT, "Игрок без имени ближе %.0f бл дольше %.1f с (сущность #%d)", c.namelessRadius, c.namelessDwellMs / 1000.0, h));
 
         if (c.detectStaffNear && c.staffTab && ++tickNo % 10 == 0 && mc.getConnection() != null) {
             Set<UUID> staff = new HashSet<>();
@@ -104,7 +104,7 @@ final class PlayerGuards {
                 tabStaffSeen = staff;
                 if (!staff.isEmpty()) EventLog.log("STAFF", "в Tab на старте: " + staff.size() + " (не паника, считаются только новые)");
             } else tabStaffSeen.addAll(staff);
-            if (r == null && who != null) r = "Staff появился в Tab: " + who;
+            if (r == null && who != null) r = d.hit("staff", "Staff появился в Tab: " + who);
         }
         return r;
     }
@@ -116,10 +116,10 @@ final class PlayerGuards {
             String from = PlayerRules.pmSender(text);
             if (from != null) {
                 if (c.friendsIgnorePm && isFriend(from)) EventLog.log("FRIEND", "личное сообщение от друга " + from);
-                else { d.flag("Личное сообщение от " + from + ": «" + clip(text) + "»"); return; }
+                else { d.flag("pm", "Личное сообщение от " + from + ": «" + clip(text) + "»"); return; }
             }
         }
-        if (c.detectAfkMsg && PlayerRules.isAfkWarning(text)) d.flag("Сервер: «You are AFK»");
+        if (c.detectAfkMsg && PlayerRules.isAfkWarning(text)) d.flag("afk", "Сервер: «You are AFK»");
     }
 
     private static String clip(String s) {

@@ -196,6 +196,8 @@ public final class ConfigProfiles {
         c.detectCageCount = true; c.cageCountMin = 4; c.cageCountRadius = 1.5; c.cageCountMs = 1000;
         c.detectSilence = true; c.silenceSec = 30;
         c.playerNearDelaySec = 0;
+        // v1.14.2-pre: свои действия из таблицы «Все детекторы» — обратно по умолчанию (свои звуки и веса не трогаем)
+        if (c.detectorActions != null) c.detectorActions.clear();
     }
 
     /** Применить готовый набор к текущим настройкам (визуал, HUD, звук, маршрут — не трогает) и сохранить. */
