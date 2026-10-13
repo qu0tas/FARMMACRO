@@ -434,6 +434,25 @@ public class ModConfig {
     public int     hatSegments           = 48;
     public boolean hatAllPlayers         = false;
 
+    // ── Визуал: Анимешные щёчки (v1.16.1) ────────────────────────────────────
+    public boolean cheeksEnabled         = true;
+    /** id из visual.CheekMath.STYLES: hearts | lines | stripes | soft */
+    public String  cheeksStyle           = "hearts";
+    /** id из visual.CheekMath.COLORS */
+    public String  cheeksColor           = "pink";
+    /** 0–100 % */
+    public int     cheeksOpacity         = 80;
+    public boolean cheeksAllPlayers      = false;
+    /** Рисовать перед вторым слоем скина (иначе его непрозрачные пиксели закроют щёки). */
+    public boolean cheeksOverHat         = true;
+    /** Размер, % (50–200). */
+    public int     cheeksSize            = 100;
+    /** Центр щёк по высоте, пиксели лица от макушки (глаза Стива — 4). */
+    public double  cheeksHeight          = 5.6;
+    /** Центр щеки от середины лица, пиксели. */
+    public double  cheeksSpread          = 2.45;
+    public boolean cheeksPulse           = false;
+
     // ── Визуал: маршрут макроса ──────────────────────────────────────────────
     public boolean routeEnabled          = true;
     /** always | playing */
@@ -698,6 +717,12 @@ public class ModConfig {
         if (!"gradient".equals(hatStyle) && !"solid".equals(hatStyle) && !"rainbow".equals(hatStyle)) hatStyle = "gradient";
         if (!com.farmmacro.visual.HatColors.isPreset(hatColor1)) hatColor1 = "purple";
         if (!com.farmmacro.visual.HatColors.isPreset(hatColor2)) hatColor2 = "orange";
+        cheeksOpacity         = clamp(cheeksOpacity, 0, 100);
+        cheeksSize            = clamp(cheeksSize, 50, 200);
+        cheeksHeight          = clamp(cheeksHeight, 3, 7.5);
+        cheeksSpread          = clamp(cheeksSpread, 1, 3.5);
+        if (!com.farmmacro.visual.CheekMath.isStyle(cheeksStyle)) cheeksStyle = com.farmmacro.visual.CheekMath.DEF_STYLE;
+        if (!com.farmmacro.visual.CheekMath.isColor(cheeksColor)) cheeksColor = com.farmmacro.visual.CheekMath.DEF_COLOR;
     }
 
     /** Реальные пороги детекторов одной строкой (пишется в лог при загрузке и при старте макроса). */

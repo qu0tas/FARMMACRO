@@ -50,6 +50,7 @@ public class FarmMacroMod implements ClientModInitializer {
         com.farmmacro.fun.Foxy.register();
         PanicOverlayRenderer.register();
         ChinaHatRenderer.register();
+        com.farmmacro.visual.CheeksLayer.register();
         RouteRenderer.register();
 
         keyRecord   = makeKey("key.farmmacro.record",   cfg.keyRecord);

@@ -36,6 +36,7 @@ public final class RouteStress {
         com.farmmacro.macro.DelayCheck.main();
         com.farmmacro.route.FlyCheck.main();
         com.farmmacro.gui.ThemeCheck.main();
+        CheeksCheck.main();
         try { com.farmmacro.panic.SuspicionCheck.main(); } catch (Exception e) { throw new IllegalStateException(e); }
     }
 

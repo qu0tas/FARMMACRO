@@ -1015,6 +1015,10 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private static final List<Rows.Choice> HAT_STYLES = com.farmmacro.visual.HatColors.STYLES.stream()
             .map(a -> new Rows.Choice(a[0], a[1])).toList();
+    private static final List<Rows.Choice> CHEEK_STYLES = com.farmmacro.visual.CheekMath.STYLES.stream()
+            .map(x -> new Rows.Choice(x.id(), x.label())).toList();
+    private static final List<Rows.Choice> CHEEK_COLORS = com.farmmacro.visual.CheekMath.COLORS.stream()
+            .map(x -> new Rows.Choice(x.id(), x.label())).toList();
     private static final List<Rows.Choice> HAT_COLORS = com.farmmacro.visual.HatColors.PRESETS.stream()
             .map(p -> new Rows.Choice(p.id(), p.label())).toList();
 
@@ -1156,6 +1160,36 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 v -> cfg().hatSpeed = v, 0, 20, 0.1, 1, v -> "×" + Rows.num(v)).under(on).adv());
         rows.add(number("Сегменты", "Качество круга", () -> cfg().hatSegments,
                 v -> cfg().hatSegments = (int) v, 3, 256, 4, 16, v -> String.valueOf((int) v)).integer().under(on).adv());
+
+        // v1.16.1: анимешные щёчки на лице модели игрока
+        java.util.function.BooleanSupplier ch = () -> cfg().cheeksEnabled;
+        rows.add(new Rows.Section("Анимешные щёчки").key("v.cheeks"));
+        rows.add(toggle("Щёчки", "Румянец на лице твоего персонажа: видно от 3-го лица (F5), во Freelook и в инвентаре. Видишь только ты",
+                () -> cfg().cheeksEnabled, v -> cfg().cheeksEnabled = v));
+        rows.add(new Rows.Selector("Стиль", null, () -> CHEEK_STYLES, () -> cfg().cheeksStyle,
+                v -> { cfg().cheeksStyle = v; save(); }).under(ch));
+        rows.add(new Rows.Selector("Цвет", null, () -> CHEEK_COLORS, () -> cfg().cheeksColor,
+                v -> { cfg().cheeksColor = v; save(); }).under(ch));
+        rows.add(number("Яркость", "0 — не видно, 100 — во всю щёку", () -> cfg().cheeksOpacity,
+                v -> cfg().cheeksOpacity = (int) v, 0, 100, 5, 25, v -> (int) v + "%").integer().under(ch));
+        rows.add(toggle("Пульсация", "Румянец то сильнее, то слабее — как будто смущается",
+                () -> cfg().cheeksPulse, v -> cfg().cheeksPulse = v).under(ch));
+        rows.add(toggle("У всех игроков", "Щёчки и на других игроках (тоже видишь только ты)",
+                () -> cfg().cheeksAllPlayers, v -> cfg().cheeksAllPlayers = v).under(ch));
+        rows.add(toggle("Поверх второго слоя скина", "Выкл — щёчки под слоем «шляпы» скина: маска или борода на скине их закроет",
+                () -> cfg().cheeksOverHat, v -> cfg().cheeksOverHat = v).under(ch).adv());
+        rows.add(number("Размер", null, () -> cfg().cheeksSize,
+                v -> cfg().cheeksSize = (int) v, 50, 200, 5, 25, v -> (int) v + "%").integer().under(ch).adv());
+        rows.add(number("Высота", "Пиксели лица от макушки: глаза Стива — 4, щёки — 5–6", () -> cfg().cheeksHeight,
+                v -> cfg().cheeksHeight = v, 3, 7.5, 0.1, 0.5, v -> Rows.num(v) + " px").under(ch).adv());
+        rows.add(number("Расстояние от носа", "Насколько щёки разведены к краям лица", () -> cfg().cheeksSpread,
+                v -> cfg().cheeksSpread = v, 1, 3.5, 0.05, 0.25, v -> Rows.num(v) + " px").under(ch).adv());
+        rows.add(new Rows.Buttons(new Rows.Btn("Сбросить щёчки", Rows.Style.SECONDARY, () -> {
+            ModConfig d = new ModConfig();
+            cfg().cheeksStyle = d.cheeksStyle; cfg().cheeksColor = d.cheeksColor; cfg().cheeksOpacity = d.cheeksOpacity;
+            cfg().cheeksSize = d.cheeksSize; cfg().cheeksHeight = d.cheeksHeight; cfg().cheeksSpread = d.cheeksSpread;
+            cfg().cheeksOverHat = d.cheeksOverHat; cfg().cheeksPulse = d.cheeksPulse; save();
+        })));
     }
 
     private static final List<Rows.Choice> SOURCES = List.of(
