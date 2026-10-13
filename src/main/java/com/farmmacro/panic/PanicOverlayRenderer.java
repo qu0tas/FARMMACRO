@@ -21,6 +21,7 @@ public class PanicOverlayRenderer {
             int left = PanicDetector.INSTANCE.getRedScreenTicks();
             int max = cfg.panicRedScreenTicks;
             if (!cfg.panicRedScreenEnabled || left <= 0 || max <= 0) return;
+            if (com.farmmacro.visual.NickHide.shotPending()) return;   // v1.16.3: снимок без ника — без красного экрана
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null) return;
 

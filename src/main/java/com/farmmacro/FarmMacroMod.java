@@ -34,7 +34,7 @@ public class FarmMacroMod implements ClientModInitializer {
 
     public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
             keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold, keyMouseLock,
-            keyFreelook, keyLowRender, keyStartFrom, keyUngrab, keyPerf, keyHudEdit;
+            keyFreelook, keyLowRender, keyStartFrom, keyUngrab, keyPerf, keyHudEdit, keyPip;
 
     private static KeyMapping makeKey(String id, int defaultCode) {
         return KeyMappingHelper.registerKeyMapping(new KeyMapping(id, InputConstants.Type.KEYSYM, defaultCode, CATEGORY));
@@ -71,6 +71,7 @@ public class FarmMacroMod implements ClientModInitializer {
         keyUngrab    = makeKey("key.farmmacro.ungrab", 85);     // U (v1.13.1) — отпустить курсор
         keyPerf      = makeKey("key.farmmacro.perf", 298);      // F9 (v1.13.1) — режим производительности
         keyHudEdit   = makeKey("key.farmmacro.hudedit", 297);   // F8 (v1.14) — редактор HUD
+        keyPip       = makeKey("key.farmmacro.pip", -1);        // v1.16.3 — картинка в картинке (не назначена)
         com.farmmacro.macro.ReconnectScreenHook.register();
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
@@ -104,6 +105,12 @@ public class FarmMacroMod implements ClientModInitializer {
         Guard.run("camera/ungrab", () -> com.farmmacro.camera.Ungrab.tick(mc));
         Guard.run("panic/always", () -> PanicDetector.INSTANCE.tickAlways(mc));
         Guard.run("panic/silence", () -> checkSilence(mc));
+        // v1.16.3: картинка в картинке (и в меню), скрытие ника, Squeaky Mousemat, человеческая реакция
+        while (keyPip.consumeClick()) Guard.run("window/pip", () -> com.farmmacro.window.Pip.toggle(mc));
+        Guard.run("window/pip-tick", () -> com.farmmacro.window.Pip.tick(mc));
+        Guard.run("nick/tick", () -> com.farmmacro.visual.NickHide.tick(mc));
+        Guard.run("camera/mousemat", () -> com.farmmacro.camera.Mousemat.tick(mc));
+        Guard.run("panic/react-tick", () -> com.farmmacro.panic.HumanReaction.tick(mc));
         // v1.14.2-pre: мастер первого запуска — один раз, в главном меню
         if (!ModConfig.INSTANCE.welcomeDone && !welcomeShown && mc.screen instanceof net.minecraft.client.gui.screens.TitleScreen) {
             welcomeShown = true;

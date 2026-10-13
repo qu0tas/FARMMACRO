@@ -223,22 +223,28 @@ final class DetectorTable {
 
     // ── Раскладка столбцов ───────────────────────────────────────────────────
 
+    private static boolean reacts(String id) {
+        var ids = ModConfig.INSTANCE.reactIds;
+        return (ids == null ? ModConfig.REACT_DEFAULT : ids).contains(id);
+    }
+
     /** Узкое меню: столбец «Звук» прячем (звук — в ⚙). */
     private static boolean wide(int w) { return w >= 340; }
 
-    private record Cols(int toggle, int name, int nameW, int action, int sound, int test, int count, int gear) {}
+    private record Cols(int toggle, int name, int nameW, int action, int sound, int react, int test, int count, int gear) {}
 
-    private static final int A_W = 76, S_W = 64, T_W = 16, C_W = 26, G_W = 14, GAP = 4;
+    private static final int A_W = 76, S_W = 64, R_W = 14, T_W = 16, C_W = 26, G_W = 14, GAP = 4;
 
     private static Cols cols(int x, int w) {
         int r = x + w - 4;
         int gear = r - G_W;
         int count = gear - GAP - C_W;
         int test = count - GAP - T_W;
-        int sound = wide(w) ? test - GAP - S_W : test;
+        int react = test - GAP - R_W;                      // v1.16.3 «Реакц.» — человеческая реакция на этот детектор
+        int sound = wide(w) ? react - GAP - S_W : react;
         int action = sound - GAP - A_W;
         int name = x + 34;
-        return new Cols(x + 6, name, action - GAP - name, action, sound, test, count, gear);
+        return new Cols(x + 6, name, action - GAP - name, action, sound, react, test, count, gear);
     }
 
     // ── Строки ───────────────────────────────────────────────────────────────
@@ -295,6 +301,7 @@ final class DetectorTable {
             Ui.text(g, f, "Детектор", k.name(), ty, Ui.DIM);
             Ui.text(g, f, "Действие ▾", k.action() + 2, ty, Ui.DIM);
             if (wide(w)) Ui.text(g, f, "Звук ▾", k.sound() + 2, ty, Ui.DIM);
+            Ui.textCentered(g, f, "☺", k.react() + R_W / 2, ty, Ui.DIM);
             Ui.textCentered(g, f, "Тест", k.test() + T_W / 2, ty, Ui.DIM);
             Ui.textCentered(g, f, "Сраб.", k.count() + C_W / 2, ty, Ui.DIM);
         }
@@ -361,6 +368,15 @@ final class DetectorTable {
                         !d.hasSound() ? Ui.DIM : Detectors.sound(d.id()) != null ? Ui.TEXT : snd ? Ui.SUB : Ui.DIM);
                 if (hS) { c.hand(); c.tooltip("Звук паники этого детектора: клик — следующий, ПКМ — предыдущий. «общий» — как в «Звук паники»"); }
             }
+            // Реакция (v1.16.3)
+            if (d.hasSound()) {
+                boolean r = reacts(d.id());
+                boolean hR = Ui.inside(mx, my, k.react(), y + 2, R_W, 14);
+                Ui.textCentered(g, f, r ? "☺" : "·", k.react() + R_W / 2, cy,
+                        !r ? Ui.DIM : ModConfig.INSTANCE.reactEnabled ? Ui.ACCENT_HI : Ui.SUB);
+                if (hR) { c.hand(); c.tooltip((r ? "Человеческая реакция: да" : "Человеческая реакция: нет")
+                        + (ModConfig.INSTANCE.reactEnabled ? "" : " (сама реакция выключена: «Паника → Человеческая реакция»)") + ". Клик — переключить"); }
+            }
             // Тест
             if (d.testable()) {
                 boolean hX = Ui.inside(mx, my, k.test(), y + 2, T_W, 14);
@@ -409,6 +425,12 @@ final class DetectorTable {
                 Detectors.setSound(d.id(), nx.isEmpty() ? null : nx); save(); c.clickSound(); return true;
             }
             if (button != 0) return false;
+            if (d.hasSound() && Ui.inside(mx, my, k.react(), y + 2, R_W, 14)) {
+                var ids = ModConfig.INSTANCE.reactIds;
+                if (ids == null) ids = ModConfig.INSTANCE.reactIds = new java.util.ArrayList<>(ModConfig.REACT_DEFAULT);
+                if (!ids.remove(d.id())) ids.add(d.id());
+                save(); c.clickSound(); return true;
+            }
             if (d.testable() && Ui.inside(mx, my, k.test(), y + 2, T_W, 14)) {
                 c.clickSound();
                 Minecraft mc = Minecraft.getInstance();

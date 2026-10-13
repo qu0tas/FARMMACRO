@@ -13,8 +13,11 @@
     "LowRenderRegionMixin",
     "LowRenderSodiumMixin",
     "MouseLockMixin",
+    "NickFontMixin",
     "PanicGuiMixin",
     "PanicPacketMixin",
+    "ReactionInputMixin",
+    "ReactionKeyMixin",
     "UngrabAttackMixin",
     "UngrabMixin"
   ],

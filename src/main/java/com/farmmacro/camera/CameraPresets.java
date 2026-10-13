@@ -104,10 +104,26 @@ public final class CameraPresets {
         ModConfig c = ModConfig.INSTANCE;
         c.camSelected = index;
         CamPreset p = l.get(index);
+        if ("mousemat".equals(p.source)) {
+            // v1.16.3: Squeaky Mousemat — угол ставит сервер по клику предметом
+            if (Mousemat.start(mc, p, (index + 1) + "/" + l.size() + " " + describe(p))) {
+                msg(mc, "§b◎ Камера " + (index + 1) + "/" + l.size() + ": §f" + describe(p) + " §7(Squeaky Mousemat)");
+                return;
+            }
+            if (!c.mousematFallback) { msg(mc, "§6Нет Squeaky Mousemat в хотбаре" + (p.matSlot > 0 ? " (слот " + p.matSlot + ")" : "")); return; }
+            msg(mc, "§6Нет Squeaky Mousemat в хотбаре — поворачиваю сам");
+        }
+        Mousemat.cancel();
         SmoothTurn.turnTo(p.yaw, p.pitch, c.camSmooth ? c.camTurnSpeed : 0);
         msg(mc, "§b◎ Камера " + (index + 1) + "/" + l.size() + ": §f" + describe(p)
                 + (c.camSmooth ? "" : " §7(мгновенно)"));
     }
+
+    /** v1.16.3: камера ещё встаёт в пресет (плавный поворот или Mousemat). */
+    public static boolean turning() { return SmoothTurn.isActive() || Mousemat.busy(); }
+
+    /** v1.16.3: прекратить установку пресета (поворот и Mousemat). */
+    public static void stopTurning() { SmoothTurn.stop(); Mousemat.cancel(); }
 
     /** Записать текущий взгляд в выбранный пресет (или создать первый). */
     public static void saveCurrent(Minecraft mc) {

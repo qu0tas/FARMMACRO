@@ -47,14 +47,17 @@ public final class PanicShot {
         ModConfig c = ModConfig.INSTANCE;
         LocalDateTime now = LocalDateTime.now();
         boolean hook = c.webhookEnabled && DiscordNotify.configured();
-        String text = Webhook.panicText(reason, HUMAN.format(now), server(mc));
+        // v1.16.3 «Скрытие ника»: в Discord и в имени файла — без ника; снимок в режиме «только скриншоты» — после
+        // кадра, нарисованного с заменой
+        String text = com.farmmacro.visual.NickHide.forText(Webhook.panicText(reason, HUMAN.format(now), server(mc)));
         if (!c.panicScreenshot) {
             if (hook) DiscordNotify.send(text, null, "паника");
             return;
         }
-        grab(mc, fileName(now, reason), path -> {
+        String name = fileName(now, com.farmmacro.visual.NickHide.forText(reason));
+        com.farmmacro.visual.NickHide.armShot(() -> grab(mc, name, path -> {
             if (hook) DiscordNotify.send(text, c.webhookScreenshot ? path : null, "паника");
-        });
+        }));
     }
 
     /** Снимок основного кадра в файл; done(путь или null) — в фоновом потоке. */

@@ -357,7 +357,7 @@ public class MacroManager {
 
     /** Стоп/паника во время поворота к пресету культуры — не доворачивать камеру. */
     private void cancelLaunchTurn() {
-        if (state == State.COUNTDOWN && turnWaitTicks > 0) com.farmmacro.camera.SmoothTurn.stop();
+        if (state == State.COUNTDOWN && turnWaitTicks > 0) com.farmmacro.camera.CameraPresets.stopTurning();
         turnWaitTicks = 0;
     }
 
@@ -750,9 +750,9 @@ public class MacroManager {
             if (--countdownTicks > 0) return;
         }
         // пресет культуры ещё поворачивается — ждём (не дольше TURN_WAIT_MAX)
-        if (com.farmmacro.camera.SmoothTurn.isActive()) {
+        if (com.farmmacro.camera.CameraPresets.turning()) {
             if (turnWaitTicks-- > 0) return;
-            com.farmmacro.camera.SmoothTurn.stop();      // не дождались — не крутить камеру на ходу
+            com.farmmacro.camera.CameraPresets.stopTurning();      // не дождались — не крутить камеру на ходу
             msg(mc, "§6Поворот к пресету культуры не закончился — старт с текущей камерой");
         }
         turnWaitTicks = 0;

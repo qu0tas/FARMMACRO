@@ -7,10 +7,10 @@
 4. Сначала проверь API нужной версии MC (javap по deobf-jar из кеша Loom), не угадывай имена из старых версий.
 
 ## 1. Границы (обязательно)
-- Паника = только остановка макроса + красный экран + звук.
+- Паника = стоп + красный экран + звук + окно игры вперёд (v1.16.3). По желанию игрока (выкл по умолчанию) — «человеческая реакция»: оглядеться и одна фраза в чат; любой ввод игрока её сразу прекращает. Других действий паника не делает.
 
 ## 2. Стек
-Minecraft **26.1.2** (официальные имена Mojang, игра не обфусцирована) · `net.fabricmc.fabric-loom` 1.18.3 (без remap, `implementation`) · Loader 0.19.5 · Fabric API 0.155.3+26.1.2 · Gradle 9.7.1 · Java 25 · mod_version 1.16.1.
+Minecraft **26.1.2** (официальные имена Mojang, игра не обфусцирована) · `net.fabricmc.fabric-loom` 1.18.3 (без remap, `implementation`) · Loader 0.19.5 · Fabric API 0.155.3+26.1.2 · Gradle 9.7.1 · Java 25 · mod_version 1.16.3.
 
 ## 3. Архитектура (`src/main/java/com/farmmacro`)
 | Файл | Роль |
@@ -59,6 +59,10 @@ Minecraft **26.1.2** (официальные имена Mojang, игра не о
 | `panic/PanicSound` | звуки: `builtin:*` (ogg в ресурсах), `file:*` (config/farmmacro/sounds), `mc:*`; кеш клипов, фоновая предзагрузка, выбор: движок игры или системный вывод (см. раздел 4.1) |
 | `panic/SoundDecoder` | ogg (JOrbis из игры) и wav (javax.sound) → PCM16 на чистой Java; `render()` = громкость + тон ресэмплингом |
 | `panic/SystemAudioPlayer` | один поток-проигрыватель javax.sound с очередью, таймаутами и флагом «сломан» |
+| `window/Pip`, `window/PipMath` | v1.16.3 «Картинка в картинке» и паника → окно вперёд: GLFW (`Window.handle`, `glfwSetWindowAttrib` DECORATED/FLOATING, `glfwGetMonitorWorkarea`, iconify/restore/show/focus/requestAttention); сохраняет и возвращает позицию/размер/рамку/«поверх»/развёрнутость; из fullscreen — `toggleFullScreen` и включение на след. тике; `toFront()` из паники (временный FLOATING 20 т). `PipMath` без MC — прямоугольник в углу рабочей области, выбор монитора |
+| `visual/NickHide`, `visual/NickText`, `mixin/NickFontMixin` | v1.16.3 «Скрытие ника»: пары ник→замена (свой из `User.getName`, друзья через `PlayerRules.parseNames`), замена целым словом с учётом §-кодов (`NickText`, без MC); `NickFontMixin` — `Font.prepareText`/`width` (String, FormattedCharSequence, FormattedText через `Language.getVisualOrder`); режим shots — `armShot`/`onFrame` (2 кадра, красный экран не рисуется), `forText` — для webhook и имени файла |
+| `camera/Mousemat`, `camera/MousematMath` | v1.16.3 Squeaky Mousemat: автомат SELECT→CLICK (`KeyMapping.click` attack/use)→WAIT (поворот от сервера ловит `PanicDetector`, `acceptServerRotation`)→RESTORE слота; `MousematMath` без MC — предмет по custom_data id `SQUEAKY_MOUSEMAT`/имени, выбор слота, совпадение углов (yaw по кругу) |
+| `panic/HumanReaction`, `panic/ReactionPlan`, `mixin/ReactionInputMixin`, `mixin/ReactionKeyMixin` | v1.16.3 «Человеческая реакция» (тест): план (повороты, задержки, фраза; `ReactionPlan` без MC) после `triggerPanic` для id из `reactIds`; повороты `SmoothTurn.turnMouse`, фраза `sendChat` один раз; отмена при движении мыши (>3 px) / кнопке / клавише после 350 мс (`MouseHandler.onMove/onButton`, `KeyboardHandler.keyPress`) |
 | `visual/CheeksLayer`, `visual/CheekMath` | v1.16.1 «Анимешные щёчки»: слой модели `AvatarRenderer` (Fabric `LivingEntityRenderLayerRegistrationCallback`), квады перед лицом в `head.translateAndRotate`, `RenderTypes.entityTranslucent`; `CheekMath` — стили, цвета, раскладка/обрезка/зеркало без игры; текстуры `textures/entity/cheeks` (генератор `tools/cheeks/gen_cheeks.py`) |
 | `visual/ChinaHatRenderer` | «China Hat»: полупрозрачный конус над головой (свой игрок, по флагу все), рисуется в мире через `LevelRenderEvents.COLLECT_SUBMITS` |
 | `visual/RoutePath` | упрощённая геометрия маршрута (прореживание 0.25 бл + RDP 0.08 бл, якоря ЛКМ/ПКМ, отрезки ≤ 4 бл, стрелки, отметки прыжка/приседания); без зависимостей от рендера |
@@ -136,6 +140,20 @@ Minecraft **26.1.2** (официальные имена Mojang, игра не о
 - В игре: см. чек-лист в разделе 7.
 
 ## 6. Журнал
+### v1.16.3 — картинка в картинке, паника → окно вперёд, скрытие ника, Squeaky Mousemat, человеческая реакция
+**Что**:
+- `window/Pip` + `PipMath`: клавиша `key.farmmacro.pip` (по умолч. не назначена), кнопка в «Визуал → Окно: картинка в картинке»; настройки `pipWidth/Height/Corner/Margin/OnTop/Borderless/Ungrab`. Вкл: запомнить позицию/размер/рамку/FLOATING/maximized, снять рамку, поставить в угол рабочей области текущего монитора; в fullscreen — `toggleFullScreen` и `pendingOn`. Во время макроса (или когда макрос стартует в PiP) — `Ungrab.on`.
+- Паника: `panicFocusWindow` (вкл), `panicExitPip` (вкл) → `Pip.toFront`: выйти из PiP, `glfwRestoreWindow` если iconified, show, временный FLOATING на 20 тиков, `glfwFocusWindow`, `glfwRequestWindowAttention`; в журнал PIP/FOCUS.
+- Скрытие ника: `nickHideMode` off/always/shots, `nickHideText`, `nickHideFriends`, `nickFriendText`; `NickFontMixin` (ModifyVariable в `Font.prepareText`/`width`, inject в `width(FormattedText)`); `PanicShot` — `armShot` вокруг снимка, `forText` в тексте и имени файла; `PanicOverlayRenderer` не рисует во время снимка.
+- Squeaky Mousemat: `CamPreset.source` turn/mousemat, `matSlot`; `mousematClick/Tolerance/Fallback/RestoreSlot/WaitMs`; `CameraPresets.apply` — ветка mousemat, `turning()`/`stopTurning()` (используются в отсчёте `MacroManager`); `PanicDetector.beforeServerMove/afterServerMove` — пока `Mousemat.busy`, поворот от сервера отдаётся `Mousemat.acceptServerRotation` и не паникует; `triggerPanic` отменяет Snap.
+- Человеческая реакция: `react*`, `reactIds` (+ `REACT_DEFAULT`); шаг 5 `triggerPanic` → `HumanReaction.onPanic`; колонка «☺» в `DetectorTable` (только у детекторов со звуком).
+- Правило «паника — только стоп + экран + звук» удалено из AGENTS.md, CLAUDE.md, §1, SKILL.md (обе копии), docs/SETTINGS.md.
+- Проверки: `src/stress/.../window/WindowCheck` (PipMath, NickText, MousematMath, ReactionPlan, sanitize новых полей).
+
+**Как проверено**: `./gradlew build routeStress` — EXIT 0, `WindowCheck: OK (18491 проверок)`, остальные проверки OK. API 26.1.2 по javap: `Window.handle/isFullscreen/toggleFullScreen`, GLFW (`glfwSetWindowAttrib`, `glfwGetWindowAttrib`, `glfwGetMonitorWorkarea`, `glfwGetMonitors`, `glfwRestoreWindow`, `glfwShowWindow`, `glfwFocusWindow`, `glfwRequestWindowAttention`), дескрипторы `Font.prepareText/width`, `FormattedCharSequence`/`FormattedCharSink`, `Language.getVisualOrder`, `KeyMapping.click`, `ClientPacketListener.sendChat`, `CustomData.copyTag`, `CompoundTag.getStringOr`, `MouseHandler.onMove/onButton`, `KeyboardHandler.keyPress`, `User.getName`. **В игре не проверено ничего из этого**: чек-лист п. 43–47.
+**Осталось**: в игре — фокус окна в Windows (может только мигать в панели задач), PiP на нескольких мониторах и с масштабом экрана, ширины текста в Tab при замене ника, ники над головой, точность углов Mousemat на Hypixel (если сервер хранит целые градусы — допуск), отмена реакции; следующие версии — 1.16.4 (рерварп / выход за последнюю точку, новые типы точек), 1.16.5 (рандомизатор и мульти-маршруты, кэш чанков), список Skyblock-фич — `ПЛАНЫ.md`.
+**Версия**: `mod_version=1.16.3` (1.16.2 уже выпущена отдельно).
+
 ### v1.16.2 — возврат (фон, лестницы, двери), плашка паники, превью щёк, строка настроек, «Что нового», jar kaelix
 **Что**:
 - Фоновый поиск: `route/LevelSnapshot` (BlockGetter; в главном потоке `LevelChunkSection.copy()` секций в квадрате ±(maxDist+10), по высоте ±24 от старта/целей (+ потолок полёта); вне снимка и незагруженное — VOID_AIR → H_DANGER), `route/PathJob` (однопоточный daemon-executor «Kaelix-path», `CompletableFuture`), `PathLevel` читает BlockGetter (был Level). `ReturnWalker.begin(mc, goals, endCam(join), what)` — void, поиск в фоне: пока `job` — стоим, клавиши отпущены; `tickJob` забирает результат (J_BEGIN/J_REPLAN/J_NOFLY), > 400 т — FAIL. Перепланы и «без полёта» — тоже в фоне. `MacroManager`: синхронные предпроверки `ReturnWalker.plan` в `startPlayback`/`startRouteHere` убраны — сразу `launch` с целями, камера конца — лямбдой по join; первый поиск не удался (`failedPlanning`) и нет «Требовать точку старта»/переподключения (`approachFallback`) — как раньше: предупреждение и проход с места. `ReturnWalker.plan()` (синхронный, через снимок) оставлен, сейчас не вызывается.
@@ -705,3 +723,9 @@ Minecraft **26.1.2** (официальные имена Mojang, игра не о
 40. v1.16.2 (HUD паники): вызвать панику (поворот мышью) → плашка «ПАНИКА · Поворот камеры · время (N с назад)» + причина; через «Последняя паника» минут пропадает; 0 — нет плашки; F8 — блок «Последняя паника» двигается/скрывается; общая плашка — тоже.
 41. v1.16.2 (меню): превью щёчек — лицо своего скина, щёки меняются со стилем/цветом/размером/высотой/расстоянием/«поверх слоя»/пульсацией, правая зеркальна; «Конфиги → Скопировать строку» → вставить в чат/блокнот → поменять настройки → «Вставить из буфера» → всё вернулось, пресеты камеры и клавиши не тронуты; мусор в буфере — ошибка; строка из чата с переносами — работает.
 42. v1.16.2 («Что нового», jar): обновиться с 1.16.1 → в главном меню игры один раз окно «Что нового в Kaelix 1.16.2», «Понятно»/Esc/Enter — закрыть, при следующем запуске не появляется; чистая установка — мастер, «Что нового» нет; «Конфиги → Что нового» — открывается; в mods файл `kaelix-1.16.2.jar`, старый `farmmacro-*.jar` удалён — мод грузится, настройки на месте.
+
+43. v1.16.3 (PiP): назначить клавишу «Картинка в картинке» → окно 480×270 в правом нижнем углу, без рамки, поверх; запустить макрос → курсор свободен, макрос фармит; ещё раз → прежние место/размер/рамка; из полноэкранного (F11) → выходит в окно и уменьшается; смена угла/размера в меню.
+44. v1.16.3 (паника → окно): свернуть игру / Alt-Tab в другое окно / PiP → вызвать панику (поворот сервером или «Проверить панику» с задержкой) → окно разворачивается, обычный размер, выходит вперёд (или мигает в панели задач Windows); в журнале PIP/FOCUS.
+45. v1.16.3 (скрытие ника): «Всегда» → свой ник «Player» в чате, Tab (ширина колонок ровная), над головой (F5), табло; с друзьями → «Friend»; «Только на скриншотах паники» → на экране ник есть, на скриншоте паники и в Discord — нет, красного экрана на скриншоте нет.
+46. v1.16.3 (Mousemat, Hypixel): пресет «Squeaky Mousemat», угол в предмете = пресет → K: берёт Mousemat, Snap, угол встал, слот вернулся, паники нет; угол не совпал → сообщение с цифрами; без Mousemat → обычный поворот / сообщение (fallback выкл); при старте макроса с культурой — отсчёт ждёт Snap.
+47. v1.16.3 (реакция): включить, вызвать панику детектором с «☺» → 1–3 плавных поворота, иногда фраза в чат (одна); пошевелить мышью или нажать клавишу → сразу прекращается; детектор без «☺» → реакции нет; переключение «☺» в «Все детекторы».

@@ -15,5 +15,6 @@ public class CameraTurnMixin {
     @Inject(method = "handleAccumulatedMovement", at = @At("RETURN"))
     private void farmmacro$smoothTurn(CallbackInfo ci) {
         Guard.runOrDisable("camera/turn", SmoothTurn::onFrame);
+        Guard.run("nick/frame", com.farmmacro.visual.NickHide::onFrame);
     }
 }

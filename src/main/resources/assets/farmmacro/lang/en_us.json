@@ -19,5 +19,6 @@
   "key.farmmacro.startfrom": "Kaelix: Continue route from here",
   "key.farmmacro.ungrab": "Kaelix: Release cursor (macro keeps farming)",
   "key.farmmacro.hudedit": "Kaelix: HUD editor",
-  "key.farmmacro.perf": "Kaelix: Performance mode"
+  "key.farmmacro.perf": "Kaelix: Performance mode",
+  "key.farmmacro.pip": "Kaelix: Picture-in-picture (small always-on-top window)"
 }

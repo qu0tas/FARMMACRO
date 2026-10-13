@@ -361,6 +361,63 @@ public class ModConfig {
     public boolean freelookHold          = false;
     /** v1.12: паника выключает freelook (вид снова от первого лица). */
     public boolean freelookOffOnPanic    = true;
+    // ── v1.16.3 «Картинка в картинке» и паника → основное окно ──
+    /** Размер маленького окна (пиксели экрана). */
+    public int     pipWidth              = 480;
+    public int     pipHeight             = 270;
+    /** Угол экрана: 0 — левый верх, 1 — правый верх, 2 — левый низ, 3 — правый низ. */
+    public int     pipCorner             = 3;
+    /** Отступ от края рабочей области, px. */
+    public int     pipMargin             = 16;
+    /** Поверх всех окон. */
+    public boolean pipOnTop              = true;
+    /** Без рамки и заголовка. */
+    public boolean pipBorderless         = true;
+    /** Во время макроса — отпустить курсор (как U), чтобы пользоваться ПК. */
+    public boolean pipUngrab             = true;
+    /** Паника: развернуть окно игры, вывести вперёд и дать фокус (если ОС позволит — иначе мигнуть в панели задач). */
+    public boolean panicFocusWindow      = true;
+    /** Паника: выйти из «картинки в картинке» в обычное окно. */
+    public boolean panicExitPip          = true;
+
+    // ── v1.16.3 «Скрытие ника» (только отрисовка у тебя) ──
+    /** off — выкл, always — везде всегда, shots — только на скриншотах паники (и в Discord). */
+    public String  nickHideMode          = "off";
+    public String  nickHideText          = "Player";
+    public boolean nickHideFriends       = false;
+    public String  nickFriendText        = "Friend";
+
+    // ── v1.16.3 Squeaky Mousemat ──
+    /** Какой клик делает «Snap»: attack — ЛКМ (так на Hypixel), use — ПКМ. */
+    public String  mousematClick         = "attack";
+    /** Допуск совпадения поворота от сервера с пресетом, градусы. */
+    public double  mousematTolerance     = 0.5;
+    /** Нет Mousemat в хотбаре — повернуть обычным способом. */
+    public boolean mousematFallback      = true;
+    /** Вернуть прежний слот после Snap. */
+    public boolean mousematRestoreSlot   = true;
+    /** Сколько ждать поворот от сервера, мс. */
+    public int     mousematWaitMs        = 2000;
+
+    // ── v1.16.3 «Человеческая реакция» на панику (тест, выкл по умолчанию) ──
+    public boolean reactEnabled          = false;
+    public int     reactLooksMin         = 1;
+    public int     reactLooksMax         = 3;
+    /** Задержка реакции до первого поворота, мс. */
+    public int     reactDelayMin         = 300;
+    public int     reactDelayMax         = 900;
+    /** Шанс написать фразу, %. */
+    public int     reactChatChance       = 60;
+    public int     reactChatMinMs        = 1500;
+    public int     reactChatMaxMs        = 4000;
+    /** Фразы через «|». */
+    public String  reactPhrases          = com.farmmacro.panic.ReactionPlan.DEFAULT_PHRASES;
+    /** На каких детекторах реагировать (id из реестра); null — набор по умолчанию. */
+    public java.util.List<String> reactIds = null;
+    public static final java.util.List<String> REACT_DEFAULT = java.util.List.of(
+            "rotation", "serverMove", "knockback", "blockNear", "cage", "cageCount", "bedrockBurst",
+            "chat", "title", "pm", "staff");
+
     /** Low render: радиус от блока игрока, блоков (v1.12.2 — поблочно, 1–32). */
     public int     lowRenderRadius       = 3;
     /** Служебное: 1 — радиус уже переведён на поблочный режим 1.12.2 (старые 12 бл → 3). */
@@ -514,6 +571,10 @@ public class ModConfig {
         public String crop  = "other";
         public float  yaw   = 0f;
         public float  pitch = 0f;
+        /** v1.16.3: как ставить — turn (повернуть самому) или mousemat (Squeaky Mousemat, сервер ставит угол). */
+        public String source = "turn";
+        /** v1.16.3: слот Mousemat 1–9, 0 — любой в хотбаре. */
+        public int    matSlot = 0;
         public CamPreset() {}
         public CamPreset(String crop, float yaw, float pitch) { this.crop = crop; this.yaw = yaw; this.pitch = pitch; }
     }
@@ -558,6 +619,32 @@ public class ModConfig {
         if (uiTheme == null || java.util.Arrays.stream(com.farmmacro.gui.Ui.THEMES).noneMatch(t -> t[0].equals(uiTheme))) uiTheme = "quiet";
         if (lowRenderRev < 1) { lowRenderRadius = 3; lowRenderChunks = false; lowRenderRev = 1; }   // 1.12 → 1.12.2
         lowRenderRadius       = Math.max(1, Math.min(32, lowRenderRadius));
+        pipWidth  = Math.max(160, Math.min(3840, pipWidth));
+        pipHeight = Math.max(90, Math.min(2160, pipHeight));
+        pipCorner = Math.floorMod(pipCorner, 4);
+        pipMargin = Math.max(0, Math.min(400, pipMargin));
+        if (!"off".equals(nickHideMode) && !"always".equals(nickHideMode) && !"shots".equals(nickHideMode)) nickHideMode = "off";
+        nickHideText = com.farmmacro.visual.NickText.clean(nickHideText, "Player");
+        nickFriendText = com.farmmacro.visual.NickText.clean(nickFriendText, "Friend");
+        if (!"attack".equals(mousematClick) && !"use".equals(mousematClick)) mousematClick = "attack";
+        mousematTolerance = Double.isFinite(mousematTolerance) ? Math.max(0.05, Math.min(10, mousematTolerance)) : 0.5;
+        mousematWaitMs = Math.max(300, Math.min(10000, mousematWaitMs));
+        if (camPresets != null) for (CamPreset cp : camPresets) {
+            if (cp == null) continue;
+            if (!"turn".equals(cp.source) && !"mousemat".equals(cp.source)) cp.source = "turn";
+            cp.matSlot = Math.max(0, Math.min(9, cp.matSlot));
+        }
+        reactLooksMin = Math.max(0, Math.min(com.farmmacro.panic.ReactionPlan.MAX_LOOKS, reactLooksMin));
+        reactLooksMax = Math.max(reactLooksMin, Math.min(com.farmmacro.panic.ReactionPlan.MAX_LOOKS, reactLooksMax));
+        reactDelayMin = Math.max(0, Math.min(5000, reactDelayMin));
+        reactDelayMax = Math.max(reactDelayMin, Math.min(10000, reactDelayMax));
+        reactChatChance = Math.max(0, Math.min(100, reactChatChance));
+        reactChatMinMs = Math.max(0, Math.min(30000, reactChatMinMs));
+        reactChatMaxMs = Math.max(reactChatMinMs, Math.min(60000, reactChatMaxMs));
+        if (reactPhrases == null) reactPhrases = com.farmmacro.panic.ReactionPlan.DEFAULT_PHRASES;
+        if (reactPhrases.length() > 2000) reactPhrases = reactPhrases.substring(0, 2000);
+        if (reactIds == null) reactIds = new java.util.ArrayList<>(REACT_DEFAULT);
+        else { reactIds = new java.util.ArrayList<>(new java.util.LinkedHashSet<>(reactIds)); reactIds.removeIf(x -> x == null || x.isBlank()); }
         resumeAnywhereMaxDist = clamp(resumeAnywhereMaxDist, 0.5, 16);
         returnMaxDist         = clamp(returnMaxDist, 8, 256);
         returnOffRoute        = clamp(returnOffRoute, 0.5, 16);

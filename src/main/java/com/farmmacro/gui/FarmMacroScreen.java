@@ -610,6 +610,31 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(toggle("Диагностика: табло не читается", "Запись в журнал, если табло не читается минуту (нужно для перезагрузки и Jacob's)",
                 () -> cfg().diagScoreboard, v -> cfg().diagScoreboard = v).enabledIf(() -> cfg().eventLogEnabled));
 
+        rows.add(toggle("Окно игры вперёд", "Развернуть свёрнутую игру, поднять над другими окнами и дать фокус. "
+                + "Если система не даёт фокус (Windows) — окно мигает в панели задач", () -> cfg().panicFocusWindow, v -> cfg().panicFocusWindow = v));
+        rows.add(toggle("Выйти из «картинки в картинке»", "Сразу обычное окно", () -> cfg().panicExitPip, v -> cfg().panicExitPip = v));
+
+        rows.add(new Rows.Section("Человеческая реакция (тест)").key("p.react").closed());
+        rows.add(new Rows.Note("После стопа мод «оглядывается» как человек и иногда пишет одну короткую фразу в чат. "
+                + "Звук, красный экран и окно вперёд — как обычно. Пошевелил мышью или нажал клавишу — реакция сразу "
+                + "прекращается, дальше управляешь ты. На каких проверках — колонка «☺» в «Все детекторы».", Ui.SUB));
+        rows.add(toggle("Реагировать", "Выкл по умолчанию — это тест", () -> cfg().reactEnabled, v -> cfg().reactEnabled = v));
+        java.util.function.BooleanSupplier re = () -> cfg().reactEnabled;
+        rows.add(new Rows.Range("Поворотов", "Сколько раз оглядеться (0 — не оглядываться)",
+                number("", null, () -> cfg().reactLooksMin, v -> cfg().reactLooksMin = (int) v, 0, com.farmmacro.panic.ReactionPlan.MAX_LOOKS, 1, 1, v -> String.valueOf((int) v)).integer(),
+                number("", null, () -> cfg().reactLooksMax, v -> cfg().reactLooksMax = (int) v, 0, com.farmmacro.panic.ReactionPlan.MAX_LOOKS, 1, 1, v -> String.valueOf((int) v)).integer()).under(re));
+        rows.add(new Rows.Range("Задержка реакции", "От паники до первого поворота",
+                number("", null, () -> cfg().reactDelayMin, v -> cfg().reactDelayMin = (int) v, 0, 5000, 10, 100, v -> (int) v + " мс").integer(),
+                number("", null, () -> cfg().reactDelayMax, v -> cfg().reactDelayMax = (int) v, 0, 10000, 10, 100, v -> (int) v + " мс").integer()).under(re).adv());
+        rows.add(number("Шанс фразы", "Не больше одной фразы за панику", () -> cfg().reactChatChance, v -> cfg().reactChatChance = (int) v,
+                0, 100, 5, 10, v -> (int) v + " %").integer().under(re));
+        rows.add(new Rows.Range("Фраза через", null,
+                number("", null, () -> cfg().reactChatMinMs, v -> cfg().reactChatMinMs = (int) v, 0, 30000, 100, 500, v -> (int) v + " мс").integer(),
+                number("", null, () -> cfg().reactChatMaxMs, v -> cfg().reactChatMaxMs = (int) v, 0, 60000, 100, 500, v -> (int) v + " мс").integer()).under(re).adv());
+        rows.add(new Rows.TextField("Фразы", "Через «|». Команды («/…») не отправляются", () -> cfg().reactPhrases, v -> {
+            cfg().reactPhrases = String.join(" | ", com.farmmacro.panic.ReactionPlan.parsePhrases(v)); save(); return true;
+        }, null, 2000, 0).under(re));
+
         rows.add(new Rows.Section("Discord").key("p.discord").closed());
         java.util.function.BooleanSupplier wh = () -> cfg().webhookEnabled;
         rows.add(toggle("Сообщать в Discord", "При панике — сообщение в свой канал через webhook (отдельный поток, игре не мешает)",
@@ -970,6 +995,22 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             save();
             return true;
         }, Rows.TextField.numeric(), 16, 92).enabledIf(has));
+        // v1.16.3: Squeaky Mousemat
+        rows.add(new Rows.Selector("Как ставить", "«Squeaky Mousemat» — клик предметом Skyblock, угол ставит сервер "
+                + "(в предмете должен быть сохранён этот же угол)", () -> CAM_SOURCES,
+                () -> selPreset() != null ? selPreset().source : "turn",
+                v -> { if (selPreset() != null) { selPreset().source = v; save(); } }).enabledIf(has));
+        java.util.function.BooleanSupplier mm = () -> selPreset() != null && "mousemat".equals(selPreset().source);
+        rows.add(number("Слот Mousemat", "1–9 — этот слот хотбара (если у тебя несколько Mousemat с разными углами), 0 — любой",
+                () -> selPreset() != null ? selPreset().matSlot : 0, v -> { if (selPreset() != null) selPreset().matSlot = (int) v; },
+                0, 9, 1, 1, v -> (int) v == 0 ? "любой" : String.valueOf((int) v)).integer().under(mm));
+        rows.add(new Rows.Selector("Mousemat: клик", "На Hypixel «Snap» — ЛКМ", () -> MAT_CLICKS, () -> cfg().mousematClick,
+                v -> { cfg().mousematClick = v; save(); }).under(mm).adv());
+        rows.add(number("Mousemat: допуск", "Насколько поворот от сервера может отличаться от пресета (иначе — обычная проверка)",
+                () -> cfg().mousematTolerance, v -> cfg().mousematTolerance = v, 0.05, 10, 0.05, 0.5, v -> Rows.num(v) + "°").under(mm).adv());
+        rows.add(toggle("Mousemat: нет предмета — повернуть самому", null, () -> cfg().mousematFallback, v -> cfg().mousematFallback = v).under(mm));
+        rows.add(toggle("Mousemat: вернуть слот", "После поворота взять в руку прежний слот", () -> cfg().mousematRestoreSlot,
+                v -> cfg().mousematRestoreSlot = v).under(mm).adv());
         rows.add(new Rows.Buttons(
                 new Rows.Btn("Взять текущие", Rows.Style.SECONDARY, () -> {
                     var p = selPreset();
@@ -1033,6 +1074,14 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             return true;
         }
     }
+
+    private static final List<Rows.Choice> PIP_CORNERS = List.of(new Rows.Choice("0", "Левый верх"), new Rows.Choice("1", "Правый верх"),
+            new Rows.Choice("2", "Левый низ"), new Rows.Choice("3", "Правый низ"));
+    private static final List<Rows.Choice> NICK_MODES = List.of(new Rows.Choice("off", "Нет"), new Rows.Choice("always", "Всегда"),
+            new Rows.Choice("shots", "Только на скриншотах паники"));
+    private static final List<Rows.Choice> CAM_SOURCES = List.of(new Rows.Choice("turn", "Повернуть самому"),
+            new Rows.Choice("mousemat", "Squeaky Mousemat"));
+    private static final List<Rows.Choice> MAT_CLICKS = List.of(new Rows.Choice("attack", "ЛКМ (Snap)"), new Rows.Choice("use", "ПКМ"));
 
     private static final List<Rows.Choice> HAT_STYLES = com.farmmacro.visual.HatColors.STYLES.stream()
             .map(a -> new Rows.Choice(a[0], a[1])).toList();
@@ -1120,6 +1169,39 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(number("Low render: радиус", "Рисуются только блоки в этом радиусе вокруг игрока, остальное — пусто (небо). "
                 + "Меняется сразу при следующем шаге",
                 () -> cfg().lowRenderRadius, v -> cfg().lowRenderRadius = (int) v, 1, 32, 1, 2, v -> (int) v + " бл").integer());
+
+        // v1.16.3: картинка в картинке и скрытие ника
+        rows.add(new Rows.Section("Окно: картинка в картинке").key("v.pip"));
+        rows.add(new Rows.Note(() -> "Клавиша «Картинка в картинке» (" + MacroManager.keyName(FarmMacroMod.keyPip)
+                + ", назначь в «Управление → Kaelix») — окно игры становится маленьким в углу экрана, поверх всех окон; "
+                + "ещё раз — прежний размер. Макрос в нём работает как обычно.", Ui.SUB));
+        rows.add(new Rows.Buttons(new Rows.Btn("Вкл / выкл сейчас", Rows.Style.SECONDARY, () -> {
+            onClose();
+            com.farmmacro.window.Pip.toggle(minecraft);
+        }).tip("То же, что клавиша")));
+        rows.add(number("Ширина", null, () -> cfg().pipWidth, v -> cfg().pipWidth = (int) v, 160, 3840, 10, 80, v -> (int) v + " px").integer());
+        rows.add(number("Высота", null, () -> cfg().pipHeight, v -> cfg().pipHeight = (int) v, 90, 2160, 10, 45, v -> (int) v + " px").integer());
+        rows.add(new Rows.Selector("Угол экрана", null, () -> PIP_CORNERS, () -> String.valueOf(cfg().pipCorner),
+                v -> { cfg().pipCorner = Integer.parseInt(v); save(); }));
+        rows.add(number("Отступ от края", null, () -> cfg().pipMargin, v -> cfg().pipMargin = (int) v, 0, 400, 2, 16, v -> (int) v + " px").integer().adv());
+        rows.add(toggle("Поверх всех окон", null, () -> cfg().pipOnTop, v -> cfg().pipOnTop = v).adv());
+        rows.add(toggle("Без рамки", null, () -> cfg().pipBorderless, v -> cfg().pipBorderless = v).adv());
+        rows.add(toggle("Отпустить курсор во время макроса", "Как U: можно работать в других программах, макрос фармит дальше",
+                () -> cfg().pipUngrab, v -> cfg().pipUngrab = v));
+
+        rows.add(new Rows.Section("Скрытие ника").key("v.nick").closed());
+        rows.add(new Rows.Note("Свой ник заменяется на твой текст: чат, Tab, ник над головой, табло, титры. Только у тебя на экране — "
+                + "на сервер ничего не уходит, проверки видят настоящий ник.", Ui.SUB));
+        rows.add(new Rows.Selector("Скрывать", null, () -> NICK_MODES, () -> cfg().nickHideMode,
+                v -> { cfg().nickHideMode = v; save(); }));
+        java.util.function.BooleanSupplier nh = () -> !"off".equals(cfg().nickHideMode);
+        rows.add(new Rows.TextField("Вместо ника", "До 16 символов", () -> cfg().nickHideText, v -> {
+            cfg().nickHideText = com.farmmacro.visual.NickText.clean(v, "Player"); save(); return true;
+        }, null, 16, 120).under(nh));
+        rows.add(toggle("Скрывать и друзей", "Ники из «Паника → Друзья»", () -> cfg().nickHideFriends, v -> cfg().nickHideFriends = v).under(nh));
+        rows.add(new Rows.TextField("Вместо ника друга", "До 16 символов", () -> cfg().nickFriendText, v -> {
+            cfg().nickFriendText = com.farmmacro.visual.NickText.clean(v, "Friend"); save(); return true;
+        }, null, 16, 120).under(() -> nh.getAsBoolean() && cfg().nickHideFriends));
 
         rows.add(new Rows.Section("HUD").key("v.hud"));
         rows.add(toggle("Панель статуса", "Состояние, прогресс, круги, время сессии",

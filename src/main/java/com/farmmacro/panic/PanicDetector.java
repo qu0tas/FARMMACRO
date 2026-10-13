@@ -271,7 +271,8 @@ public class PanicDetector {
 
     public void beforeServerMove(String kind) {
         LocalPlayer p = Minecraft.getInstance().player;
-        if (p == null || !armed()) { moveCaptured = false; return; }
+        // v1.16.3: Squeaky Mousemat ждёт поворот от сервера и вне макроса (K в покое)
+        if (p == null || (!armed() && !com.farmmacro.camera.Mousemat.busy())) { moveCaptured = false; return; }
         mvKind = kind;
         mvX = p.getX(); mvY = p.getY(); mvZ = p.getZ();
         mvYaw = p.getYRot(); mvPitch = p.getXRot();
@@ -283,11 +284,17 @@ public class PanicDetector {
         moveCaptured = false;
         LocalPlayer p = Minecraft.getInstance().player;
         ModConfig c = ModConfig.INSTANCE;
-        if (p == null || !armed()) return;
-        markServerPush();                                     // позицию задал сервер — не «аномалия скорости»
-        if (!c.detectServerMove) { updatePrev(p); return; }
+        if (p == null) return;
         double dx = p.getX() - mvX, dy = p.getY() - mvY, dz = p.getZ() - mvZ;
         double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        // v1.16.3: свой Snap предметом Squeaky Mousemat (окно ожидания, без сдвига, угол = пресет ± допуск)
+        if (com.farmmacro.camera.Mousemat.acceptServerRotation(p.getYRot(), p.getXRot(), dist)) {
+            if (armed()) { markServerPush(); updatePrev(p); }
+            return;
+        }
+        if (!armed()) return;
+        markServerPush();                                     // позицию задал сервер — не «аномалия скорости»
+        if (!c.detectServerMove) { updatePrev(p); return; }
         float dYaw = angleDiff(p.getYRot(), mvYaw), dPitch = Math.abs(p.getXRot() - mvPitch);
         float rot = Math.max(dYaw, dPitch);
         boolean syncOver = SyncMath.posOver(dist, c.serverPosEpsilon) || SyncMath.rotOver(rot, c.serverRotEpsilon);
@@ -774,7 +781,8 @@ public class PanicDetector {
     }
 
     /**
-     * Аварийный стоп. Только останавливает макрос и подаёт сигнал.
+     * Аварийный стоп: останавливает макрос, подаёт сигнал, выводит окно игры вперёд; по желанию — «человеческая
+     * реакция» (v1.16.3, выкл по умолчанию).
      * Каждый шаг защищён отдельно: ошибка в логе/звуке/экране не мешает остановке и не роняет игру.
      */
     public void triggerPanic(Minecraft mc, String reason) { triggerPanic(mc, null, reason); }
@@ -807,6 +815,10 @@ public class PanicDetector {
         // v1.12: freelook — обратно в свой вид, чтобы видеть то же, что и сервер (по настройке)
         if (c.freelookOffOnPanic) Guard.run("panic/freelook-off", () -> com.farmmacro.camera.Freelook.off(mc, "паника"));
 
+        Guard.run("panic/mousemat", com.farmmacro.camera.Mousemat::cancel);
+        // v1.16.3: в основное окно (из «картинки в картинке», свёрнутого, из-под других программ)
+        Guard.run("panic/window", () -> com.farmmacro.window.Pip.toFront(mc, "паника"));
+
         // 1. Остановка — главное. Если обычная остановка упала, отпускаем клавиши аварийно.
         if (!Guard.run("panic/stop", () -> MacroManager.INSTANCE.stopPlayback(mc, "§c⚠ Паника: " + reason)))
             Guard.run("panic/force-stop", () -> MacroManager.INSTANCE.forceStop(mc));
@@ -821,6 +833,9 @@ public class PanicDetector {
         if (c.panicRedScreenEnabled) redScreenTicksLeft = c.panicRedScreenTicks;
         // 4. v1.14: скриншот последнего кадра (до красного экрана) и сообщение в Discord — файлы/сеть в фоне
         Guard.run("panic/screenshot", () -> PanicShot.onPanic(mc, reason));
+        // 5. v1.16.3 «Человеческая реакция» (выкл по умолчанию): оглядеться и, может быть, одна фраза в чат;
+        // любой ввод игрока сразу её прекращает
+        Guard.run("panic/react", () -> HumanReaction.onPanic(mc, id, reason));
     }
 
     /** Проверка из меню: те же звук и красный экран, но без остановки и без записи в «последнюю панику». */

@@ -19,5 +19,6 @@
   "key.farmmacro.startfrom": "Kaelix: Продолжить маршрут с места",
   "key.farmmacro.ungrab": "Kaelix: Отпустить курсор (макрос фармит дальше)",
   "key.farmmacro.hudedit": "Kaelix: Редактор HUD",
-  "key.farmmacro.perf": "Kaelix: Режим производительности"
+  "key.farmmacro.perf": "Kaelix: Режим производительности",
+  "key.farmmacro.pip": "Kaelix: Картинка в картинке (маленькое окно поверх всех)"
 }
