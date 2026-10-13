@@ -284,7 +284,7 @@ public class ModConfig {
     public int     guiOffsetX          = 0, guiOffsetY = 0;
     public double  hudScale            = 1.0;
     public boolean hudWrap             = true;
-    /** v1.16.0: тема меню и HUD (gui/Ui.THEMES): quiet, mono, graphite, paper, classic. */
+    /** v1.16.0: тема меню и HUD (gui/Ui.THEMES): quiet, mono, graphite, paper (v1.16.1: «classic» удалена → quiet). */
     public String  uiTheme             = "quiet";
     /** v1.16.0: в минималистичных темах подсказки под подписями (выкл — во всплывашке при наведении). */
     public boolean uiHints             = false;
@@ -550,6 +550,8 @@ public class ModConfig {
 
     /** Приводит значения к допустимым диапазонам (на случай ручной правки json). */
     public void sanitize() {
+        // v1.16.1: тема «Классика» удалена; неизвестная/старая тема — «Чёрный + синий акцент»
+        if (uiTheme == null || java.util.Arrays.stream(com.farmmacro.gui.Ui.THEMES).noneMatch(t -> t[0].equals(uiTheme))) uiTheme = "quiet";
         if (lowRenderRev < 1) { lowRenderRadius = 3; lowRenderChunks = false; lowRenderRev = 1; }   // 1.12 → 1.12.2
         lowRenderRadius       = Math.max(1, Math.min(32, lowRenderRadius));
         resumeAnywhereMaxDist = clamp(resumeAnywhereMaxDist, 0.5, 16);

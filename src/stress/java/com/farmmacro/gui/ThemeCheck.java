@@ -39,7 +39,8 @@ public final class ThemeCheck {
             check(((Ui.HUD_BG >>> 24) & 0xFF) >= 0xA0, t[0] + ": фон HUD слишком прозрачный");
             check(lum(Ui.HUD_BG) < 0.05, t[0] + ": HUD должен остаться тёмным (цветной текст HUD)");
             check(windows.add(Ui.WINDOW), t[0] + ": окно как у другой темы");
-            check(t[0].equals("classic") ? !Ui.flat() && Ui.SHADOWS : Ui.flat() && !Ui.SHADOWS, t[0] + ": плоскость/тени");
+            check(Ui.RADIUS < 1f && !Ui.SHADOWS, t[0] + ": плоскость/тени");
+            check(!"classic".equals(t[0]), "тема «Классика» должна быть удалена (v1.16.1)");
         }
         Ui.applyTheme("нет-такой");
         check("quiet".equals(Ui.theme()), "неизвестная тема → quiet");

@@ -262,7 +262,7 @@ final class DetectorTable {
                 return;
             }
             boolean hf = Ui.inside(mx, my, cx, cy, cw, 14);
-            if (Ui.flat()) g.fill(cx, cy + 14, cx + cw, cy + 15, hf ? Ui.SUB : Ui.BORDER); else Ui.round(g, cx, cy, cw, 14, 4, hf ? Ui.CARD_HOVER : Ui.FIELD);
+            g.fill(cx, cy + 14, cx + cw, cy + 15, hf ? Ui.SUB : Ui.BORDER);
             if (query.isEmpty()) Ui.text(g, c.font(), "⌕ Найти детектор…", cx + 6, cy + 3, Ui.DIM);
             else {
                 Ui.text(g, c.font(), Ui.ellipsize(c.font(), "⌕ " + query, cw - 30), cx + 6, cy + 3, Ui.TEXT);

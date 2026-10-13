@@ -143,34 +143,12 @@ public final class Rows {
 
         @Override public String searchText() { return title; }
 
-        int height(Ctx c, int w) { return Ui.flat() ? 24 : 20; }
+        int height(Ctx c, int w) { return 24; }
         void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
             boolean col = collapsible(), op = open();
             String t = (col ? (op ? "▾ " : "▸ ") : onClick != null ? "› " : "") + title.toUpperCase();
             boolean hot = hover && (col || onClick != null);
-            if (Ui.flat()) { renderFlat(c, g, x, y, w, hot, col, op); return; }
-            Ui.text(g, c.font(), t, x + 2, y + 9, hot ? Ui.TEXT : Ui.ACCENT_HI);
-            // справа: сколько переключателей включено (и сколько строк спрятано, если свёрнут)
-            String right = null;
-            if (col) {
-                int on = 0, all = 0, rows = 0;
-                for (Row r : children) {
-                    if (!r.visible.getAsBoolean() || (r.adv && !advanced.getAsBoolean()) || r instanceof Note) continue;
-                    rows++;
-                    if (r instanceof Toggle tg) { all++; if (tg.value()) on++; }
-                }
-                if (all > 0) right = on + "/" + all + " вкл";
-                if (!op) right = (right != null ? right + " · " : "") + rows + " " + plural(rows);
-            } else if (onClick != null) right = "перейти";
-            int lx = x + 8 + c.font().width(t);
-            int rx = x + w;
-            if (right != null) {
-                int rw = c.font().width(right);
-                Ui.text(g, c.font(), right, x + w - rw - 2, y + 9, hot ? Ui.SUB : Ui.DIM);
-                rx = x + w - rw - 8;
-            }
-            if (rx > lx) g.fill(lx, y + 13, rx, y + 14, Ui.BORDER);
-            if (hot) { c.hand(); c.tooltip(onClick != null ? "Открыть вкладку с этим разделом" : op ? "Свернуть раздел" : "Развернуть раздел"); }
+            renderFlat(c, g, x, y, w, hot, col, op);
         }
 
         /** v1.16.0 минималистичный заголовок: мелко, вразрядку, серым, без линии. */
@@ -230,13 +208,7 @@ public final class Rows {
         int height(Ctx c, int w) { return 20; }
         void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
             String t = text();
-            if (Ui.flat()) {
-                Ui.textCentered(g, c.font(), Ui.ellipsize(c.font(), t, w - 12), x + w / 2, y + 6, hover ? Ui.TEXT : Ui.DIM);
-                if (hover) { c.hand(); c.tooltip("Пороги, веса, цвета и служебные шаги. Тот же переключатель — вверху окна"); }
-                return;
-            }
-            Ui.round(g, x, y + 2, w, 15, 4, hover ? Ui.CARD_HOVER : Ui.alpha(Ui.ACCENT, 0.08f));
-            Ui.textCentered(g, c.font(), Ui.ellipsize(c.font(), t, w - 12), x + w / 2, y + 6, hover ? Ui.TEXT : Ui.ACCENT_HI);
+            Ui.textCentered(g, c.font(), Ui.ellipsize(c.font(), t, w - 12), x + w / 2, y + 6, hover ? Ui.TEXT : Ui.DIM);
             if (hover) { c.hand(); c.tooltip("Пороги, веса, цвета и служебные шаги. Тот же переключатель — вверху окна"); }
         }
         boolean click(Ctx c, double mx, double my, int button) {
@@ -262,10 +234,7 @@ public final class Rows {
 
         @Override public String searchText() { return label + (hint != null ? " " + hint : ""); }
 
-        int height(Ctx c, int w) {
-            if (Ui.flat()) return hintShown() ? 30 : 22;
-            return hintNow() == null ? 22 : 30;
-        }
+        int height(Ctx c, int w) { return hintShown() ? 30 : 22; }
 
         /** v1.16.0: в минималистичных темах подсказка — во всплывашке, под подписью только ошибка (или если включены подписи). */
         boolean hintShown() {
@@ -282,20 +251,7 @@ public final class Rows {
         abstract int controlWidth(Ctx c);
 
         void drawCard(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int h, boolean hover, boolean clickable) {
-            if (Ui.flat()) { drawFlat(c, g, x, y, w, h, hover, clickable); return; }
-            Ui.round(g, x, y, w, h - 3, 4, hover && clickable && on() ? Ui.CARD_HOVER : Ui.CARD);
-            int textW = w - controlWidth(c) - 20;
-            int col = on() ? Ui.TEXT : Ui.DIM;
-            Font f = c.font();
-            String hn = hintNow();
-            if (hn == null) {
-                Ui.text(g, f, Ui.ellipsize(f, label, textW), x + 8, y + (h - 3 - 8) / 2, col);
-            } else {
-                Ui.text(g, f, Ui.ellipsize(f, label, textW), x + 8, y + 5, col);
-                String hs = Ui.ellipsize(f, hn, textW);
-                Ui.text(g, f, hs, x + 8, y + 16, hintColor());
-                if (hover && !hs.equals(hn)) c.tooltip(hn);
-            }
+            drawFlat(c, g, x, y, w, h, hover, clickable);
         }
 
         /** Минималистичная строка: без карточки, тонкая линия снизу, лёгкая подсветка под мышью. */
@@ -350,13 +306,12 @@ public final class Rows {
             anim += (target - anim) * Math.min(1, dt * 14);
             if (Math.abs(target - anim) < 0.01f) anim = target;
 
-            boolean flat = Ui.flat();
-            int tw = flat ? 18 : 22, th = flat ? 10 : 12;
-            int tx = x + w - tw - (flat ? 2 : 8), ty = flat ? y + (h - 1 - th) / 2 : y + (h - 3 - th) / 2;
+            int tw = 18, th = 10;
+            int tx = x + w - tw - 2, ty = y + (h - 1 - th) / 2;
             int track = Ui.lerp(Ui.TRACK_OFF, Ui.TOGGLE_ON, anim);
             if (!on()) track = Ui.alpha(track, 0.45f);
             Ui.pill(g, tx, ty, tw, th, track);
-            int kr = flat ? 3 : 4;
+            int kr = 3;
             int kx = tx + th / 2 + Math.round(anim * (tw - th));
             Ui.circle(g, kx, ty + th / 2, kr, !on() ? Ui.KNOB_OFF : Ui.lerp(Ui.KNOB_OFF, Ui.KNOB_ON, anim));
             if (hover && on()) c.hand();
@@ -422,7 +377,7 @@ public final class Rows {
         int controlWidth(Ctx c) { return embedded() ? ew : slider() ? sliderW() + 4 + valueW(c) : 92; }
 
         /** v1.16.0: в минималистичных темах — тонкий слайдер и значение текстом (клик по значению — ввод числом). */
-        boolean slider() { return Ui.flat() && !embedded() && Double.isFinite(max - min) && max > min; }
+        boolean slider() { return !embedded() && Double.isFinite(max - min) && max > min; }
         int sliderW() { return Math.max(40, Math.min(110, lastW / 4)); }
         int valueW(Ctx c) { return Math.max(34, c.font().width(fmt.apply(max)) + 4); }
         /** {x трека, y линии, ширина трека, x значения}. */
@@ -579,8 +534,8 @@ public final class Rows {
 
         private void place(Ctx c) {
             int h = height(c, lastW), fw = fieldW();
-            int cy = Ui.flat() ? (hintShown() ? lastY + 3 : lastY + (h - 1 - 14) / 2) : lastY + (h - 3 - 14) / 2;
-            int right = lastX + lastW - (Ui.flat() ? 2 : 6);
+            int cy = hintShown() ? lastY + 3 : lastY + (h - 1 - 14) / 2;
+            int right = lastX + lastW - 2;
             hi.ex = right - fw; hi.ey = cy; hi.ew = fw;
             lo.ex = right - fw * 2 - 12; lo.ey = cy; lo.ew = fw;
             for (Number n : new Number[]{lo, hi}) { n.enabled = enabled; n.lastX = lastX; n.lastY = lastY; n.lastW = lastW; n.lastH = lastH; }
@@ -633,8 +588,7 @@ public final class Rows {
                 return;
             }
             boolean hf = Ui.inside(mx, my, cx, cy, cw, 14);
-            if (Ui.flat()) g.fill(cx, cy + 14, cx + cw, cy + 15, hf ? Ui.SUB : Ui.BORDER);
-            else Ui.round(g, cx, cy, cw, 14, 4, hf ? Ui.CARD_HOVER : Ui.FIELD);
+            g.fill(cx, cy + 14, cx + cw, cy + 15, hf ? Ui.SUB : Ui.BORDER);
             if (query.isEmpty()) Ui.text(g, c.font(), "⌕ Поиск по всем настройкам…", cx + 6, cy + 3, Ui.DIM);
             else {
                 Ui.text(g, c.font(), Ui.ellipsize(c.font(), "⌕ " + query, cw - 30), cx + 6, cy + 3, Ui.TEXT);
@@ -681,27 +635,16 @@ public final class Rows {
             int h = height(c, w);
             drawCard(c, g, x, y, w, h, hover, false);
             int cw = controlWidth(c);
-            int cx = x + w - cw - 6, cy = y + (h - 3 - 14) / 2;
-            if (Ui.flat()) { cx = x + w - cw - 2; cy = hintShown() ? y + 3 : y + (h - 1 - 14) / 2; }
+            int cx = x + w - cw - 2, cy = hintShown() ? y + 3 : y + (h - 1 - 14) / 2;
             boolean en = on();
             boolean hl = en && Ui.inside(mx, my, cx, cy, cw / 2, 14);
             boolean hr = en && Ui.inside(mx, my, cx + cw / 2, cy, cw - cw / 2, 14);
-            if (Ui.flat()) {
-                if (en && wheelFocus == this) g.fill(cx, cy + 13, cx + cw, cy + 14, Ui.ACCENT);
-                String s = Ui.ellipsize(c.font(), currentLabel(), cw - 22);
-                int sw = c.font().width(s);
-                Ui.textRight(g, c.font(), "›", cx + cw, cy + 3, hr ? Ui.ACCENT_HI : Ui.DIM);
-                Ui.text(g, c.font(), s, cx + cw - 10 - sw, cy + 3, en ? (hl || hr ? Ui.TEXT : Ui.SUB) : Ui.DIM);
-                Ui.text(g, c.font(), "‹", cx + cw - 18 - sw, cy + 3, hl ? Ui.ACCENT_HI : Ui.DIM);
-                if (hl || hr) c.hand();
-                return;
-            }
-            if (en && wheelFocus == this) Ui.round(g, cx - 1, cy - 1, cw + 2, 16, 5, Ui.ACCENT);
-            Ui.round(g, cx, cy, cw, 14, 4, (hl || hr) ? Ui.CARD_HOVER : Ui.FIELD);
-            Ui.text(g, c.font(), "‹", cx + 5, cy + 3, hl ? Ui.ACCENT_HI : Ui.SUB);
-            Ui.textRight(g, c.font(), "›", cx + cw - 5, cy + 3, hr ? Ui.ACCENT_HI : Ui.SUB);
-            String s = Ui.ellipsize(c.font(), currentLabel(), cw - 24);
-            Ui.textCentered(g, c.font(), s, cx + cw / 2, cy + 3, en ? Ui.TEXT : Ui.DIM);
+            if (en && wheelFocus == this) g.fill(cx, cy + 13, cx + cw, cy + 14, Ui.ACCENT);
+            String s = Ui.ellipsize(c.font(), currentLabel(), cw - 22);
+            int sw = c.font().width(s);
+            Ui.textRight(g, c.font(), "›", cx + cw, cy + 3, hr ? Ui.ACCENT_HI : Ui.DIM);
+            Ui.text(g, c.font(), s, cx + cw - 10 - sw, cy + 3, en ? (hl || hr ? Ui.TEXT : Ui.SUB) : Ui.DIM);
+            Ui.text(g, c.font(), "‹", cx + cw - 18 - sw, cy + 3, hl ? Ui.ACCENT_HI : Ui.DIM);
             if (hl || hr) c.hand();
         }
 
@@ -766,14 +709,14 @@ public final class Rows {
             case SECONDARY -> Ui.BORDER;
         };
         int col = !enabled ? Ui.alpha(Ui.BORDER, 0.5f) : hover ? Ui.lerp(base, 0xFFFFFFFF, 0.15f) : base;
-        if (Ui.flat() && (style == Style.DANGER || style == Style.SUCCESS)) {
+        if (style == Style.DANGER || style == Style.SUCCESS) {
             Ui.roundBordered(g, x, y, w, h, 4, hover && enabled ? Ui.alpha(base, 0.14f) : Ui.WINDOW, enabled ? Ui.alpha(base, hover ? 1f : 0.7f) : Ui.alpha(Ui.BORDER, 0.5f));
             String s = Ui.ellipsize(c.font(), label, w - 6);
             Ui.textCentered(g, c.font(), s, x + w / 2, y + (h - 8) / 2, !enabled ? Ui.DIM : base);
             if (hover) c.hand();
             return hover;
         }
-        if (Ui.flat() && style == Style.SECONDARY) {
+        if (style == Style.SECONDARY) {
             Ui.roundBordered(g, x, y, w, h, 4, hover && enabled ? Ui.CARD_HOVER : Ui.WINDOW, enabled ? Ui.lerp(Ui.BORDER, Ui.SUB, hover ? 0.5f : 0.2f) : Ui.alpha(Ui.BORDER, 0.5f));
             String s = Ui.ellipsize(c.font(), label, w - 6);
             Ui.textCentered(g, c.font(), s, x + w / 2, y + (h - 8) / 2, !enabled ? Ui.DIM : hover ? Ui.TEXT : Ui.SUB);
@@ -850,14 +793,10 @@ public final class Rows {
             String t = text.get();
             if (t == null || t.isEmpty()) return;
             int h = height(c, w);
-            if (Ui.flat()) g.fill(x, y + 2, x + 1, y + h - 5, Ui.alpha(color, 0.8f));
-            else {
-                Ui.round(g, x, y, w, h - 3, 4, Ui.alpha(color, 0.10f));
-                g.fill(x, y + 2, x + 2, y + h - 5, color);
-            }
+            g.fill(x, y + 2, x + 1, y + h - 5, Ui.alpha(color, 0.8f));
             int ly = y + 3;
             for (var line : c.font().split(net.minecraft.network.chat.Component.literal(t), w - 16)) {
-                g.text(c.font(), line, x + 8, ly, Ui.flat() ? Ui.lerp(color, Ui.SUB, 0.7f) : Ui.lerp(color, Ui.TEXT, 0.55f), false);
+                g.text(c.font(), line, x + 8, ly, Ui.lerp(color, Ui.SUB, 0.7f), false);
                 ly += 10;
             }
         }

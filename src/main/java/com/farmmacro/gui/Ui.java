@@ -27,15 +27,11 @@ public final class Ui {
             {"mono",     "Чёрный монохром"},
             {"graphite", "Графит + зелёный статус"},
             {"paper",    "Светлая"},
-            {"classic",  "Классика (как до 1.16)"},
     };
 
     static { applyTheme("quiet"); }
 
     public static String theme() { return theme; }
-
-    /** Плоский стиль (минималистичные темы): без заливки активной вкладки, мелкие скругления. */
-    public static boolean flat() { return RADIUS < 1f; }
 
     /** Переключить палитру. Неизвестный id — «quiet». */
     public static void applyTheme(String id) {
@@ -58,12 +54,6 @@ public final class Ui {
                     0xFF111111, 0xFF5F5F5F, 0xFF9A9A9A, 0xFF111111, 0xFF333333, 0xFF16A34A, 0xFFDC2643, 0xFFC27803, 0xFFCFCFCC);
                 TOGGLE_ON = 0xFF111111; KNOB_ON = 0xFFFFFFFF; KNOB_OFF = 0xFFFFFFFF; ON_ACCENT = 0xFFFFFFFF;
                 TOOLTIP = 0xF8FFFFFF; HUD_BG = 0xC8141414; RADIUS = 0.35f; SHADOWS = false;
-            }
-            case "classic" -> {
-                set(0xFF151A24, 0xFF11151D, 0xFF11151D, 0xFF1C2230, 0xFF232A3B, 0xFF0E1218, 0xFF2A3245,
-                    0xFFE8EBF3, 0xFF98A1B6, 0xFF5E677D, 0xFF6D8BFF, 0xFF8AA2FF, 0xFF37D18A, 0xFFFF5470, 0xFFFFB547, 0xFF394158);
-                TOGGLE_ON = 0xFF37D18A; KNOB_ON = 0xFFFFFFFF; KNOB_OFF = 0xFF9AA0AE; ON_ACCENT = 0xFFFFFFFF;
-                TOOLTIP = 0xF00B0E14; HUD_BG = 0xC8101420; RADIUS = 1f; SHADOWS = true;
             }
             default -> {
                 id = "quiet";
@@ -163,7 +153,6 @@ public final class Ui {
 
     /** v1.16.0: фон строки списка (пресет, макрос, детектор). Минималистично — линия снизу, выбранная — полоска слева. */
     public static void listBg(GuiGraphicsExtractor g, int x, int y, int w, int h, int r, boolean sel, boolean hover) {
-        if (!flat()) { round(g, x, y, w, h, r, sel ? alpha(ACCENT, 0.22f) : hover ? CARD_HOVER : CARD); return; }
         if (sel) g.fill(x, y, x + w, y + h - 1, alpha(ACCENT, 0.08f));
         else if (hover) g.fill(x, y, x + w, y + h - 1, alpha(CARD_HOVER, 0.55f));
         if (sel) g.fill(x, y + 3, x + 2, y + h - 4, ACCENT);
@@ -172,13 +161,11 @@ public final class Ui {
 
     /** v1.16.0: подложка окна. Минималистично — тонкая рамка. */
     public static void window(GuiGraphicsExtractor g, int x, int y, int w, int h, int r) {
-        if (flat()) roundBordered(g, x, y, w, h, r, WINDOW, BORDER);
-        else round(g, x, y, w, h, r, WINDOW);
+        roundBordered(g, x, y, w, h, r, WINDOW, BORDER);
     }
 
     /** v1.16.0: блок-карточка (текущий макрос/маршрут). Минималистично — тонкая рамка без заливки. */
     public static void box(GuiGraphicsExtractor g, int x, int y, int w, int h, int r) {
-        if (!flat()) { round(g, x, y, w, h, r, CARD); return; }
         roundBordered(g, x, y, w, h, r, WINDOW, BORDER);
     }
 

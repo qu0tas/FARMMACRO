@@ -57,8 +57,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
     // ── Геометрия (всё от размера окна, поэтому ничего не наезжает на любом масштабе GUI) ──
 
     /** v1.16.0: в минималистичных темах окно больше (две колонки настроек). */
-    private int winW()  { return Math.max(Math.min(width - 16, Ui.flat() ? 660 : 500), Math.min(width - 4, 300)); }
-    private int winH()  { return Math.max(Math.min(height - 16, Ui.flat() ? 380 : 330), Math.min(height - 4, 180)); }
+    private int winW()  { return Math.max(Math.min(width - 16, 660), Math.min(width - 4, 300)); }
+    private int winH()  { return Math.max(Math.min(height - 16, 380), Math.min(height - 4, 180)); }
     /** v1.15.1: окно можно таскать за заголовок — сдвиг от центра (guiOffsetX/Y), не за край экрана. */
     private int winX()  { return Math.max(0, Math.min(width - winW(), (width - winW()) / 2 + cfg().guiOffsetX)); }
     private int winY()  { return Math.max(0, Math.min(height - winH(), (height - winH()) / 2 + cfg().guiOffsetY)); }
@@ -66,7 +66,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
     private double dragFromX, dragFromY;
     private int dragOffX, dragOffY;
     private long lastHeaderClick;
-    private int sideW() { return winW() < 400 ? 30 : Ui.flat() ? 112 : 104; }  // узкое окно — только иконки
+    private int sideW() { return winW() < 400 ? 30 : 112; }  // узкое окно — только иконки
     private static final int HEADER_H = 30;
     private int contX() { return winX() + sideW() + 10; }
     private int contY() { return winY() + HEADER_H + 6; }
@@ -1050,7 +1050,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Selector("Тема", "Цвета меню и HUD. Меняется сразу", () -> THEME_CHOICES,
                 () -> cfg().uiTheme, v -> { cfg().uiTheme = v; Ui.applyTheme(v); save(); }));
         rows.add(toggle("Подписи под настройками", "Выкл — подсказка всплывает при наведении (строже и компактнее)",
-                () -> cfg().uiHints, v -> cfg().uiHints = v).showIf(Ui::flat));
+                () -> cfg().uiHints, v -> cfg().uiHints = v));
         rows.add(new Rows.Section("Маршрут").key("v.route"));
         rows.add(toggle("Показывать маршрут", "Лента по кадрам макроса: впереди ярко, пройдено тускло, запись — красным",
                 () -> cfg().routeEnabled, v -> cfg().routeEnabled = v));
@@ -1683,8 +1683,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         Ui.shadow(g, x, y, w, h, 8);
         Ui.window(g, x, y, w, h, 8);
         // боковая панель
-        if (Ui.flat()) Ui.round(g, x + 1, y + 1, sideW() + 7, h - 2, 8, Ui.SIDEBAR);
-        else Ui.round(g, x, y, sideW() + 8, h, 8, Ui.SIDEBAR);
+        Ui.round(g, x + 1, y + 1, sideW() + 7, h - 2, 8, Ui.SIDEBAR);
         g.fill(x + sideW(), y, x + sideW() + 8, y + h, Ui.WINDOW);
         g.fill(x + sideW(), y + 6, x + sideW() + 1, y + h - 6, Ui.BORDER);
     }
@@ -1762,7 +1761,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
      * Заполняет Row.lx/ly/lw. @return высота содержимого
      */
     private int layout(int cw) {
-        boolean two = Ui.flat() && cw >= 440;
+        boolean two = cw >= 440;
         int colW = (cw - COL_GAP) / 2;
         int[] colY = {0, 0};
         int i = 0, n = rows.size();
@@ -1816,38 +1815,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
     }
 
     private void renderHeader(GuiGraphicsExtractor g, int x, int y, int w, int mx, int my) {
-        if (Ui.flat()) { String[] fs = new String[1]; int fc = statusOf(fs); renderHeaderFlat(g, x, y, w, mx, my, fs[0], fc); return; }
-        int hx = x + sideW() + 10;
-        // заголовок вкладки
-        String title = title();
-        Ui.text(g, font, title, hx, y + 11, Ui.TEXT);
-        // режим меню: простой / расширенный (тонкие настройки)
-        boolean adv = cfg().uiAdvanced;
-        String mode = adv ? "Расширенный" : "Простой";
-        int px = hx + font.width(title) + 8, pw = font.width(mode) + 12;
-        boolean hp = Ui.inside(mx, my, px, y + 8, pw, 14);
-        Ui.pill(g, px, y + 8, pw, 14, hp ? Ui.CARD_HOVER : Ui.alpha(adv ? Ui.ACCENT : Ui.SUB, 0.16f));
-        Ui.text(g, font, mode, px + 6, y + 11, adv ? Ui.ACCENT_HI : Ui.SUB);
-        if (hp) { hand(); tooltip("Режим меню. Простой — основное, расширенный — ещё пороги, веса, цвета и служебные шаги. "
-                + "Скрытые настройки продолжают работать"); }
-        modeX = px; modeW = pw;
-        String[] st = new String[1];
-        int col = statusOf(st);
-        String status = st[0];
-        // кнопка закрытия
-        int bx = x + w - 24, by = y + 7;
-        boolean hc = Ui.inside(mx, my, bx, by, 16, 16);
-        Ui.round(g, bx, by, 16, 16, 4, hc ? Ui.DANGER : Ui.CARD);
-        Ui.textCentered(g, font, "✕", bx + 8, by + 4, hc ? 0xFFFFFFFF : Ui.SUB);
-        if (hc) hand();
-
-        int maxChip = Math.max(40, bx - 8 - (px + pw + 8));
-        status = Ui.ellipsize(font, status, maxChip - 12);
-        int sw = font.width(status) + 12;
-        int sx = bx - 6 - sw;
-        Ui.pill(g, sx, y + 8, sw, 14, Ui.alpha(col, 0.16f));
-        Ui.text(g, font, status, sx + 6, y + 11, col);
-        g.fill(x + sideW() + 10, y + HEADER_H, x + w - 10, y + HEADER_H + 1, Ui.BORDER);
+        String[] fs = new String[1]; int fc = statusOf(fs); renderHeaderFlat(g, x, y, w, mx, my, fs[0], fc);
     }
 
     /** v1.16.0 минималистичный заголовок: крупное название вкладки, режим тонким текстом, статус точкой. */
@@ -1920,7 +1888,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private void renderSidebar(GuiGraphicsExtractor g, int x, int y, int mx, int my) {
         boolean compact = sideW() < 60;
-        if (!compact && Ui.flat()) { renderSidebarFlat(g, x, y, mx, my); return; }
+        if (!compact) { renderSidebarFlat(g, x, y, mx, my); return; }
+        // узкое окно — только иконки
         // логотип
         if (compact) {
             Logo.draw(g, x + sideW() / 2 - 9, y + 6, 18);
@@ -1933,8 +1902,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
             int tx = x + 6, tw = sideW() - 12, th = 20;
             boolean active = i == tab;
             boolean hover = Ui.inside(mx, my, tx, ty, tw, th);
-            if (active && !Ui.flat()) Ui.round(g, tx, ty, tw, th, 5, Ui.alpha(Ui.ACCENT, 0.18f));
-            else if (active) Ui.round(g, tx, ty, tw, th, 5, Ui.alpha(Ui.ACCENT, 0.07f));
+            if (active) Ui.round(g, tx, ty, tw, th, 5, Ui.alpha(Ui.ACCENT, 0.07f));
             else if (hover) Ui.round(g, tx, ty, tw, th, 5, Ui.CARD);
             if (active) Ui.pill(g, tx, ty + 5, 2, th - 10, Ui.ACCENT);
             int col = active ? Ui.TEXT : hover ? Ui.TEXT : Ui.SUB;
@@ -1962,7 +1930,6 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         int kw = font.width(k) + 6;
         int right = x + sideW() - 20;
         Ui.text(g, font, Ui.ellipsize(font, what, right - kw - x - 4), x, y + 1, Ui.DIM);
-        if (!Ui.flat()) Ui.round(g, right - kw, y, kw, 10, 3, Ui.CARD);
         Ui.text(g, font, k, right - kw + 3, y + 1, Ui.SUB);
     }
 
