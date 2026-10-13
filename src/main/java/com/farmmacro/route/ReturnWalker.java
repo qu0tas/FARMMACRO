@@ -17,6 +17,8 @@ import java.util.Locale;
  * Сбили с пути / застрял / упал — новый путь с текущего места (до {@code returnReplans} раз).
  * Не нашёл — {@link Status#FAIL}: MacroManager делает обычный стоп с сообщением (не паника).
  * ЛКМ/ПКМ во время возврата отпущены, слот не меняется.
+ * <p>v1.16.2: путь ищется в фоне ({@link PathJob}) — пока ищем, стоим (клавиши отпущены), HUD — «ищу путь…».
+ * Лестницы/лианы/леса — лезем (ReturnCore); закрытая деревянная дверь/калитка впереди по пути — смотрим на неё и ПКМ.
  */
 public final class ReturnWalker {
     public enum Status { RUNNING, DONE, FAIL }
@@ -38,6 +40,19 @@ public final class ReturnWalker {
     /** Последний путь (для HUD и отрисовки). */
     private List<RoutePoint> path = List.of();
     private String what = "";
+    /** v1.16.2: поиск в фоне — что делать с результатом. */
+    private PathJob job;
+    private int jobKind, jobTicks;
+    private static final int J_BEGIN = 0, J_REPLAN = 1, J_NOFLY = 2;
+    /** Поиск дольше этого (тиков) — стоп с причиной. */
+    public static final int JOB_MAX_TICKS = 400;
+    private java.util.function.IntFunction<float[]> endCam;
+    private boolean failedPlanning;
+    /** v1.16.2 двери: какую открываем, тиков на неё, нажатий ПКМ, тиков держать ПКМ, пауза до следующего нажатия. */
+    private net.minecraft.core.BlockPos door;
+    private int doorTicks, doorClicks, useHold, useWait;
+    private float doorYaw = Float.NaN, doorPitch = Float.NaN;
+    public static final double DOOR_REACH = 3.0;
 
     public boolean active()      { return active; }
     public String failText()     { return fail; }
@@ -45,6 +60,12 @@ public final class ReturnWalker {
     public int replans()         { return replans; }
     public List<RoutePoint> path() { return active ? path : List.of(); }
     public String what()         { return what; }
+    /** v1.16.2: идёт поиск пути (в фоне). */
+    public boolean planning()    { return active && job != null; }
+    /** Открываем дверь/калитку. */
+    public boolean openingDoor() { return active && door != null; }
+    /** Не нашёлся самый первый путь (а не сбили по дороге) — MacroManager может стартовать без подхода. */
+    public boolean failedPlanning() { return failedPlanning; }
 
     /** Остаток пути, блоков. */
     public double remaining(LocalPlayer p) { return active && p != null ? core.remaining(p.getX(), p.getZ()) : 0; }
@@ -69,27 +90,64 @@ public final class ReturnWalker {
     public static PathFinder.Result plan(Minecraft mc, List<PathFinder.Goal> goals) { return plan(mc, goals, true); }
 
     public static PathFinder.Result plan(Minecraft mc, List<PathFinder.Goal> goals, boolean fly) {
-        LocalPlayer p = mc.player;
-        PathFinder.Result r = new PathFinder(new PathLevel(mc.level), params(p, fly)).find(p.getX(), p.getY(), p.getZ(), p.onGround(), goals);
-        EventLog.log("RETURN", "поиск пути: " + r + String.format(Locale.ROOT, " (%d клеток, %.1f мс)", r.expanded, r.micros / 1000.0));
+        PathJob j = PathJob.start(mc, goals, fly);
+        PathFinder.Result r = j.result();
+        logPlan(r, j);
         return r;
     }
 
+    private static void logPlan(PathFinder.Result r, PathJob j) {
+        EventLog.log("RETURN", "поиск пути: " + r + String.format(Locale.ROOT, " (%d клеток, %.1f мс в фоне; снимок %d секций — %.1f мс)",
+                r.expanded, r.micros / 1000.0, j.sections, j.snapMicros / 1000.0));
+    }
+
     /**
-     * Начать: найти путь и идти. endYaw/endPitch — камера, с которой продолжится маршрут.
-     * @return false — путь не найден (failText)
+     * Начать: путь ищется в фоне, потом идём. endCam(join) — камера, с которой продолжится маршрут (join — точка,
+     * куда придём; известна после поиска). Не нашли — {@link #tick} вернёт FAIL ({@link #failText}, {@link #failedPlanning}).
      */
-    public boolean begin(Minecraft mc, List<PathFinder.Goal> goals, float endYaw, float endPitch, String what) {
+    public void begin(Minecraft mc, List<PathFinder.Goal> goals, java.util.function.IntFunction<float[]> endCam, String what) {
         this.goals = goals;
         this.what = what;
-        replans = 0; fail = null; ticks = 0; noFly = false; tap = 0; tapTries = 0;
-        PathFinder.Result r = plan(mc, goals);
-        if (!r.ok) { fail = r.reason; active = false; return false; }
-        LocalPlayer p = mc.player;
-        start(r, p, endYaw, endPitch);
+        this.endCam = endCam;
+        replans = 0; fail = null; ticks = 0; noFly = false; tap = 0; tapTries = 0; failedPlanning = false;
+        door = null; doorTicks = 0; doorClicks = 0; useHold = 0; useWait = 0;
+        path = List.of();
         active = true;
-        EventLog.log("RETURN", what + ": иду " + r.points.size() + " точек, к отрезку " + (r.goal.seg + 1));
-        return true;
+        plan(mc, J_BEGIN, true);
+    }
+
+    private void plan(Minecraft mc, int kind, boolean fly) {
+        if (job != null) job.cancel();
+        job = PathJob.start(mc, goals, fly);
+        jobKind = kind; jobTicks = 0;
+    }
+
+    /** Тик ожидания поиска: стоим; готово — идём по новому пути. */
+    private Status tickJob(Minecraft mc, LocalPlayer p, Options o) {
+        release(o);
+        if (!job.done()) {
+            if (++jobTicks > JOB_MAX_TICKS) { job.cancel(); job = null; fail = "поиск пути не уложился в " + JOB_MAX_TICKS / 20 + " с"; active = false; return Status.FAIL; }
+            return Status.RUNNING;
+        }
+        PathFinder.Result r = job.result();
+        logPlan(r, job);
+        int kind = jobKind;
+        job = null;
+        if (!r.ok) {
+            fail = kind == J_NOFLY ? "нужен полёт, а взлететь не вышло: " + r.reason : r.reason;
+            failedPlanning = kind == J_BEGIN;
+            active = false;
+            return Status.FAIL;
+        }
+        if (kind == J_BEGIN) {
+            float[] cam = endCam != null ? endCam.apply(r.goal.join) : new float[]{p.getYRot(), p.getXRot()};
+            start(r, p, cam[0], cam[1]);
+            EventLog.log("RETURN", what + ": иду " + r.points.size() + " точек, к отрезку " + (r.goal.seg + 1)
+                    + " (поиск " + jobTicks + " т)");
+        } else {
+            start(r, p, core.endYaw(), core.endPitch());
+        }
+        return Status.RUNNING;
     }
 
     private void start(PathFinder.Result r, LocalPlayer p, float endYaw, float endPitch) {
@@ -104,6 +162,8 @@ public final class ReturnWalker {
 
     public void stop(Minecraft mc) {
         if (active && com.farmmacro.camera.SmoothTurn.isActive()) com.farmmacro.camera.SmoothTurn.stop();
+        if (job != null) { job.cancel(); job = null; }
+        door = null;
         active = false;
         shaper = null;
         path = List.of();
@@ -117,6 +177,8 @@ public final class ReturnWalker {
         LocalPlayer p = mc.player;
         Options o = mc.options;
         ticks++;
+        if (job != null) return tickJob(mc, p, o);
+        if (doorStep(mc, p, o, c)) return Status.RUNNING;
         boolean flying = p.getAbilities().flying;
         ReturnCore.Phase ph = core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), flying, p.getYRot(), p.getXRot(), p.horizontalCollision, out);
         if (core.needFly && ph == ReturnCore.Phase.WALK) {
@@ -126,9 +188,7 @@ public final class ReturnWalker {
                 release(o);
                 noFly = true;
                 EventLog.log("RETURN", "взлететь не вышло (" + (p.getAbilities().mayfly ? "попыток " + tapTries : "летать сейчас нельзя") + ") — путь без полёта");
-                PathFinder.Result r = plan(mc, goals, false);
-                if (!r.ok) { fail = "нужен полёт, а взлететь не вышло: " + r.reason; active = false; return Status.FAIL; }
-                start(r, p, core.endYaw(), core.endPitch());
+                plan(mc, J_NOFLY, false);
                 return Status.RUNNING;
             }
             int k = tap++ % 12;                                // 0 жать, 1–2 отпустить, 3 жать, дальше ждать
@@ -148,9 +208,7 @@ public final class ReturnWalker {
                 return Status.FAIL;
             }
             EventLog.log("RETURN", "новый путь (" + replans + "/" + c.returnReplans + "): " + core.reason);
-            PathFinder.Result r = plan(mc, goals, !noFly);
-            if (!r.ok) { fail = r.reason; active = false; return Status.FAIL; }
-            start(r, p, core.endYaw(), core.endPitch());
+            plan(mc, J_REPLAN, !noFly);
             return Status.RUNNING;
         }
         if (ph == ReturnCore.Phase.DONE) {
@@ -174,6 +232,95 @@ public final class ReturnWalker {
         MacroManager.press(o.keyAttack, false);
         MacroManager.press(o.keyUse, false);
         return Status.RUNNING;
+    }
+
+    /**
+     * v1.16.2 двери: закрытая дверь/калитка (открывается рукой) впереди по пути ближе {@link #DOOR_REACH} — стоп,
+     * взгляд на неё, ПКМ (1–2 тика, не чаще раза в 10 тиков, до 3 раз). Открылась — идём дальше; нет — стоп с причиной
+     * (приват, редстоун). @return true — этот тик занят дверью
+     */
+    private boolean doorStep(Minecraft mc, LocalPlayer p, Options o, ModConfig c) {
+        if (core.phase() != ReturnCore.Phase.WALK) { door = null; return false; }
+        if (door == null) {
+            door = findDoor(mc, p);
+            if (door == null) return false;
+            doorTicks = 0; doorClicks = 0; useHold = 0; useWait = 0; doorYaw = Float.NaN;
+            EventLog.log("RETURN", "дверь на пути (" + door.toShortString() + ") — открываю");
+        }
+        var st = mc.level.getBlockState(door);
+        if (!PathLevel.closedOpenable(st)) {
+            if (doorClicks > 0) EventLog.log("RETURN", "дверь открыта (" + doorTicks + " т)");
+            door = null;
+            MacroManager.press(o.keyUse, false);
+            core.core().resetStuckWindow();
+            issuedYaw = Float.NaN;
+            return false;
+        }
+        if (++doorTicks > 100 || (doorClicks >= 3 && useWait == 0 && useHold == 0)) {
+            release(o);
+            fail = "дверь " + door.toShortString() + " не открывается (приват или редстоун?)";
+            active = false;
+            door = null;
+            return true;   // tick() вернёт FAIL на следующем тике
+        }
+        for (var k : new net.minecraft.client.KeyMapping[]{o.keyUp, o.keyDown, o.keyLeft, o.keyRight, o.keyJump,
+                o.keySprint, o.keyShift, o.keyAttack}) MacroManager.press(k, false);
+        // взгляд — в центр нижней клетки двери (у калитки — её центр)
+        var eye = p.getEyePosition();
+        double tx = door.getX() + 0.5, ty = door.getY() + 0.5, tz = door.getZ() + 0.5;
+        float yaw = WalkCore.yawTo(eye.x, eye.z, tx, tz);
+        float pitch = (float) -Math.toDegrees(Math.atan2(ty - eye.y, Math.hypot(tx - eye.x, tz - eye.z)));
+        if (Float.isNaN(doorYaw) || ReturnCore.angle(doorYaw, doorPitch, yaw, pitch) > 2) {
+            com.farmmacro.camera.SmoothTurn.turnMouse(p.getYRot() + WalkCore.wrap(yaw - p.getYRot()), pitch, c.returnTurnSpeed);
+            doorYaw = yaw; doorPitch = pitch;
+        }
+        boolean aimed = mc.hitResult instanceof net.minecraft.world.phys.BlockHitResult bh
+                && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK && sameDoor(mc, bh.getBlockPos(), door);
+        if (useHold > 0) { useHold--; MacroManager.press(o.keyUse, true); return true; }
+        MacroManager.press(o.keyUse, false);
+        if (useWait > 0) { useWait--; return true; }
+        if (aimed && !com.farmmacro.camera.SmoothTurn.isActive()) {
+            MacroManager.press(o.keyUse, true);
+            useHold = 1; useWait = 10; doorClicks++;
+        }
+        return true;
+    }
+
+    /** Та же дверь (нижняя/верхняя половина двери — одна дверь). */
+    private static boolean sameDoor(Minecraft mc, net.minecraft.core.BlockPos hit, net.minecraft.core.BlockPos door) {
+        if (hit.equals(door)) return true;
+        return hit.getX() == door.getX() && hit.getZ() == door.getZ() && Math.abs(hit.getY() - door.getY()) == 1
+                && mc.level.getBlockState(hit).getBlock() instanceof net.minecraft.world.level.block.DoorBlock;
+    }
+
+    /** Закрытая дверь/калитка на ближайших DOOR_REACH блоках пути (на высоте ног и тела); нижняя половина двери. */
+    private net.minecraft.core.BlockPos findDoor(Minecraft mc, LocalPlayer p) {
+        List<RoutePoint> pts = core.points();
+        int t = core.target();
+        if (t >= pts.size()) return null;
+        double ax = p.getX(), az = p.getZ(), ay = p.getY(), left = DOOR_REACH;
+        var mp = new net.minecraft.core.BlockPos.MutableBlockPos();
+        for (int i = t; i < pts.size() && left > 0; i++) {
+            RoutePoint b = pts.get(i);
+            double len = Math.hypot(b.x - ax, b.z - az);
+            int n = Math.max(1, (int) Math.ceil(Math.min(len, left) / 0.25));
+            for (int s = 0; s <= n; s++) {
+                double k = len < 1e-6 ? 1 : Math.min(1, s * 0.25 / len);
+                double x = ax + (b.x - ax) * k, z = az + (b.z - az) * k, y = ay + (b.y - ay) * k;
+                for (int dy = 0; dy <= 1; dy++) {
+                    mp.set((int) Math.floor(x), (int) Math.floor(y + 0.01) + dy, (int) Math.floor(z));
+                    var st = mc.level.getBlockState(mp);
+                    if (!PathLevel.closedOpenable(st)) continue;
+                    var at = mp.immutable();
+                    if (st.getBlock() instanceof net.minecraft.world.level.block.DoorBlock
+                            && st.getValue(net.minecraft.world.level.block.DoorBlock.HALF) == net.minecraft.world.level.block.state.properties.DoubleBlockHalf.UPPER) at = at.below();
+                    if (p.getEyePosition().distanceTo(net.minecraft.world.phys.Vec3.atCenterOf(at)) <= DOOR_REACH + 0.5) return at;
+                }
+            }
+            left -= len;
+            ax = b.x; az = b.z; ay = b.y;
+        }
+        return null;
     }
 
     /** Камера — «как мышь»: новая цель, если желаемый взгляд ушёл от поставленного (по ходу — > 6°, в конце — точно). */

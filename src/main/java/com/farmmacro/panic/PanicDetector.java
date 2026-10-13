@@ -98,6 +98,8 @@ public class PanicDetector {
     private int soundRepeatDelay;
 
     private String lastReason;
+    /** v1.16.2: id детектора последней паники (null — общая). */
+    private String lastPanicId;
     private long   lastPanicMs;
     private String overlayText;
 
@@ -792,6 +794,7 @@ public class PanicDetector {
         });
 
         lastReason  = reason;
+        lastPanicId = id;
         overlayText = reason;
         lastPanicMs = System.currentTimeMillis();
         pendingReason = null;
@@ -842,6 +845,7 @@ public class PanicDetector {
 
     public int     getRedScreenTicks() { return redScreenTicksLeft; }
     public String  getLastReason()     { return lastReason; }
+    public String  getLastPanicId()    { return lastPanicId; }
     public String  getOverlayText()    { return overlayText; }
     public long    getLastPanicMs()    { return lastPanicMs; }
 

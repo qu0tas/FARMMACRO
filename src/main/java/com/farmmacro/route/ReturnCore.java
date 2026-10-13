@@ -36,6 +36,10 @@ public final class ReturnCore {
     /** В этот тик стоим ради поворота. */
     public boolean turningInPlace;
     private int lowTicks;
+    /** v1.16.2 лестница: лучшая ошибка по высоте и тиков без прогресса. */
+    private double climbBest = Double.MAX_VALUE;
+    private int climbStall;
+    public static final int CLIMB_STALL_TICKS = 40;
     private double startX, startZ;
 
     /** Путь pts от места (sx, sz); в конце повернуться к (endYaw, endPitch). */
@@ -50,7 +54,7 @@ public final class ReturnCore {
         this.endYaw = endYaw; this.endPitch = endPitch;
         core.start(route, 0, STUCK_TICKS);
         phase = route.points.isEmpty() ? Phase.TURN : Phase.WALK;
-        reason = null; lowTicks = 0; lastX = Double.NaN; needFly = false;
+        reason = null; lowTicks = 0; lastX = Double.NaN; needFly = false; climbBest = Double.MAX_VALUE; climbStall = 0;
         wantYaw = endYaw; wantPitch = endPitch;
     }
 
@@ -127,6 +131,23 @@ public final class ReturnCore {
                     return phase;
                 }
             }
+        }
+        if (!core.done() && !flying) {
+            // v1.16.2 лестница/лиана/леса: точка «лезть» над/под нами — по высоте: вверх — держать прыжок
+            // (на лестнице прыжок = лезть), вниз — отпустить (сползаем); по XZ — держаться середины колонки
+            RoutePoint ft = route.points.get(core.target());
+            double dyErr = ft.y - y, hd = Math.hypot(ft.x - x, ft.z - z);
+            if (ft.climb && hd < 0.6 && (dyErr > 0.2 || dyErr < -0.45)) {
+                if (hd > 0.15) core.resteer(x, z, yaw, out);
+                out.sprint = false; out.sneak = false;
+                out.jump = dyErr > 0;
+                double err = Math.abs(dyErr);
+                if (err < climbBest - 0.05) { climbBest = err; climbStall = 0; }
+                else if (++climbStall > CLIMB_STALL_TICKS) return replan("застрял на лестнице");
+                core.resetStuckWindow();
+                return phase;
+            }
+            climbBest = Double.MAX_VALUE; climbStall = 0;
         }
         core.tick(x, y, z, onGround, yaw, REACH, true, STUCK_TICKS, !flying, OFF_PATH, false, out);
         out.attack = false; out.use = false; out.slot = -1; out.sneak = false; out.sprint = false;

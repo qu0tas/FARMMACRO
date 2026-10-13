@@ -284,6 +284,8 @@ public class ModConfig {
     public int     guiOffsetX          = 0, guiOffsetY = 0;
     public double  hudScale            = 1.0;
     public boolean hudWrap             = true;
+    /** v1.16.2: плашка «Последняя паника» (детектор, причина, время) — столько минут после паники; 0 — не показывать. */
+    public int     hudPanicMinutes     = 30;
     /** v1.16.0: тема меню и HUD (gui/Ui.THEMES): quiet, mono, graphite, paper (v1.16.1: «classic» удалена → quiet). */
     public String  uiTheme             = "quiet";
     /** v1.16.0: в минималистичных темах подсказки под подписями (выкл — во всплывашке при наведении). */
@@ -298,6 +300,8 @@ public class ModConfig {
     public java.util.Map<String, Double> detectorWeights = new java.util.LinkedHashMap<>();
     /** Мастер первого запуска пройден или пропущен (старые конфиги без поля — считаются пройденными). */
     public boolean welcomeDone         = false;
+    /** v1.16.2: версия мода, для которой уже показали «Что нового» ("" — ещё ни разу). */
+    public String  lastSeenVersion     = "";
     /** Ответы мастера: где играешь (skyblock/friends/other) и набор (optimal/careful/soft). */
     public String  welcomeWhere        = "skyblock";
     public String  welcomePreset       = "optimal";
@@ -649,6 +653,8 @@ public class ModConfig {
         hudWidth = clamp(hudWidth, 120, 480);
         guiOffsetX = clamp(guiOffsetX, -4000, 4000); guiOffsetY = clamp(guiOffsetY, -4000, 4000);
         hudScale = clamp(hudScale, 0.5, 3.0);
+        hudPanicMinutes = clamp(hudPanicMinutes, 0, 1440);
+        if (lastSeenVersion == null) lastSeenVersion = "";
         if (hudSlots == null) hudSlots = new java.util.LinkedHashMap<>();
         hudSlots.values().removeIf(java.util.Objects::isNull);
         if (hudSlots.size() > 64) hudSlots.clear();

@@ -635,6 +635,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private String profileName = "";
     private String profileMsg = "";
+    private String codeMsg = "";
     private String confirmProfileDelete;
 
     private void buildConfigs() {
@@ -696,6 +697,26 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                         buildTab();
                     })));
         }
+
+        // v1.16.2: все настройки одной строкой
+        rows.add(new Rows.Section("Строка настроек"));
+        rows.add(new Rows.Note("Все настройки (как профиль: без пресетов камеры и клавиш) одной строкой — скопируй и отправь "
+                + "другу или сохрани в заметках. В строке есть ники друзей и команда переподключения; адрес вебхука — нет.", Ui.SUB));
+        rows.add(new Rows.Buttons(
+                new Rows.Btn("Скопировать строку", Rows.Style.PRIMARY, () -> {
+                    String code = com.farmmacro.config.ConfigProfiles.exportCode();
+                    minecraft.keyboardHandler.setClipboard(code);
+                    codeMsg = "Строка настроек скопирована (" + code.length() + " символов)";
+                }),
+                new Rows.Btn("Вставить из буфера", Rows.Style.SECONDARY, () -> {
+                    String err = com.farmmacro.config.ConfigProfiles.importCode(minecraft.keyboardHandler.getClipboard());
+                    codeMsg = err != null ? err : "Настройки загружены из строки";
+                    if (err == null) { refreshLists(); buildTab(); }
+                }).enabledIf(() -> MacroManager.INSTANCE.getState() == MacroManager.State.IDLE)
+                        .tip("Заменит текущие настройки (пресеты камеры и клавиши останутся). Нельзя во время записи/воспроизведения")));
+        rows.add(new Rows.Note(() -> codeMsg, Ui.ON));
+        rows.add(new Rows.Buttons(new Rows.Btn("Что нового в v" + WhatsNewScreen.VERSION, Rows.Style.SECONDARY,
+                () -> minecraft.setScreen(new WhatsNewScreen(this)))));
 
         rows.add(new Rows.Section("Общая случайность"));
         rows.add(toggle("Использовать для всех", "Вкл — макросы и маршруты берут случайность отсюда, а не из своих ⚙",
@@ -1119,6 +1140,9 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 () -> cfg().hudScale, v -> cfg().hudScale = v, 0.5, 3, 0.05, 0.25, v -> Math.round(v * 100) + " %"));
         rows.add(toggle("Переносить длинный текст", "Не обрезать «…», а переносить на следующую строку",
                 () -> cfg().hudWrap, v -> cfg().hudWrap = v));
+        rows.add(number("Последняя паника", "Плашка: какой детектор сработал, причина и время — столько минут после паники (0 — не показывать)",
+                () -> cfg().hudPanicMinutes, v -> cfg().hudPanicMinutes = (int) v, 0, 1440, 5, 30,
+                v -> (int) v == 0 ? "выкл" : (int) v + " мин").integer());
         rows.add(new Rows.Buttons(new Rows.Btn("Редактор HUD", Rows.Style.PRIMARY, () -> {
             save();
             minecraft.setScreen(new com.farmmacro.hud.HudEditorScreen(this));
@@ -1166,6 +1190,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Section("Анимешные щёчки").key("v.cheeks"));
         rows.add(toggle("Щёчки", "Румянец на лице твоего персонажа: видно от 3-го лица (F5), во Freelook и в инвентаре. Видишь только ты",
                 () -> cfg().cheeksEnabled, v -> cfg().cheeksEnabled = v));
+        rows.add(new Rows.Custom(CheekPreview.HEIGHT, (g, x, y, w) -> CheekPreview.draw(g, minecraft, x, y, w)).under(ch));
         rows.add(new Rows.Selector("Стиль", null, () -> CHEEK_STYLES, () -> cfg().cheeksStyle,
                 v -> { cfg().cheeksStyle = v; save(); }).under(ch));
         rows.add(new Rows.Selector("Цвет", null, () -> CHEEK_COLORS, () -> cfg().cheeksColor,

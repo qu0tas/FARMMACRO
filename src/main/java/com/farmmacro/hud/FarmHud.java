@@ -50,6 +50,7 @@ public final class FarmHud {
             new Block("return", "Возврат на маршрут", WIDE, FarmHud::drawReturn),
             new Block("delays", "Задержки рук (отладка)", 210, FarmHud::drawDelays),
             new Block("susp", "Подозрительность", WIDE, FarmHud::drawSuspicion),
+            new Block("panic", "Последняя паника", WIDE, FarmHud::drawPanic),
             new Block("server", "TPS · BPS · баны", WIDE, FarmHud::drawServer),
             new Block("schedule", "Расписание и выход", WIDE, FarmHud::drawSchedule),
             new Block("nav", "Навигатор", PANEL_W, FarmHud::drawNavigator));
@@ -381,12 +382,40 @@ public final class FarmHud {
         return line(g, mc, x, y, w, "СЛУЧАЙНОСТЬ · " + h.status() + " · сид " + h.seed, 0xFFE08CFF);
     }
 
+    /**
+     * v1.16.2: плашка «ПАНИКА · детектор · 12:34:56 (3 мин назад)» и причина — {@code hudPanicMinutes} минут после
+     * паники. Только показывает — паника по-прежнему лишь стоп + красный экран + звук.
+     */
+    private static int drawPanic(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
+        int min = ModConfig.INSTANCE.hudPanicMinutes;
+        var pd = com.farmmacro.panic.PanicDetector.INSTANCE;
+        long at = pd.getLastPanicMs();
+        if (min <= 0 || at <= 0) return 0;
+        long age = System.currentTimeMillis() - at;
+        if (age < 0 || age > min * 60_000L) return 0;
+        String id = pd.getLastPanicId();
+        String who = id != null ? com.farmmacro.panic.Detectors.name(id) : "аварийный стоп";
+        String when = new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date(at));
+        String ago = age < 60_000 ? (age / 1000) + " с назад" : (age / 60_000) + " мин назад";
+        String reason = pd.getLastReason() == null ? "" : pd.getLastReason();
+        List<String> wl = new ArrayList<>(wrap(mc.font, "ПАНИКА · " + who + " · " + when + " (" + ago + ")", w - 14));
+        int head = wl.size();
+        if (!reason.isEmpty()) wl.addAll(wrap(mc.font, reason, w - 14));
+        int h = 6 + wl.size() * 10;
+        if (g == null) return h;
+        panel(g, x, y, w, h, 0xFFFF5A5A);
+        for (int i = 0; i < wl.size(); i++) Ui.text(g, mc.font, wl.get(i), x + 8, y + 4 + i * 10, i < head ? 0xFFFF6B6B : Ui.SUB);
+        return h;
+    }
+
     /** v1.15: плашка «ВОЗВРАТ НА МАРШРУТ · N бл» — пока идёт свой путь к маршруту. */
     private static int drawReturn(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         MacroManager m = MacroManager.INSTANCE;
         if (!m.isReturning()) return 0;
         var rw = m.returnWalker();
-        String text = rw.turningToRoute() ? "ВОЗВРАТ · поворот к маршруту"
+        String text = rw.planning() ? "ВОЗВРАТ " + rw.what() + " · ищу путь…"
+                : rw.openingDoor() ? "ВОЗВРАТ " + rw.what() + " · открываю дверь"
+                : rw.turningToRoute() ? "ВОЗВРАТ · поворот к маршруту"
                 : String.format(java.util.Locale.ROOT, "ВОЗВРАТ %s · %.1f бл%s", rw.what(), rw.remaining(mc.player),
                 rw.replans() > 0 ? " · путь ×" + (rw.replans() + 1) : "");
         return line(g, mc, x, y, w, text, 0xFF7FD8FF);

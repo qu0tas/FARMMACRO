@@ -17,6 +17,14 @@ public final class PathCheck {
     static final class Grid implements PathFinder.World {
         final Map<Long, Double> top = new HashMap<>();
         final Map<Long, Integer> hz = new HashMap<>();
+        final Map<Long, Integer> ed = new HashMap<>();
+        public int edges(int x, int y, int z) { Integer e = ed.get(k(x, y, z)); return e == null ? 0 : e; }
+        /** v1.16.2: лестница в клетке, прибита к грани side (E_PX…). */
+        Grid ladder(int x, int z, int y0, int y1, int side) {
+            for (int y = y0; y <= y1; y++) { top.remove(k(x, y, z)); hz.put(k(x, y, z), PathFinder.H_CLIMB); ed.put(k(x, y, z), side); }
+            return this;
+        }
+        Grid edge(int x, int y, int z, int side) { top.remove(k(x, y, z)); ed.put(k(x, y, z), side); return this; }
         static long k(int x, int y, int z) { return ((long) (x + 1_000_000) << 40) | ((long) (y + 2048) << 24) | (z + 1_000_000L & 0xFFFFFF); }
         public double top(int x, int y, int z) { Double t = top.get(k(x, y, z)); return t == null ? -1 : t; }
         public int hazard(int x, int y, int z) { Integer h = hz.get(k(x, y, z)); return h == null ? 0 : h; }
@@ -81,6 +89,9 @@ public final class PathCheck {
             double air = onGround ? 0.45 : 0.1;
             vx = vx * (1 - air) + dir[0] * speed * air; vz = vz * (1 - air) + dir[1] * speed * air;
             if (out.jump && onGround) { vy = 0.42; onGround = false; }
+            // v1.16.2 лестница (как LivingEntity): прыжок или упор в стену — вверх 0.2, иначе сползание не быстрее 0.15
+            boolean climbing = g.hazard((int) Math.floor(x), (int) Math.floor(y + 1e-4), (int) Math.floor(z)) == PathFinder.H_CLIMB;
+            if (climbing) { if (out.jump || hc) { vy = 0.2; onGround = false; } else vy = Math.max(vy, -0.15); }
             if (t == pushAt) { x += pushX; vx = 0; vz = 0; }
             double nx = x + vx, nz = z + vz;
             hc = false;
@@ -100,7 +111,7 @@ public final class PathCheck {
                 if (y < -64) return new Sim(false, t, x, y, z, yaw, pitch, replans, "упал в бездну", hazard, maxTurn);
             }
             int cx = (int) Math.floor(x), cz = (int) Math.floor(z);
-            for (int cy = (int) Math.floor(y + 0.01); cy <= (int) Math.floor(y + 1.7); cy++) if (g.hazard(cx, cy, cz) != 0) hazard = true;
+            for (int cy = (int) Math.floor(y + 0.01); cy <= (int) Math.floor(y + 1.7); cy++) { int hz = g.hazard(cx, cy, cz); if (hz >= 1 && hz <= 3) hazard = true; }
         }
         return new Sim(false, maxTicks, x, y, z, yaw, pitch, replans, "не дошёл за " + maxTicks + " т", hazard, maxTurn);
     }
@@ -293,6 +304,61 @@ public final class PathCheck {
         PathFinder.Result bg = find(big, 0.5, 64, 0.5, at(33.5, 64, 0.5), 64);
         check(!bg.ok, "загон в большом поле: " + bg);
         rep.append(String.format(Locale.ROOT, "худший случай (поле 145², цель в загоне): %d клеток за %.0f мс", bg.expanded, bg.micros / 1000.0));
+
+        // 13. v1.16.2 лестница: стена 5 бл, единственный путь наверх — лестница у x 4 (прибита к грани +x)
+        Grid lad = new Grid().floor(-4, -10, 14, 10, 63).wall(5, -10, 12, 10, 64, 68, 1.0).ladder(4, 0, 64, 68, PathFinder.E_PX);
+        PathFinder.Result lu = find(lad, 0.5, 64, 0.5, at(8.5, 69, 0.5), 64);
+        long climbs = lu.nodes.stream().filter(n -> n[3] == PathFinder.Move.CLIMB.ordinal()).count();
+        check(lu.ok && climbs >= 4 && lu.points.stream().anyMatch(p -> p.climb), "лестница вверх: " + lu + " climb-узлов " + climbs);
+        Sim lus = walk(lad, 0.5, 64, 0.5, -90, 0, at(8.5, 69, 0.5), -90f, 0f, -1, 0, 1500);
+        check(lus.done && Math.abs(lus.y - 69) < 0.01, "лестница вверх: симуляция " + s(lus));
+        Grid noLad = new Grid().floor(-4, -10, 14, 10, 63).wall(5, -10, 12, 10, 64, 68, 1.0);
+        check(!find(noLad, 0.5, 64, 0.5, at(8.5, 69, 0.5), 64).ok, "без лестницы на стену 5 бл не залезть");
+        // вниз: со стены на лестницу (с края на блок ниже) и сползти
+        PathFinder.Result ld = find(lad, 8.5, 69, 0.5, at(0.5, 64, 0.5), 64);
+        check(ld.ok && ld.nodes.stream().anyMatch(n -> n[3] == PathFinder.Move.CLIMB.ordinal()), "лестница вниз: " + ld);
+        Sim lds = walk(lad, 8.5, 69, 0.5, 90, 0, at(0.5, 64, 0.5), 90f, 0f, -1, 0, 1500);
+        check(lds.done && Math.abs(lds.y - 64) < 0.01, "лестница вниз: симуляция " + s(lds));
+        // пластина лестницы — со стороны стены: сквозь стену у лестницы не ходим, с лестницы на стену — только сверху
+        boolean throughPlate = false;
+        for (int i = 1; i < lu.nodes.size(); i++) {
+            double[] a = lu.nodes.get(i - 1), b = lu.nodes.get(i);
+            if (Math.floor(a[0]) == 4 && Math.floor(b[0]) == 5 && Math.max(a[1], b[1]) < 69 - 1e-9) throughPlate = true;
+        }
+        check(!throughPlate, "лестница: сошёл на стену сквозь пластину");
+        rep.append(String.format(Locale.ROOT, "; лестница 5 бл — вверх %d climb-узлов, %s; вниз %s; ", climbs, s(lus), s(lds)));
+
+        // 14. Леса: колонка лесов 5 бл, наверху можно встать; пешком без лесов — нет
+        Grid sc = new Grid().floor(-4, -6, 10, 6, 63);
+        for (int y = 64; y <= 68; y++) sc.set(4, y, 0, 1.0).haz(4, y, 0, PathFinder.H_CLIMB);
+        PathFinder.Result scr = find(sc, 0.5, 64, 0.5, at(4.5, 69, 0.5), 64);
+        check(scr.ok && scr.nodes.stream().anyMatch(n -> n[3] == PathFinder.Move.CLIMB.ordinal()), "леса: " + scr);
+        rep.append("леса — наверх по колонке; ");
+
+        // 15. Двери: стена с проёмом; закрытая деревянная дверь — через неё (точка в центре двери), железная (пластина) — нет
+        Grid dw = new Grid().floor(-4, -10, 14, 10, 63).wall(5, -10, 5, 10, 64, 66, 1.0);
+        dw.clearCell(5, 64, 0).clearCell(5, 65, 0).haz(5, 64, 0, PathFinder.H_DOOR).haz(5, 65, 0, PathFinder.H_DOOR);
+        PathFinder.Result dr = find(dw, 0.5, 64, 3.5, at(10.5, 64, -2.5), 64);
+        boolean viaDoor = dr.ok && dr.points.stream().anyMatch(p -> Math.abs(p.x - 5.5) < 1e-6 && Math.abs(p.z - 0.5) < 1e-6);
+        check(viaDoor, "дверь: путь не через центр двери " + dr);
+        boolean diagDoor = false;
+        for (int i = 1; i < dr.nodes.size(); i++) {
+            double[] a = dr.nodes.get(i - 1), b = dr.nodes.get(i);
+            boolean inA = Math.floor(a[0]) == 5 && Math.floor(a[2]) == 0, inB = Math.floor(b[0]) == 5 && Math.floor(b[2]) == 0;
+            if ((inA || inB) && a[0] != b[0] && a[2] != b[2]) diagDoor = true;
+        }
+        check(!diagDoor, "дверь: в дверь по диагонали");
+        Grid iron = new Grid().floor(-4, -10, 14, 10, 63).wall(5, -10, 5, 10, 64, 66, 1.0);
+        iron.edge(5, 64, 0, PathFinder.E_NX).edge(5, 65, 0, PathFinder.E_NX);
+        check(!find(iron, 0.5, 64, 3.5, at(10.5, 64, -2.5), 64).ok, "железная дверь (пластина) — путь есть, а не должен");
+        // открытая дверь: пластина вдоль прохода (грань −z) — проходим
+        Grid open2 = new Grid().floor(-4, -10, 14, 10, 63).wall(5, -10, 5, 10, 64, 66, 1.0);
+        open2.edge(5, 64, 0, PathFinder.E_NZ).edge(5, 65, 0, PathFinder.E_NZ);
+        PathFinder.Result od = find(open2, 0.5, 64, 0.5, at(10.5, 64, 0.5), 64);
+        check(od.ok, "открытая дверь: " + od);
+        Sim ods = walk(open2, 0.5, 64, 0.5, -90, 0, at(10.5, 64, 0.5), -90f, 0f, -1, 0, 800);
+        check(ods.done, "открытая дверь: симуляция " + s(ods));
+        rep.append("дверь — через центр, не по диагонали; железная — нет; открытая — да; ");
 
         System.out.printf(Locale.ROOT, "PathCheck (v1.15 возврат на маршрут): %d проверок — OK (%.0f мс)%n  %s%n",
                 checks, (System.nanoTime() - t0) / 1e6, rep);

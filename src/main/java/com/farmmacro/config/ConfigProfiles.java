@@ -92,6 +92,40 @@ public final class ConfigProfiles {
         return null;
     }
 
+    /** v1.16.2: служебное и личное — не в строку настроек (как и не в профиль при загрузке). */
+    private static final java.util.Set<String> NOT_IN_CODE = java.util.Set.of("camPresets", "camSelected", "camNextId",
+            "camDefaultsRev", "lowRenderSavedChunks", "perfSavedFps", "perfSavedClouds", "perfSavedParticles", "perfSavedShadows",
+            "perfSavedEntityDist", "uiAdvanced", "uiSections", "keyRecord", "keyPlay", "keyClear", "keyOpenGui",
+            "lastSeenVersion", "welcomeDone");
+
+    /** v1.16.2: все настройки (как профиль) одной строкой — скопировать и отправить. */
+    public static String exportCode() {
+        com.google.gson.JsonObject o = new Gson().toJsonTree(ModConfig.INSTANCE).getAsJsonObject();
+        for (String k : NOT_IN_CODE) o.remove(k);
+        return ConfigCode.encode(o.toString());
+    }
+
+    /** v1.16.2: применить строку настроек. @return null — ок, иначе причина */
+    public static String importCode(String code) {
+        ModConfig loaded;
+        try {
+            String json = ConfigCode.decode(code);
+            com.google.gson.JsonObject o = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+            for (String k : NOT_IN_CODE) o.remove(k);
+            loaded = new Gson().fromJson(o, ModConfig.class);
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        } catch (Exception e) {
+            LOGGER.error("Строка настроек не читается", e);
+            return "Строка не читается: " + e.getClass().getSimpleName();
+        }
+        if (loaded == null) return "Пустая строка настроек";
+        loaded.welcomeDone = ModConfig.INSTANCE.welcomeDone;
+        apply(loaded);
+        LOGGER.info("Настройки загружены из строки | {}", ModConfig.INSTANCE.describeThresholds());
+        return null;
+    }
+
     /** Подменить текущие настройки, сохранив пресеты камеры и клавиши. */
     static void apply(ModConfig loaded) {
         ModConfig cur = ModConfig.INSTANCE;
@@ -104,6 +138,7 @@ public final class ConfigProfiles {
         loaded.perfSavedParticles = cur.perfSavedParticles; loaded.perfSavedShadows = cur.perfSavedShadows;
         loaded.perfSavedEntityDist = cur.perfSavedEntityDist;
         loaded.uiAdvanced = cur.uiAdvanced; loaded.uiSections = cur.uiSections;    // вид меню — не часть профиля
+        loaded.lastSeenVersion = cur.lastSeenVersion;                              // v1.16.2 «Что нового» — не часть профиля
         loaded.keyRecord = cur.keyRecord; loaded.keyPlay = cur.keyPlay; loaded.keyClear = cur.keyClear; loaded.keyOpenGui = cur.keyOpenGui;
         loaded.sanitize();
         ModConfig.INSTANCE = loaded;

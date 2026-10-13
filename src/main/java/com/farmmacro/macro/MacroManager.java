@@ -90,6 +90,11 @@ public class MacroManager {
     private boolean pendingResume, approachResume;
     /** REJOIN: какая точка маршрута была целью, когда сбили (для точки остановки, если возврат не удался). */
     private int rejoinResume;
+    /** v1.16.2: подход к старту — не нашёлся путь → стартовать с места (fallback), где/сколько, с какой точки. */
+    private boolean approachFallback;
+    private String approachWhere = "";
+    private double approachDist;
+    private int approachIndex;
     private int rejoinsThisRun;
     /** Сколько раз за запуск можно вернуться после толчка (дальше — обычные «Сошёл с маршрута»/паника). */
     public static final int REJOIN_MAX_PER_RUN = 20;
@@ -220,15 +225,12 @@ public class MacroManager {
             }
             if (c.returnEnabled) {
                 // v1.15: далеко — дойти до ближайшего места маршрута своим путём
+                // v1.16.2: путь ищется в фоне уже после старта (ReturnWalker); не нашёлся — стоп с причиной
                 var goals = com.farmmacro.route.PathFinder.routeGoals(rb.route().points, mc.player.getY(), -1, 0);
-                var r = com.farmmacro.route.ReturnWalker.plan(mc, goals);
-                if (r.ok) {
-                    useRouteSource();
-                    msg(mc, "§aДо дороги " + far + " — иду к маршруту, отрезок " + (r.goal.seg + 1) + " → " + (r.goal.join + 1));
-                    launch(mc, r.goal.join, false, goals, r.goal.join, "к маршруту (N)");
-                    return;
-                }
-                msg(mc, "§cДо дороги " + far + ", путь не найден: " + r.reason);
+                useRouteSource();
+                msg(mc, "§aДо дороги " + far + " — ищу путь к маршруту…");
+                approachFallback = false;
+                launch(mc, 0, false, goals, 0, "к маршруту (N)");
                 return;
             }
             msg(mc, String.format(Locale.ROOT, "§cДо дороги %s — встань на маршрут (до %.1f бл)", far, max));
@@ -295,14 +297,13 @@ public class MacroManager {
         int join = index;
         if (dist > c.startPointWarnDistance && c.returnEnabled && (c.returnToStart || reconnectWalk)) {
             // v1.15: далеко — дойти своим путём (A*), а не просить подойти
-            List<com.farmmacro.route.PathFinder.Goal> g = approachGoals(mc, src, index, resume);
-            var r = com.farmmacro.route.ReturnWalker.plan(mc, g);
-            if (r.ok) {
-                goals = g; join = r.goal.join;
-                msg(mc, String.format(Locale.ROOT, "§aДо %s %.1f бл — дойду сам (%d точек пути)", where, dist, r.points.size()));
-            } else {
-                msg(mc, String.format(Locale.ROOT, "§6Путь до %s не найден: %s", where, r.reason));
-            }
+            // v1.16.2: путь ищется в фоне после старта; не нашёлся — как раньше: без «Требовать точку старта» играем
+            // с места с предупреждением, иначе — стоп
+            goals = approachGoals(mc, src, index, resume);
+            approachFallback = !(c.requireStartPoint || reconnectWalk);
+            approachWhere = where;
+            approachDist = dist;
+            msg(mc, String.format(Locale.ROOT, "§aДо %s %.1f бл — дойду сам (ищу путь…)", where, dist));
         }
         if (goals == null && dist > c.startPointWarnDistance) {
             if (c.requireStartPoint || reconnectWalk) {
@@ -413,14 +414,12 @@ public class MacroManager {
         if (pendingGoals != null) {
             var goals = pendingGoals;
             pendingGoals = null;
-            float[] cam = endCamera(mc, source, pendingJoin);
+            PlaybackSource src = source;
             approachKind = AP_START;
             approachResume = pendingResume;
+            approachIndex = pendingStartIndex;
             MouseHold.INSTANCE.suspend(true);
-            if (!approach.begin(mc, goals, cam[0], cam[1], pendingWhat)) {
-                finish(mc, "§c✖ Не дошёл " + pendingWhat + ": " + approach.failText() + " — стоп", true);
-                return;
-            }
+            approach.begin(mc, goals, j -> endCamera(mc, src, j), pendingWhat);
             msg(mc, "§a▶ Иду " + pendingWhat + " §7(" + keyName(com.farmmacro.FarmMacroMod.keyPlay) + " — стоп)");
         } else {
             approachKind = AP_NONE;
@@ -460,6 +459,18 @@ public class MacroManager {
         MouseHold.INSTANCE.suspend(true);
         var st = approach.tick(mc, c);
         if (st == com.farmmacro.route.ReturnWalker.Status.RUNNING) return;
+        if (st == com.farmmacro.route.ReturnWalker.Status.FAIL && approachKind == AP_START && approachFallback && approach.failedPlanning()) {
+            // v1.16.2: как до фонового поиска — без «Требовать точку старта» стартуем с места с предупреждением
+            approachKind = AP_NONE;
+            approachFallback = false;
+            if (approachResume) clearSavedPosition();
+            approachResume = false;
+            MouseHold.INSTANCE.suspend(false);
+            msg(mc, String.format(Locale.ROOT, "§6Путь до %s не найден: %s", approachWhere, approach.failText()));
+            msg(mc, String.format(Locale.ROOT, "§6Внимание: до %s %.1f бл", approachWhere, approachDist));
+            startPass(mc, Math.min(approachIndex, source.length() - 1));
+            return;
+        }
         if (st == com.farmmacro.route.ReturnWalker.Status.FAIL) {
             String what = approachKind == AP_REJOIN ? "Возврат на маршрут не удался" : "Не дошёл " + approach.what();
             finish(mc, "§c✖ " + what + ": " + approach.failText() + " — стоп", true);
@@ -497,10 +508,7 @@ public class MacroManager {
         approachKind = AP_REJOIN;
         MouseHold.INSTANCE.suspend(true);
         com.farmmacro.panic.EventLog.log("RETURN", "сбили с маршрута: " + why + " (отрезок " + (prefSeg + 1) + ")");
-        if (!approach.begin(mc, goals, yaw, pitch, "обратно на маршрут")) {
-            finish(mc, "§c✖ Сбили с маршрута (" + why + "), путь назад не найден: " + approach.failText() + " — стоп", true);
-            return true;
-        }
+        approach.begin(mc, goals, j -> new float[]{yaw, pitch}, "обратно на маршрут");
         msg(mc, "§e↩ Сбили с маршрута (" + why + ") — возвращаюсь");
         return true;
     }

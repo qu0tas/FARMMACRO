@@ -802,6 +802,16 @@ public final class Rows {
         }
     }
 
+    /** v1.16.2: своя отрисовка (превью и т. п.): высота и рисование — лямбдами. */
+    public static final class Custom extends Row {
+        public interface Painter { void paint(GuiGraphicsExtractor g, int x, int y, int w); }
+        private final int h;
+        private final Painter p;
+        public Custom(int h, Painter p) { this.h = h; this.p = p; }
+        int height(Ctx c, int w) { return h; }
+        void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) { p.paint(g, x, y, w); }
+    }
+
     /** Пустой отступ. */
     public static final class Spacer extends Row {
         private final int h;

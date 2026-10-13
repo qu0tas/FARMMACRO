@@ -18,17 +18,27 @@ import java.util.Locale;
  * <li>Цель — набор точек на линиях маршрута (см. {@link #routeGoals}); у каждой своя добавка к стоимости
  *     (другой этаж, пропуск/повтор участка, подход против хода). Поиск — до «стока»: цель + добавка.</li>
  * <li>Путь сглаживается: прямые участки по ровному склеиваются, углы срезаются там, где проходит тело 0.6 бл.</li>
+ * <li>v1.16.2: лестницы, лианы, строительные леса — ход {@link Move#CLIMB} вверх/вниз по колонке; тонкие пластины у края
+ *     клетки (открытая дверь, люк, лестница) — «стенка» только на этой грани ({@link World#edges}); закрытая деревянная
+ *     дверь/калитка ({@link #H_DOOR}) — проходима, но дороже (ReturnWalker откроет её ПКМ).</li>
  * </ul>
  */
 public final class PathFinder {
 
     /** Мир для поиска: верх коллизии (как {@link Terrain.Cells}) и «опасность» клетки. */
     public interface World extends Terrain.Cells {
-        /** {@link #H_NONE}, {@link #H_WATER}, {@link #H_LAVA}, {@link #H_DANGER}. */
+        /** {@link #H_NONE}, {@link #H_WATER}, {@link #H_LAVA}, {@link #H_DANGER}, {@link #H_CLIMB}, {@link #H_DOOR}. */
         int hazard(int x, int y, int z);
+        /** v1.16.2: тонкие пластины у граней клетки (биты {@link #E_PX}…{@link #E_NZ}) — через эту грань не пройти. */
+        default int edges(int x, int y, int z) { return 0; }
     }
 
-    public static final int H_NONE = 0, H_WATER = 1, H_LAVA = 2, H_DANGER = 3;
+    /** Опасность клетки; H_CLIMB — по ней лезут (лестница, лиана, леса), H_DOOR — закрытая дверь/калитка, открыть ПКМ. */
+    public static final int H_NONE = 0, H_WATER = 1, H_LAVA = 2, H_DANGER = 3, H_CLIMB = 4, H_DOOR = 5;
+    /** Грани клетки: +x, −x, +z, −z. */
+    public static final int E_PX = 1, E_NX = 2, E_PZ = 4, E_NZ = 8;
+    /** v1.16.2 цена: лезть вверх / вниз за блок, через дверь (открыть). */
+    public static final double C_CLIMB_UP = 1.3, C_CLIMB_DOWN = 1.1, C_DOOR = 2.5;
 
     /** Прыжком — до 1.25 бл (блок, грядка на блоке; забор 1.5 — нет). */
     public static final double JUMP_MAX = 1.25;
@@ -45,7 +55,7 @@ public final class PathFinder {
     /** Своя высота цели и узла: совпадают, если ближе этого. */
     public static final double LEVEL_TOL = 0.65;
 
-    public enum Move { START, WALK, JUMP, DROP, FLY }
+    public enum Move { START, WALK, JUMP, DROP, FLY, CLIMB }
 
     /** Цель: точка на маршруте (x, y, z), отрезок seg → seg+1 и доля t; join — с какой точки продолжать; pen — добавка. */
     public static final class Goal {
@@ -146,6 +156,9 @@ public final class PathFinder {
 
     private double top(int x, int y, int z) { return cache.top(x, y, z); }
     private int hazard(int x, int y, int z) { return cache.hazard(x, y, z); }
+    private int edges(int x, int y, int z) { return cache.edges(x, y, z); }
+    private boolean climbable(int x, int y, int z) { return cache.hazard(x, y, z) == H_CLIMB; }
+    private static boolean bad(int h) { return h == H_WATER || h == H_LAVA || h == H_DANGER; }
 
     private static int fl(double v) { return (int) Math.floor(v); }
 
@@ -168,14 +181,39 @@ public final class PathFinder {
     private boolean clear(int x, int z, double lo, double hi) {
         for (int cy = fl(lo) - 1; cy <= fl(hi - 1e-6); cy++) {
             double t = top(x, cy, z);
-            if (t >= 0 && cy + t > lo + 0.01 && cy < hi - 0.01) return false;
+            if (t >= 0 && cy + t > lo + 0.01 && cy < hi - 0.01 && !climbable(x, cy, z)) return false;   // сквозь леса — можно
         }
         return true;
     }
 
+    /** v1.16.2: из (x, z) в соседнюю ортогональную (x+dx, z+dz) мешает пластина на общей грани на высотах (lo, hi). */
+    private boolean edgeBlocked(int x, int z, int dx, int dz, double lo, double hi) {
+        int from = dx > 0 ? E_PX : dx < 0 ? E_NX : dz > 0 ? E_PZ : E_NZ;
+        int to = dx > 0 ? E_NX : dx < 0 ? E_PX : dz > 0 ? E_NZ : E_PZ;
+        for (int cy = fl(lo + 0.01); cy <= fl(hi - 0.01); cy++)
+            if ((edges(x, cy, z) & from) != 0 || (edges(x + dx, cy, z + dz) & to) != 0) return true;
+        return false;
+    }
+
+    /** Ход (x, z) → (x2, z2) (сосед, в т. ч. по диагонали) упирается в пластину. */
+    private boolean crossBlocked(int x, int z, int x2, int z2, double lo, double hi) {
+        int dx = x2 - x, dz = z2 - z;
+        if (dx == 0 && dz == 0) return false;
+        if (dx == 0 || dz == 0) return edgeBlocked(x, z, dx, dz, lo, hi);
+        // по диагонали тело задевает все четыре грани у общего угла — любая пластина мешает
+        return edgeBlocked(x, z, dx, 0, lo, hi) || edgeBlocked(x, z, 0, dz, lo, hi)
+                || edgeBlocked(x + dx, z, 0, dz, lo, hi) || edgeBlocked(x, z + dz, dx, 0, lo, hi);
+    }
+
+    /** В клетках тела — закрытая дверь/калитка. */
+    private boolean doorAt(int x, int z, double lo, double hi) {
+        for (int cy = fl(lo + 0.01); cy <= fl(hi - 0.01); cy++) if (hazard(x, cy, z) == H_DOOR) return true;
+        return false;
+    }
+
     /** Нет воды/лавы/опасного в клетках тела на (lo, hi). */
     private boolean safe(int x, int z, double lo, double hi) {
-        for (int cy = fl(lo + 0.01); cy <= fl(hi - 0.01); cy++) if (hazard(x, cy, z) != H_NONE) return false;
+        for (int cy = fl(lo + 0.01); cy <= fl(hi - 0.01); cy++) if (bad(hazard(x, cy, z))) return false;
         return true;
     }
 
@@ -317,6 +355,8 @@ public final class PathFinder {
         flyLo -= 6; flyHi += prm.flyCeil;
         if (prm.fly && prm.flyingNow && !onGround) {
             y0 = fl(py + 0.01);                                     // летит: клетка ног, опору не ищем
+        } else if (!onGround && (climbable(sx, fl(py + 0.01), sz) || climbable(sx, fl(py + 0.01) - 1, sz))) {
+            y0 = climbable(sx, fl(py + 0.01), sz) ? fl(py + 0.01) : fl(py + 0.01) - 1;   // v1.16.2: висит на лестнице
         } else if (!onGround) {
             double f = floor(sx, sz, py, py - 64, null);
             if (!Double.isNaN(f)) y0 = f;
@@ -352,6 +392,7 @@ public final class PathFinder {
                 }
             }
             expand(id, x, z, y);
+            expandClimb(id, x, z, y);
             if (prm.fly) expandFly(id, x, z, y);
         }
         if (r.reason == null) r.reason = "путь не найден (тупик: вокруг стены, вода, лава или обрыв > 3 бл)";
@@ -370,6 +411,9 @@ public final class PathFinder {
             if (Double.isNaN(f)) continue;
             double dy = f - y;
             boolean diag = d[0] != 0 && d[1] != 0;
+            if (crossBlocked(x, z, x2, z2, Math.max(y, f), Math.max(y, f) + BODY)) continue;   // пластина на грани (переходим на верхней высоте)
+            boolean door = doorAt(x2, z2, f, f + BODY);
+            if (diag && (door || doorAt(x, z, y, y + BODY))) continue;   // в дверь — только прямо
             Move m;
             double cost;
             if (dy > Terrain.STEP + 1e-9) {
@@ -393,9 +437,51 @@ public final class PathFinder {
                 m = Move.WALK; cost = diag ? C_DIAG : C_WALK;
             }
             if (lavaNear(x2, z2, f)) cost += C_LAVA_NEAR;
+            if (door) cost += C_DOOR;
             double ng = g[id] + cost;
             int c = node(x2, z2, f, id, ng, m);
             if (c >= 0) push(ng + h(x2, z2), c);
+        }
+    }
+
+    /**
+     * v1.16.2 лестницы/лианы/леса: вверх — если клетка ног «лезть» и выше тоже (или наверху можно встать — леса);
+     * вниз — в клетку «лезть» без коллизии под ногами (с верха лесов не спускаемся — там нужен присед);
+     * сбоку — шагнуть в колонку лестницы на высоте ног или на блок ниже (с края стены на лестницу).
+     */
+    private void expandClimb(int id, int x, int z, double y) {
+        int cy = fl(y + 0.01);
+        if (climbable(x, cy, z)) {
+            int y2 = cy + 1;
+            double up = floor(x, z, y2 + 0.01, y2 - 0.01, null);
+            if ((climbable(x, y2, z) || (!Double.isNaN(up) && Math.abs(up - y2) < 1e-6))
+                    && clear(x, z, y2, y2 + BODY) && safe(x, z, y2, y2 + BODY)) {
+                double ng = g[id] + C_CLIMB_UP * (y2 - y);
+                int c = node(x, z, y2, id, ng, Move.CLIMB);
+                if (c >= 0) push(ng + h(x, z), c);
+            }
+        }
+        if (Math.abs(y - Math.rint(y)) < 1e-6) {
+            int yd = (int) Math.rint(y) - 1;
+            if (climbable(x, yd, z) && top(x, yd, z) < 0 && safe(x, z, yd, yd + 1)) {
+                double ng = g[id] + C_CLIMB_DOWN;
+                int c = node(x, z, yd, id, ng, Move.CLIMB);
+                if (c >= 0) push(ng + h(x, z), c);
+            }
+        }
+        for (int k = 0; k < 4; k++) {
+            int x2 = x + DIRS[k][0], z2 = z + DIRS[k][1];
+            if (Math.abs(x2 - sx) > R || Math.abs(z2 - sz) > R) continue;
+            for (int ye = cy; ye >= cy - 1; ye--) {
+                if (ye > y + 0.01 || ye < y - 1.01) continue;
+                if (!climbable(x2, ye, z2) || top(x2, ye, z2) >= 0) continue;
+                if (!clear(x2, z2, ye, y + BODY) || !safe(x2, z2, ye, ye + BODY)) continue;
+                if (crossBlocked(x, z, x2, z2, y, y + BODY)) continue;
+                double ng = g[id] + C_WALK + 0.5 + (y - ye) * C_DROP_BLOCK;
+                int c = node(x2, z2, ye, id, ng, Move.CLIMB);
+                if (c >= 0) push(ng + h(x2, z2), c);
+                break;
+            }
         }
     }
 
@@ -427,6 +513,7 @@ public final class PathFinder {
             if (!air(x2, z2, y2)) continue;
             boolean diag = d[0] != 0 && d[2] != 0;
             if (diag && (!air(x2, z, y2) || !air(x, z2, y2))) continue;
+            if (crossBlocked(x, z, x2, z2, y2, y2 + BODY)) continue;
             if (d[1] > 0 && !air(x, z, y2)) continue;
             double cost = d[1] > 0 ? C_FLY_UP : d[1] < 0 ? C_FLY_DOWN : diag ? C_FLY * Math.sqrt(2) : C_FLY;
             if (!fromAir) cost += C_TAKEOFF;
@@ -500,6 +587,16 @@ public final class PathFinder {
                     if (Math.abs(c1[0] - c0[0] - ddx) > 1e-6 || Math.abs(c1[1] - c0[1] - ddy) > 1e-6 || Math.abs(c1[2] - c0[2] - ddz) > 1e-6) break;
                     j++;
                 }
+            } else if (nd.get(j)[3] == Move.CLIMB.ordinal()) {
+                // лестница: склеить шаги по той же колонке в ту же сторону
+                double[] a0 = nd.get(i), b0 = nd.get(j);
+                boolean sameCol = Math.abs(b0[0] - a0[0]) < 1e-6 && Math.abs(b0[2] - a0[2]) < 1e-6;
+                double sgn = Math.signum(b0[1] - a0[1]);
+                while (sameCol && j + 1 <= k && nd.get(j + 1)[3] == Move.CLIMB.ordinal()) {
+                    double[] c0 = nd.get(j), c1 = nd.get(j + 1);
+                    if (Math.abs(c1[0] - c0[0]) > 1e-6 || Math.abs(c1[2] - c0[2]) > 1e-6 || Math.signum(c1[1] - c0[1]) != sgn) break;
+                    j++;
+                }
             } else if (nd.get(j)[3] == Move.WALK.ordinal()) {
                 double[] a = i == 0 ? from : nd.get(i);
                 while (j + 1 <= k && nd.get(j + 1)[3] == Move.WALK.ordinal() && lineClear(a, j + 1 == k ? goalPos(r) : nd.get(j + 1))) j++;
@@ -512,9 +609,10 @@ public final class PathFinder {
             double[] p = keep.get(q);
             RoutePoint rp = new RoutePoint(p[0], p[1], p[2]);
             rp.fly = p[3] == Move.FLY.ordinal();
+            rp.climb = p[3] == Move.CLIMB.ordinal();
             if (q + 1 < keep.size()) {
                 double[] nxt = keep.get(q + 1);
-                if (nxt[1] - p[1] > Terrain.STEP + 1e-9 && nxt[3] != Move.FLY.ordinal()) rp.jump = true;   // следующий ход — вверх с прыжком
+                if (nxt[1] - p[1] > Terrain.STEP + 1e-9 && nxt[3] != Move.FLY.ordinal() && nxt[3] != Move.CLIMB.ordinal()) rp.jump = true;   // следующий ход — вверх с прыжком
             }
             r.points.add(rp);
         }
@@ -532,14 +630,25 @@ public final class PathFinder {
         double ux = dx / len, uz = dz / len;
         int steps = (int) Math.ceil(len / 0.2);
         double lo = Math.min(a[1], b[1]), hiY = Math.max(a[1], b[1]);
+        double[] offs = {-0.31, 0, 0.31};
+        int[] px = new int[3], pz = new int[3];
+        int ax = fl(a[0]), az = fl(a[2]), bx = fl(b[0]), bz = fl(b[2]);
         for (int s = 0; s <= steps; s++) {
             double t = (double) s / steps, x = a[0] + dx * t, z = a[2] + dz * t, y = a[1] + (b[1] - a[1]) * t;
-            for (double off : new double[]{-0.31, 0, 0.31}) {
+            for (int o = 0; o < 3; o++) {
+                double off = offs[o];
                 double qx = x - uz * off, qz = z + ux * off;
                 int cx = fl(qx), cz = fl(qz);
                 double f = stand(cx, cz, y);
                 if (Double.isNaN(f) || f < lo - Terrain.STEP || f > hiY + Terrain.STEP) return false;
                 if (Math.abs(f - y) > Terrain.STEP) return false;
+                // v1.16.2: через пластину на грани не режем; дверь — только узлом пути (через её центр)
+                if (s > 0 && (cx != px[o] || cz != pz[o])) {
+                    if (Math.abs(cx - px[o]) > 1 || Math.abs(cz - pz[o]) > 1) return false;
+                    if (crossBlocked(px[o], pz[o], cx, cz, lo, hiY + BODY)) return false;
+                }
+                if (!(cx == ax && cz == az) && !(cx == bx && cz == bz) && doorAt(cx, cz, f, f + BODY)) return false;
+                px[o] = cx; pz[o] = cz;
             }
         }
         return true;
@@ -559,14 +668,16 @@ public final class PathFinder {
             int mask = keys.length - 1, i = (int) (mix(k) & mask);
             while (keys[i] != EMPTY) { if (keys[i] == k) return vals[i]; i = (i + 1) & mask; }
             double t = w.top(x, y, z);
-            int hz = w.hazard(x, y, z);
-            int v = ((t < 0 ? 0 : (int) Math.round(t * 1024) + 1) << 3) | hz;
+            int hz = w.hazard(x, y, z) & 15;
+            int ed = w.edges(x, y, z) & 15;
+            int v = ((t < 0 ? 0 : (int) Math.round(t * 1024) + 1) << 8) | (ed << 4) | hz;
             if (size * 2 >= keys.length) { rehash(); return get(x, y, z); }
             keys[i] = k; vals[i] = v; size++;
             return v;
         }
-        double top(int x, int y, int z) { int v = get(x, y, z) >>> 3; return v == 0 ? -1 : (v - 1) / 1024.0; }
-        int hazard(int x, int y, int z) { return get(x, y, z) & 7; }
+        double top(int x, int y, int z) { int v = get(x, y, z) >>> 8; return v == 0 ? -1 : (v - 1) / 1024.0; }
+        int hazard(int x, int y, int z) { return get(x, y, z) & 15; }
+        int edges(int x, int y, int z) { return (get(x, y, z) >>> 4) & 15; }
         private void rehash() {
             long[] ok = keys; int[] ov = vals;
             keys = new long[ok.length * 2]; vals = new int[ok.length * 2]; Arrays.fill(keys, EMPTY); size = 0;

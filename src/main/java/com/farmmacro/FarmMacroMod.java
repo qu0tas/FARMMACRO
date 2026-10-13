@@ -107,7 +107,12 @@ public class FarmMacroMod implements ClientModInitializer {
         // v1.14.2-pre: мастер первого запуска — один раз, в главном меню
         if (!ModConfig.INSTANCE.welcomeDone && !welcomeShown && mc.screen instanceof net.minecraft.client.gui.screens.TitleScreen) {
             welcomeShown = true;
+            ModConfig.INSTANCE.lastSeenVersion = com.farmmacro.gui.WhatsNewScreen.VERSION;   // новичку «Что нового» не нужно
             mc.setScreen(new com.farmmacro.gui.WelcomeScreen(mc.screen));
+        } else if (!welcomeShown && com.farmmacro.gui.WhatsNewScreen.shouldShow() && mc.screen instanceof net.minecraft.client.gui.screens.TitleScreen) {
+            // v1.16.2: после обновления — один раз «Что нового» (в главном меню, не в игре: макрос точно не играет)
+            welcomeShown = true;
+            mc.setScreen(new com.farmmacro.gui.WhatsNewScreen(mc.screen));
         }
         if (mc.player == null) {
             macro.tickPlayback(mc);          // сам остановится без игрока
