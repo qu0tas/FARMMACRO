@@ -421,7 +421,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
                 if (!modified) return;
                 if (!MacroStorage.INSTANCE.saveSettings(info.filename(), s)) { msg("§c[FM] Не удалось записать настройки (подробности в логе)"); return; }
                 if (info.name().equals(mm.getLoadedName())) mm.replaceSettings(s.copy());
-                msg("§8[§cFM§8] §aНастройки «" + info.name() + "» сохранены");
+                msg("§8[§9Kaelix§8] §aНастройки «" + info.name() + "» сохранены");
             }
         };
     }
@@ -452,7 +452,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
                 if (!modified) return;
                 if (!RouteStorage.INSTANCE.saveSettings(info.filename(), s)) { msg("§c[FM] Не удалось записать настройки (подробности в логе)"); return; }
                 if (info.name().equals(rb.loadedName())) rb.replaceSettings(s.copy());
-                msg("§8[§cFM§8] §aНастройки «" + info.name() + "» сохранены");
+                msg("§8[§9Kaelix§8] §aНастройки «" + info.name() + "» сохранены");
             }
         };
     }
@@ -470,7 +470,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
         tooltip = null; wantHand = false;
         int x = wX(), y = wY(), w = wW(), h = wH();
         Ui.shadow(g, x, y, w, h, 8);
-        Ui.round(g, x, y, w, h, 8, Ui.WINDOW);
+        Ui.window(g, x, y, w, h, 8);
         Ui.text(g, font, Ui.ellipsize(font, "⚙ " + t.title(), w - 20), x + 10, y + 8, Ui.TEXT);
         Ui.text(g, font, Ui.ellipsize(font, t.subtitle() + (t.editable() ? "" : " · править можно, когда макрос не играет и не пишется"),
                 w - 20), x + 10, y + 19, Ui.SUB);
@@ -499,7 +499,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
             for (var l : lines) tw = Math.max(tw, font.width(l));
             int tx = Math.min(mx + 10, width - tw - 14), ty = my + 12;
             if (ty + lines.size() * 10 + 8 > height - 4) ty = my - lines.size() * 10 - 10;
-            Ui.roundBordered(g, tx, ty, tw + 12, lines.size() * 10 + 8, 4, 0xF00B0E14, Ui.BORDER);
+            Ui.roundBordered(g, tx, ty, tw + 12, lines.size() * 10 + 8, 4, Ui.TOOLTIP, Ui.BORDER);
             int ly = ty + 5;
             for (var l : lines) { g.text(font, l, tx + 6, ly, Ui.TEXT, false); ly += 10; }
         }

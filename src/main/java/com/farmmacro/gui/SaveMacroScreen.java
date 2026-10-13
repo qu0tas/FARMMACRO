@@ -83,7 +83,7 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
         if (target.save(name)) {
             target.saved(name);
             if (minecraft.player != null)
-                minecraft.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §aСохранено: «" + name + "»"));
+                minecraft.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §aСохранено: «" + name + "»"));
             minecraft.setScreen(parent);
         } else {
             setStatus("Не удалось сохранить (подробности в логе)", Ui.DANGER);
@@ -189,7 +189,7 @@ public class SaveMacroScreen extends Screen implements Rows.Ctx {
         wantHand = wantBeam = false;
         int x = dX(), y = dY(), w = dW(), h = dH();
         Ui.shadow(g, x, y, w, h, 8);
-        Ui.round(g, x, y, w, h, 8, Ui.WINDOW);
+        Ui.window(g, x, y, w, h, 8);
         Ui.circle(g, x + 14, y + 14, 3, Ui.ACCENT);
         Ui.text(g, font, target.title(), x + 22, y + 10, Ui.TEXT);
         Ui.text(g, font, target.subtitle(),

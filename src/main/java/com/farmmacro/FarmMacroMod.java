@@ -179,6 +179,6 @@ public class FarmMacroMod implements ClientModInitializer {
         com.farmmacro.panic.EventLog.log("SILENCE", "сервер молчит " + c.silenceSec + " с — закрываю соединение");
         LOGGER.warn("FarmMacro: сервер молчит {} с — закрываю соединение", c.silenceSec);
         mc.getConnection().getConnection().disconnect(
-                net.minecraft.network.chat.Component.literal("FarmMacro: сервер молчит " + c.silenceSec + " с"));
+                net.minecraft.network.chat.Component.literal("Kaelix: сервер молчит " + c.silenceSec + " с"));
     }
 }

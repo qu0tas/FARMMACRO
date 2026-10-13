@@ -47,7 +47,7 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
     private static final long PREVIEW_MS = 3000;
 
     public WelcomeScreen(Screen parent) {
-        super(Component.literal("Мастер настройки FarmMacro"));
+        super(Component.literal("Мастер настройки Kaelix"));
         this.parent = parent;
     }
 
@@ -140,7 +140,7 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
     }
 
     private void pageIntro() {
-        rows.add(new Rows.Note("FarmMacro записывает твой проход по ферме (или маршрут из точек) и повторяет его. "
+        rows.add(new Rows.Note("Kaelix записывает твой проход по ферме (или маршрут из точек) и повторяет его. "
                 + "Если что-то не так — сервер повернул камеру, телепортировал, подошёл игрок — срабатывает паника: "
                 + "макрос сразу останавливается, экран краснеет и звучит сигнал. Дальше решаешь ты.", Ui.ACCENT));
         rows.add(new Rows.Section("Главные клавиши"));
@@ -155,7 +155,7 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
         rows.add(key("Экономия ресурсов", FarmMacroMod.keyPerf));
         rows.add(key("Freelook (осмотреться)", FarmMacroMod.keyFreelook));
         rows.add(key("Редактор HUD", FarmMacroMod.keyHudEdit));
-        rows.add(new Rows.Note("Клавиши меняются в «Настройки → Управление → FarmMacro». Мастер займёт минуту; "
+        rows.add(new Rows.Note("Клавиши меняются в «Настройки → Управление → Kaelix». Мастер займёт минуту; "
                 + "«Пропустить» — оставить всё по умолчанию.", Ui.SUB));
     }
 
@@ -320,9 +320,9 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
             boolean sel = id.equals(get.get());
             int h = height(c, w) - 4;
             if (sel) Ui.round(g, x - 1, y - 1, w + 2, h + 2, 5, Ui.ACCENT);
-            Ui.round(g, x, y, w, h, 4, hover ? Ui.CARD_HOVER : Ui.CARD);
+            Ui.listBg(g, x, y, w, h, 4, false, hover);
             Ui.circle(g, x + 12, y + 10, 4, sel ? Ui.ACCENT_HI : Ui.TRACK_OFF);
-            if (sel) Ui.circle(g, x + 12, y + 10, 2, 0xFFFFFFFF);
+            if (sel) Ui.circle(g, x + 12, y + 10, 2, Ui.ON_ACCENT);
             Ui.text(g, c.font(), title, x + 22, y + 6, sel ? Ui.TEXT : Ui.SUB);
             int ly = y + 19;
             for (var l : lines(c, w)) { g.text(c.font(), l, x + 22, ly, Ui.SUB, false); ly += 10; }
@@ -364,7 +364,7 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
         tooltip = null; wantHand = false;
         int x = wX(), y = wY(), w = wW(), h = wH();
         Ui.shadow(g, x, y, w, h, 8);
-        Ui.round(g, x, y, w, h, 8, Ui.WINDOW);
+        Ui.window(g, x, y, w, h, 8);
         Ui.text(g, font, TITLES[page], x + 10, y + 9, Ui.TEXT);
         Ui.textRight(g, font, "Шаг " + (page + 1) + " из " + PAGES, x + w - 10, y + 9, Ui.SUB);
         g.fill(x + 10, y + 22, x + w - 10, y + 23, Ui.BORDER);
@@ -412,7 +412,7 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
             for (var l : lines) tw = Math.max(tw, font.width(l));
             int tx = Math.min(mx + 10, width - tw - 14), ty = my + 12;
             if (ty + lines.size() * 10 + 8 > height - 4) ty = my - lines.size() * 10 - 10;
-            Ui.roundBordered(g, tx, ty, tw + 12, lines.size() * 10 + 8, 4, 0xF00B0E14, Ui.BORDER);
+            Ui.roundBordered(g, tx, ty, tw + 12, lines.size() * 10 + 8, 4, Ui.TOOLTIP, Ui.BORDER);
             int ly = ty + 5;
             for (var l : lines) { g.text(font, l, tx + 6, ly, Ui.TEXT, false); ly += 10; }
         }

@@ -85,6 +85,6 @@ public final class PerformanceMode {
     }
 
     private static void msg(Minecraft mc, String text) {
-        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §r" + text));
+        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
     }
 }

@@ -175,7 +175,7 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
         if (pt() == null) { minecraft.setScreen(parent); return; }
         int x = wX(), y = wY(), w = wW(), h = wH();
         Ui.shadow(g, x, y, w, h, 8);
-        Ui.round(g, x, y, w, h, 8, Ui.WINDOW);
+        Ui.window(g, x, y, w, h, 8);
         RoutePoint p = pt();
         Ui.text(g, font, "Точка " + (index + 1) + " из " + RouteBuffer.INSTANCE.size(), x + 10, y + 9, Ui.TEXT);
         Ui.textRight(g, font, String.format(Locale.ROOT, "%.1f  %.1f  %.1f", p.x, p.y, p.z), x + w - 10, y + 9, Ui.SUB);
@@ -204,7 +204,7 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
             for (var l : lines) tw = Math.max(tw, font.width(l));
             int tx = Math.min(mx + 10, width - tw - 14), ty = my + 12;
             if (ty + lines.size() * 10 + 8 > height - 4) ty = my - lines.size() * 10 - 10;
-            Ui.roundBordered(g, tx, ty, tw + 12, lines.size() * 10 + 8, 4, 0xF00B0E14, Ui.BORDER);
+            Ui.roundBordered(g, tx, ty, tw + 12, lines.size() * 10 + 8, 4, Ui.TOOLTIP, Ui.BORDER);
             int ly = ty + 5;
             for (var l : lines) { g.text(font, l, tx + 6, ly, Ui.TEXT, false); ly += 10; }
         }

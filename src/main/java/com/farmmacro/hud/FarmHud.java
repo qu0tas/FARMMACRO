@@ -62,6 +62,7 @@ public final class FarmHud {
     public static void register() {
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "hud"), Guard.hud("hud", (g, delta) -> {
             Minecraft mc = Minecraft.getInstance();
+            Ui.sync(ModConfig.INSTANCE.uiTheme);
             if (mc.player == null || mc.options.hideGui) return;
             if (mc.screen instanceof HudEditorScreen) return;           // редактор рисует HUD сам
             if (mc.screen == null) {
@@ -164,7 +165,7 @@ public final class FarmHud {
                 pose.translate(x, y);
                 pose.scale((float) sc, (float) sc);
                 if (empty) {
-                    Ui.round(g, 0, 0, bw, h, 5, 0x90101420);
+                    Ui.round(g, 0, 0, bw, h, 5, Ui.alpha(Ui.HUD_BG, 0.72f));
                     Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", bw - 14), 8, 4, Ui.DIM);
                 } else b.drawer().draw(g, mc, 0, 0, bw);
                 if (edit && hid) dimHidden(g, f, 0, 0, bw, h);
@@ -191,7 +192,7 @@ public final class FarmHud {
     /** Фон панелей: по умолчанию тёмно-синий 78 %, иначе выбранный цвет с той же прозрачностью. */
     private static int bg() {
         int rgb = com.farmmacro.visual.HatColors.rgbOr(ModConfig.INSTANCE.hudBgColor, -1);
-        return rgb < 0 ? 0xC8101420 : 0xC8000000 | rgb;
+        return rgb < 0 ? Ui.HUD_BG : 0xC8000000 | rgb;
     }
 
     private static int accent() {
@@ -228,7 +229,7 @@ public final class FarmHud {
             String s = st == MacroManager.State.PLAYING ? "▶ " + percent(m) + "%" : head;
             int w = Math.min(w0, f.width(s) + 16);
             int x = x0 + w0 - w;
-            if (!merged) Ui.pill(g, x, y, w, 14, 0xC0101420);
+            if (!merged) Ui.pill(g, x, y, w, 14, Ui.alpha(Ui.HUD_BG, 0.96f));
             Ui.circle(g, x + 7, y + 7, 2, blink || st != MacroManager.State.RECORDING ? col : Ui.alpha(col, 0.3f));
             Ui.text(g, f, Ui.ellipsize(f, s, w - 14), x + 12, y + 3, Ui.TEXT);
             return 14;

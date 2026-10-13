@@ -79,7 +79,7 @@ public final class LowRender {
                 FarmMacroMod.LOGGER.warn("FarmMacro Low render: сборка чанков не вызвала ни RenderSectionRegion, ни Sodium LevelSlice — "
                         + "чанки собирает другой мод, режим не работает");
                 if (mc.player != null) mc.player.sendSystemMessage(Component.literal(
-                        "§8[§cFM§8] §eLow render не сработал: чанки собирает другой мод рендера (не vanilla и не Sodium). Подробности — в логе."));
+                        "§8[§9Kaelix§8] §eLow render не сработал: чанки собирает другой мод рендера (не vanilla и не Sodium). Подробности — в логе."));
             } else FarmMacroMod.LOGGER.info("FarmMacro Low render: работает ({} запросов блоков за 4 с, Sodium: {})", asked.sum(),
                     net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
         }
@@ -122,6 +122,6 @@ public final class LowRender {
     }
 
     private static void msg(Minecraft mc, String text) {
-        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§cFM§8] §r" + text));
+        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
     }
 }

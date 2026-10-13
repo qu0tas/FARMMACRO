@@ -262,7 +262,7 @@ final class DetectorTable {
                 return;
             }
             boolean hf = Ui.inside(mx, my, cx, cy, cw, 14);
-            Ui.round(g, cx, cy, cw, 14, 4, hf ? Ui.CARD_HOVER : Ui.FIELD);
+            if (Ui.flat()) g.fill(cx, cy + 14, cx + cw, cy + 15, hf ? Ui.SUB : Ui.BORDER); else Ui.round(g, cx, cy, cw, 14, 4, hf ? Ui.CARD_HOVER : Ui.FIELD);
             if (query.isEmpty()) Ui.text(g, c.font(), "⌕ Найти детектор…", cx + 6, cy + 3, Ui.DIM);
             else {
                 Ui.text(g, c.font(), Ui.ellipsize(c.font(), "⌕ " + query, cw - 30), cx + 6, cy + 3, Ui.TEXT);
@@ -333,13 +333,13 @@ final class DetectorTable {
             Cols k = cols(x, w);
             boolean on = d.enabled();
             Action a = Detectors.action(d.id());
-            Ui.round(g, x, y, w, 18, 4, hover ? Ui.CARD_HOVER : Ui.CARD);
+            Ui.listBg(g, x, y, w, 18, 4, false, hover);
             int cy = y + 5;
             // Вкл
             int tx = k.toggle(), ty = y + 3;
             boolean hT = Ui.inside(mx, my, tx - 2, y, 26, 18);
-            Ui.pill(g, tx, ty, 22, 12, on ? Ui.ON : Ui.TRACK_OFF);
-            Ui.circle(g, on ? tx + 16 : tx + 6, ty + 6, 4, 0xFFFFFFFF);
+            Ui.pill(g, tx, ty, 22, 12, on ? Ui.TOGGLE_ON : Ui.TRACK_OFF);
+            Ui.circle(g, on ? tx + 16 : tx + 6, ty + 6, 4, on ? Ui.KNOB_ON : Ui.KNOB_OFF);
             if (hT) { c.hand(); c.tooltip(on ? "Выключить детектор" : "Включить детектор"); }
             // Имя
             boolean hN = Ui.inside(mx, my, k.name(), y, k.nameW(), 18);

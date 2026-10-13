@@ -284,6 +284,10 @@ public class ModConfig {
     public int     guiOffsetX          = 0, guiOffsetY = 0;
     public double  hudScale            = 1.0;
     public boolean hudWrap             = true;
+    /** v1.16.0: тема меню и HUD (gui/Ui.THEMES): quiet, mono, graphite, paper, classic. */
+    public String  uiTheme             = "quiet";
+    /** v1.16.0: в минималистичных темах подсказки под подписями (выкл — во всплывашке при наведении). */
+    public boolean uiHints             = false;
 
     // ── v1.14.2-pre: реестр детекторов (panic/Detectors) и мастер первого запуска ──
     /** Своё действие детектора: id → "susp"/"log"/"panic" (нет записи — по умолчанию). Выкл — прежнее поле detectX. */
@@ -792,6 +796,7 @@ public class ModConfig {
             save();
             LOGGER.info("Пресеты камеры: дописаны стандартные пресеты культур, всего {}", INSTANCE.camPresets.size());
         }
+        com.farmmacro.gui.Ui.sync(INSTANCE.uiTheme);
         LOGGER.info("Конфиг {} загружен: {}", CONFIG_PATH, INSTANCE.describeThresholds());
     }
 

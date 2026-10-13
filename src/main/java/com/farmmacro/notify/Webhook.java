@@ -36,7 +36,7 @@ public final class Webhook {
     public static String payload(String content) {
         JsonObject o = new JsonObject();
         o.addProperty("content", content.length() <= CONTENT_MAX ? content : content.substring(0, CONTENT_MAX - 1) + "…");
-        o.addProperty("username", "FarmMacro");
+        o.addProperty("username", "Kaelix");
         JsonObject am = new JsonObject();
         am.add("parse", new JsonArray());
         o.add("allowed_mentions", am);

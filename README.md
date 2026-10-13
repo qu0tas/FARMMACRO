@@ -1,12 +1,16 @@
-# FarmMacro
+# Kaelix (Кэликс)
+
+<img src="src/main/resources/assets/farmmacro/icon.png" width="96" alt="Kaelix">
+
+Бывший FarmMacro (внутреннее имя мода и папки настроек — прежние `farmmacro`).
 
 Клиентский мод для Fabric: записывает твои действия на ферме и повторяет их, а при любом подозрительном событии делает **аварийный стоп** (паника): отпускает все клавиши, показывает красный экран и играет сирену.
 
-**Minecraft 26.1.2 · Fabric Loader ≥ 0.19.5 · Fabric API 0.155.3+26.1.2 · Java 25 · мод v1.15.1**
+**Minecraft 26.1.2 · Fabric Loader ≥ 0.19.5 · Fabric API 0.155.3+26.1.2 · Java 25 · мод v1.16.0**
 
 Полное описание всех настроек — [docs/SETTINGS.md](docs/SETTINGS.md). Промт для нейросети, чтобы подобрать идеальный конфиг, — [docs/AI_CONFIG_PROMPT.md](docs/AI_CONFIG_PROMPT.md).
 
-## Клавиши (меняются в «Управление → FarmMacro»)
+## Клавиши (меняются в «Управление → Kaelix»)
 
 | Клавиша | Действие |
 |---|---|

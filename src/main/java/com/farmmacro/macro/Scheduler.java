@@ -64,7 +64,7 @@ public final class Scheduler {
                 EventLog.log("LEAVE", "таймер выхода " + c.leaveAfterMin + " мин");
                 m.stopByLimit(mc, "§e⏏ Таймер выхода (" + c.leaveAfterMin + " мин) — выхожу с сервера");
                 Reconnect.markIntentional();
-                mc.disconnectFromWorld(Component.literal("FarmMacro: таймер выхода"));
+                mc.disconnectFromWorld(Component.literal("Kaelix: таймер выхода"));
                 return;
             }
         } else if (c.leaveAfterMin <= 0) sessionStartMs = 0;

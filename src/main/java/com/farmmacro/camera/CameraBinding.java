@@ -122,7 +122,7 @@ public class CameraBinding {
         float[] j = human != null ? human.cameraJitter() : new float[]{0, 0};
         p.absSnapRotationTo(c.yaw() + j[0], c.pitch() + j[1]);
         PanicDetector.INSTANCE.expectRotation(p.getYRot(), p.getXRot());
-        p.sendOverlayMessage(Component.literal("§8[§cFM§8] §b◎ " + c.label() + " §7(" + where + "): yaw "
+        p.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §b◎ " + c.label() + " §7(" + where + "): yaw "
                 + CameraPresets.deg(c.yaw()) + "°, pitch " + CameraPresets.deg(c.pitch()) + "°"));
     }
 
