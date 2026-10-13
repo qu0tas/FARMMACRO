@@ -20,6 +20,15 @@ import java.nio.file.StandardCopyOption;
  * после загрузки значения проходят {@link #sanitize()}.
  */
 public class ModConfig {
+    public boolean uiCustomColors=false,customUiImages=false;
+    public java.util.Map<String,String> uiColors=new java.util.LinkedHashMap<>();
+    public int uiBackgroundOpacity=100,hudBackgroundOpacity=78;public double uiCornerScale=.35;
+    public boolean uiSoftShadows=false;
+    public boolean cropFeverEnabled=true;
+    public int cropFeverVolume=70,cropFeverDancers=3,cropFeverScale=18;
+    public boolean pathNaturalLook=true;public double pathLookAhead=2.5;
+    public boolean chunkCacheEnabled = true;
+    public int chunkCacheMb = 64;
 
     public static ModConfig INSTANCE = new ModConfig();
 
@@ -615,6 +624,9 @@ public class ModConfig {
 
     /** Приводит значения к допустимым диапазонам (на случай ручной правки json). */
     public void sanitize() {
+        if(uiColors==null)uiColors=new java.util.LinkedHashMap<>();uiColors.entrySet().removeIf(e->e.getKey()==null||!com.farmmacro.gui.UiStyle.validColor(e.getValue()));uiBackgroundOpacity=Math.clamp(uiBackgroundOpacity,0,100);hudBackgroundOpacity=Math.clamp(hudBackgroundOpacity,0,100);uiCornerScale=Double.isFinite(uiCornerScale)?Math.clamp(uiCornerScale,0,1):.35;
+        cropFeverVolume=Math.clamp(cropFeverVolume,0,100);cropFeverDancers=Math.clamp(cropFeverDancers,1,8);cropFeverScale=Math.clamp(cropFeverScale,5,40);pathLookAhead=Double.isFinite(pathLookAhead)?Math.clamp(pathLookAhead,.5,8):2.5;
+        chunkCacheMb=Math.max(1,Math.min(4096,chunkCacheMb));
         // v1.16.1: тема «Классика» удалена; неизвестная/старая тема — «Чёрный + синий акцент»
         if (uiTheme == null || java.util.Arrays.stream(com.farmmacro.gui.Ui.THEMES).noneMatch(t -> t[0].equals(uiTheme))) uiTheme = "quiet";
         if (lowRenderRev < 1) { lowRenderRadius = 3; lowRenderChunks = false; lowRenderRev = 1; }   // 1.12 → 1.12.2

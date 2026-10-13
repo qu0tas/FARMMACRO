@@ -33,6 +33,11 @@ public final class RouteStress {
         com.farmmacro.panic.PlayersCheck.main();
         com.farmmacro.panic.DetectorsCheck.main();
         com.farmmacro.route.PathCheck.main();
+        com.farmmacro.route.RouteRandomCheck.main();
+        com.farmmacro.route.Release117Check.main();
+        com.farmmacro.fun.CropFeverMediaCheck.main();
+        com.farmmacro.fun.FeverMotionCheck.main();
+        com.farmmacro.route.ChunkCacheCheck.main();
         com.farmmacro.macro.DelayCheck.main();
         com.farmmacro.route.FlyCheck.main();
         com.farmmacro.gui.ThemeCheck.main();

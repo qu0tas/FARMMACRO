@@ -37,6 +37,7 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
     private final int index;
     private final List<Rows.Row> rows = new ArrayList<>();
     private double scroll;
+    private final DragWindow dragWindow=new DragWindow();
     private boolean modified;
     private String tooltip;
     private boolean wantHand;
@@ -51,8 +52,8 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
 
     private int wW() { return Math.min(320, width - 16); }
     private int wH() { return Math.min(300, height - 16); }
-    private int wX() { return (width - wW()) / 2; }
-    private int wY() { return (height - wH()) / 2; }
+    private int wX() { return dragWindow.x(width,wW()); }
+    private int wY() { return dragWindow.y(height,wH()); }
     private int cX() { return wX() + 10; }
     private int cY() { return wY() + 30; }
     private int cW() { return wW() - 20; }
@@ -91,6 +92,7 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
 
     private void build() {
         rows.clear();
+        PointActionRows.build(rows,pt(),this::changed);
         rows.add(new Rows.Section("Отрезок до следующей точки"));
         rows.add(new Rows.Selector("Действие", "Что держать, пока идём к следующей точке", () -> ACTIONS,
                 () -> pt() != null ? pt().action : RoutePoint.NONE, v -> { if (pt() != null) { pt().action = v; changed(); } }));
@@ -155,6 +157,7 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
                     }
                     changed();
                 }).tip("Действие, присед, спринт, зажим и слот — всем точкам после этой")));
+        buildRandom();
         rows.add(new Rows.Spacer(4));
         rows.add(new Rows.Buttons(
                 new Rows.Btn("Удалить точку", Rows.Style.DANGER, () -> {
@@ -166,6 +169,23 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn("Готово", Rows.Style.PRIMARY, this::onClose)));
     }
 
+    private void localRange(String label, java.util.function.Supplier<com.farmmacro.route.RouteRandomSettings.Range> get,
+                            java.util.function.Consumer<com.farmmacro.route.RouteRandomSettings.Range> set,
+                            com.farmmacro.route.RouteRandomSettings.Range global, double max, boolean integer) {
+        rows.add(new Rows.Toggle(label + ": свои", "Выкл — общие значения из ⚙ → Рандом маршрута",
+                () -> get.get() != null, v -> { set.accept(v ? global.copy() : null); changed(); build(); }).adv());
+        if (get.get() != null) rows.add(RouteRandomRows.range(label,get.get(),max,integer,() -> pt()!=null,
+                r -> { r.run(); changed(); }).adv());
+    }
+    private void buildRandom() {
+        rows.add(new Rows.Section("Рандом точки").adv());
+        var s=RouteBuffer.INSTANCE.settings().routeRandom;
+        localRange("Пауза, т",() -> pt().rndPause,v -> pt().rndPause=v,s.pause,1200,true);
+        localRange("Перед спуском, т",() -> pt().rndBeforeDrop,v -> pt().rndBeforeDrop=v,s.beforeDrop,1200,true);
+        localRange("После приземления +, т",() -> pt().rndLanding,v -> pt().rndLanding=v,s.landing,1200,true);
+        localRange("Шанс паузы, %",() -> pt().rndChance,v -> pt().rndChance=v,s.chance,100,false);
+        localRange("Макс. смещение, бл",() -> pt().rndOffset,v -> pt().rndOffset=v,s.offset,.15,false);
+    }
     // ── Отрисовка ────────────────────────────────────────────────────────────
 
     @Override
@@ -214,6 +234,7 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
+        if(dragWindow.click(e.x(),e.y(),e.button(),doubleClick,width,height,wW(),wH()))return true;
         Rows.clearWheelFocus();
         double mx = e.x(), my = e.y();
         Rows.Row typing = Rows.focusedRow();
@@ -230,7 +251,9 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
     }
 
     @Override
-    public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+    public boolean mouseDragged(MouseButtonEvent e,double dx,double dy){if(dragWindow.move(e.x(),e.y()))return true;return super.mouseDragged(e,dx,dy);}
+    @Override public boolean mouseReleased(MouseButtonEvent e){if(dragWindow.release())return true;return super.mouseReleased(e);}
+    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         for (Rows.Row r : rows) {
             if (r.lastH > 0 && my >= r.lastY && my < r.lastY + r.lastH) {
                 if (r.scroll(this, mx, my, sy)) return true;

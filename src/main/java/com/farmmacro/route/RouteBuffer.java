@@ -113,6 +113,7 @@ public final class RouteBuffer {
 
     /** Что-то поменялось в точках (в т.ч. параметры из окна точки). */
     public void changed() {
+        RouteWalker.INSTANCE.invalidate();
         revision++;
         dirty = true;
         MacroManager.INSTANCE.useRouteSource();

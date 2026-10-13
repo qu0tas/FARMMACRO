@@ -42,6 +42,39 @@ public final class RouteWalker implements PlaybackSource {
     /** Куда автоход вёл в последний тик (единичный вектор x, z) или null — стоит / не играет. */
     private double[] moveDir;
 
+    private RouteVariants.Session variants;
+    private PointRoute activeRoute;
+    private int variantNumber, pathRevision;
+    public int pathRevision() { return pathRevision; }
+    public String activeName() { return activeRoute==null ? RouteBuffer.INSTANCE.route().name : activeRoute.name; }
+    private boolean resumePass;
+    public int variantNumber() { return variantNumber; }
+    public com.farmmacro.macro.MacroSettings activeSettings() {
+        return activeRoute==null ? RouteBuffer.INSTANCE.settings() : activeRoute.settings;
+    }
+    public long variantSeed() { return variants == null ? 0 : variants.variantSeed; }
+    public java.util.List<RoutePoint> activePoints() { return activeRoute == null ? RouteBuffer.INSTANCE.points() : activeRoute.points; }
+    public void beginRun(boolean resume) {
+        if (!resume) { variants = null; activeRoute = null; variantNumber = 0; }
+        resumePass=resume;
+    }
+    public void invalidate() {
+        if (!started) { variants=null;activeRoute=null;variantNumber=0;resumePass=false; }
+    }
+    private void prepareVariants(Minecraft mc) {
+        PointRoute ideal = RouteBuffer.INSTANCE.route();
+        java.util.List<PointRoute> alternatives = new java.util.ArrayList<>();
+        java.util.List<Double> weights = new java.util.ArrayList<>();
+        for (var a : ideal.settings.routeRandom.alternatives) {
+            PointRoute other = RouteStorage.INSTANCE.load(a.filename);
+            if (!RouteVariants.compatible(ideal, other)) {
+                MacroManager.INSTANCE.msgPublic(mc, "§eМаршрут «" + a.filename + "» пропущен: другой мир/измерение или старт дальше 2 бл");
+                continue;
+            }
+            alternatives.add(other); weights.add(a.weight);
+        }
+        variants = new RouteVariants.Session(ideal, alternatives, weights);
+    }
     private RouteWalker() {}
 
     // v1.13.1 «Анти-застревание»: отойти назад (обратно нажатым клавишам) с прыжком, потом снова по маршруту
@@ -51,17 +84,28 @@ public final class RouteWalker implements PlaybackSource {
     private boolean lf, lb, ll, lr;              // клавиши хода прошлого тика
     private boolean uf, ub, ul, ur;              // клавиши манёвра
 
-    @Override public int length() { return RouteBuffer.INSTANCE.size(); }
+    @Override public int length() { return activeRoute == null ? RouteBuffer.INSTANCE.size() : activeRoute.points.size(); }
 
     @Override
     public double[] position(int index) {
-        RoutePoint p = RouteBuffer.INSTANCE.get(Math.max(0, Math.min(length() - 1, index)));
+        RoutePoint p = length() == 0 ? null : activePoints().get(Math.max(0, Math.min(length() - 1, index)));
         return p == null ? new double[]{0, 0, 0} : new double[]{p.x, p.y, p.z};
     }
 
-    @Override
+    private final PointActionRuntime pointActions = new PointActionRuntime();
     public void startPass(Minecraft mc, int index) {
-        PointRoute r = RouteBuffer.INSTANCE.route().copy();
+        pointActions.cancel();
+        boolean newLap = activeRoute == null || !resumePass && index == 0 && (!started || core.done());
+        resumePass=false;
+        if (variants == null) prepareVariants(mc);
+        PointRoute r = newLap ? variants.next(index==0) : activeRoute.copy();
+        variantNumber = variants.number;
+        if (newLap) {
+            com.farmmacro.panic.EventLog.log("ROUTE_VARIANT", "маршрут " + r.name + ", вариант " + variantNumber + ", сид " + variants.variantSeed);
+            var h = com.farmmacro.macro.Humanizer.lap();
+            if (!RouteBuffer.INSTANCE.settings().routeRandom.alternatives.isEmpty())
+                com.farmmacro.macro.MouseHold.INSTANCE.begin(h == null ? r.settings.hold : h.shapeHold(r.settings.hold), true);
+        }
         // глубина спусков — заново по миру (точку могли сдвинуть, мир поменяться), только для этого прохода
         if (mc.level != null) {
             TerrainLevel w = new TerrainLevel(mc.level);
@@ -72,7 +116,9 @@ public final class RouteWalker implements PlaybackSource {
                 }
         }
         var human = com.farmmacro.macro.Humanizer.lap();       // null — выкл или идеальный круг (точно как маршрут)
-        if (human != null) human.shapeRoute(r);
+        if (human != null && newLap && RouteRandomSettings.OFF.equals(RouteBuffer.INSTANCE.settings().routeRandom.mode)) human.shapeRoute(r);
+        if(!ModConfig.INSTANCE.uiAdvanced)for(var p:r.points)p.pointAction=new PointAction();
+        activeRoute = r.copy(); pathRevision++;
         core.start(r, index, ModConfig.INSTANCE.stuckThresholdTicks);
         if (human != null) core.setReach(human.reachRadii(r.points.size(), ModConfig.INSTANCE.routeReachRadius));
         shaper = human != null ? human.routeShaper(r.points.size()).route(r.points) : null;
@@ -97,6 +143,7 @@ public final class RouteWalker implements PlaybackSource {
 
     @Override
     public void stop(Minecraft mc) {
+        pointActions.cancel();
         started = false;
         offTicks = 0;
         shaper = null;
@@ -107,6 +154,8 @@ public final class RouteWalker implements PlaybackSource {
     public double[] moveDir() { return started ? moveDir : null; }
 
     /** Модель скорости не годится: в воздухе, прыжок, вода, лёд/песок душ, толчок/телепорт сервера, спуск, стена. */
+    private void runPointAction(Minecraft mc,ModConfig c){int i=core.actionPoint();velocity.reset();offTicks=0;core.resetStuckWindow();if(pointActions.tick(mc,core.points().get(i),i,variantSeed())){core.completeAction();pointActions.cancel();com.farmmacro.macro.MouseHold.INSTANCE.suspend(false);}}
+
     private boolean velocityExcused(LocalPlayer p) {
         if (!p.onGround() || !lastOnGround || lastJump || p.horizontalCollision || p.isInWater() || p.isInLava()
                 || p.isPassenger() || p.getAbilities().flying || p.isFallFlying() || p.isUsingItem() || p.isInPowderSnow
@@ -135,10 +184,12 @@ public final class RouteWalker implements PlaybackSource {
         Options o = mc.options;
         boolean on = c.panicEnabled;
         var human = com.farmmacro.macro.Humanizer.ACTIVE;
+        if(core.actionPoint()>=0){runPointAction(mc,c);return false;}
         // «Случайность»: встать посреди пути / заминка — до решения WalkCore (он сам не жмёт клавиши и не ждёт «Застрял»)
         if (shaper != null) core.pauseExternal(shaper.stopNow(core.target(), core.dropPhase(), p.onGround(), core.pausing()));
         com.farmmacro.camera.SmoothTurn.look(human, p, core.externalPause() > 0 ? core.externalPause() + 1 : 0);
         if (unstuckLeft > 0) { unstuckTick(mc, p, o); return false; }
+        
         boolean velOn = on && c.detectVelocity;
         String vel = velocity.observe(p.getX(), p.getZ(), !velOn || velocityExcused(p), c.velocityAnomaly);
         if (vel != null) {
@@ -147,6 +198,7 @@ public final class RouteWalker implements PlaybackSource {
         if (on && c.lagGuard && com.farmmacro.panic.LagGuard.INSTANCE.lagging()) core.resetStuckWindow();   // v1.13: лаг — не «Застрял»
         core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), c.routeReachRadius,
                 on && c.detectStuck, c.stuckThresholdTicks, on && c.detectDrift, c.driftThreshold, on && c.detectFloor, out);
+        if(core.actionPoint()>=0){runPointAction(mc,c);return false;}
         if (core.dropPhase() != WalkCore.D_NONE) PanicDetector.INSTANCE.allowFall(10);  // урон от спуска — не паника
         // v1.15 «Возврат на маршрут»: толкнули/откатили далеко от линии (или на другой этаж) — дойти обратно своим путём
         if (rejoinCheck(mc, p, c)) return true;

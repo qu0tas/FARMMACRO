@@ -1,8 +1,72 @@
 {
-  "panic.siren":  { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/siren",  "stream": false } ] },
-  "panic.klaxon": { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/klaxon", "stream": false } ] },
-  "panic.alarm":  { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/alarm",  "stream": false } ] },
-  "panic.alert":  { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/alert",  "stream": false } ] },
-  "panic.foxy":   { "subtitle": "subtitles.farmmacro.panic", "sounds": [ { "name": "farmmacro:panic/foxy",   "stream": false } ] },
-  "done":         { "subtitle": "subtitles.farmmacro.done",  "sounds": [ { "name": "farmmacro:panic/done",   "stream": false } ] }
+  "panic.siren": {
+    "subtitle": "subtitles.farmmacro.panic",
+    "sounds": [
+      {
+        "name": "farmmacro:panic/siren",
+        "stream": false
+      }
+    ]
+  },
+  "panic.klaxon": {
+    "subtitle": "subtitles.farmmacro.panic",
+    "sounds": [
+      {
+        "name": "farmmacro:panic/klaxon",
+        "stream": false
+      }
+    ]
+  },
+  "panic.alarm": {
+    "subtitle": "subtitles.farmmacro.panic",
+    "sounds": [
+      {
+        "name": "farmmacro:panic/alarm",
+        "stream": false
+      }
+    ]
+  },
+  "panic.alert": {
+    "subtitle": "subtitles.farmmacro.panic",
+    "sounds": [
+      {
+        "name": "farmmacro:panic/alert",
+        "stream": false
+      }
+    ]
+  },
+  "panic.foxy": {
+    "subtitle": "subtitles.farmmacro.panic",
+    "sounds": [
+      {
+        "name": "farmmacro:panic/foxy",
+        "stream": false
+      }
+    ]
+  },
+  "done": {
+    "subtitle": "subtitles.farmmacro.done",
+    "sounds": [
+      {
+        "name": "farmmacro:panic/done",
+        "stream": false
+      }
+    ]
+  },
+  "crop_fever.being": {
+    "sounds": [
+      {
+        "name": "farmmacro:crop_fever/being",
+        "stream": true
+      }
+    ]
+  },
+  "crop_fever.end": {
+    "sounds": [
+      {
+        "name": "farmmacro:crop_fever/end",
+        "stream": true
+      }
+    ]
+  }
 }

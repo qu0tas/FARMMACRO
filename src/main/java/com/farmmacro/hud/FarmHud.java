@@ -31,6 +31,7 @@ public final class FarmHud {
 
     /** v1.14 «Одна общая плашка»: блоки рисуются без своей подложки внутри общей панели. */
     private static boolean merged;
+    private static HudSlot paintingSlot;private static String paintingId;
     /** Цель навигатора на этот кадр. */
     private static Target target;
 
@@ -86,6 +87,7 @@ public final class FarmHud {
      * edit — режим редактора: пустые блоки показываются заглушкой, скрытые — затемнёнными.
      */
     public static List<Rect> layout(GuiGraphicsExtractor g, Minecraft mc, boolean edit) {
+        paintingSlot=null;paintingId=null;
         ModConfig c = ModConfig.INSTANCE;
         int sw = mc.getWindow().getGuiScaledWidth(), sh = mc.getWindow().getGuiScaledHeight();
         List<Rect> out = new ArrayList<>();
@@ -119,7 +121,7 @@ public final class FarmHud {
             Matrix3x2fStack pose = g != null ? g.pose() : null;
             if (pose != null) { pose.pushMatrix(); pose.translate(pos[0], pos[1]); pose.scale((float) sc, (float) sc); }
             try {
-                if (g != null) Ui.round(g, 0, 0, w, total, 5, bg());
+                paintingSlot=all;paintingId="all";if(g!=null){Ui.round(g,0,0,w,total,5,bg());com.farmmacro.gui.CustomUiAssets.draw(g,"hud",0,0,w,total,opacity());}
                 if (list.isEmpty() && g != null) Ui.text(g, f, "Общая плашка (пусто)", 8, 4, Ui.DIM);
                 merged = true;
                 for (int i = 0; i < list.size(); i++) {
@@ -131,7 +133,7 @@ public final class FarmHud {
                     boolean hid = sl != null && sl.hidden;
                     if (g != null) {
                         if (empty) Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", w - 14), 8, yy + 2, Ui.DIM);
-                        else b.drawer().draw(g, mc, 0, yy, w);
+                        else {paintingSlot=sl;paintingId=b.id();b.drawer().draw(g,mc,0,yy,w);}
                         if (edit && hid) dimHidden(g, f, 0, yy, w, h);
                     }
                     out.add(new Rect(b.id(), b.label(), pos[0], pos[1] + (int) Math.round(yy * sc), pw, (int) Math.round(h * sc), hid, true));
@@ -168,7 +170,7 @@ public final class FarmHud {
                 if (empty) {
                     Ui.round(g, 0, 0, bw, h, 5, Ui.alpha(Ui.HUD_BG, 0.72f));
                     Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", bw - 14), 8, 4, Ui.DIM);
-                } else b.drawer().draw(g, mc, 0, 0, bw);
+                } else {paintingSlot=sl;paintingId=b.id();b.drawer().draw(g,mc,0,0,bw);}
                 if (edit && hid) dimHidden(g, f, 0, 0, bw, h);
             } finally {
                 pose.popMatrix();
@@ -184,16 +186,21 @@ public final class FarmHud {
 
     /** Подложка и цветная полоска слева (в общей плашке — только полоска). */
     private static void panel(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
-        if (!merged) Ui.round(g, x, y, w, h, 5, bg());
+        if (!merged){Ui.round(g,x,y,w,h,5,bg());com.farmmacro.gui.CustomUiAssets.draw(g,"hud",x,y,w,h,opacity());}
+        col=com.farmmacro.gui.UiStyle.color(paintingSlot==null?null:paintingSlot.accentColor,col);
+        if(paintingId!=null)com.farmmacro.gui.CustomUiAssets.draw(g,"icon_"+paintingId,x+w-17,y+h-16,12,12,100);
         g.fill(x, y + 3, x + 2, y + h - 3, col);
     }
 
     // ── Цвета HUD (Визуал → HUD): «по умолчанию» — как раньше ─────────────────
 
     /** Фон панелей: по умолчанию тёмно-синий 78 %, иначе выбранный цвет с той же прозрачностью. */
+    private static int opacity(){return paintingSlot!=null&&paintingSlot.opacity>=0?paintingSlot.opacity:ModConfig.INSTANCE.hudBackgroundOpacity;}
     private static int bg() {
         int rgb = com.farmmacro.visual.HatColors.rgbOr(ModConfig.INSTANCE.hudBgColor, -1);
-        return rgb < 0 ? Ui.HUD_BG : 0xC8000000 | rgb;
+        int color=rgb<0?Ui.HUD_BG:0xFF000000|rgb;
+        color=com.farmmacro.gui.UiStyle.color(paintingSlot==null?null:paintingSlot.backgroundColor,color);
+        return com.farmmacro.gui.UiStyle.opacity(color,opacity());
     }
 
     private static int accent() {
@@ -249,7 +256,8 @@ public final class FarmHud {
         String name;
         if (m.getSourceKind() == MacroManager.SourceKind.ROUTE && st != MacroManager.State.RECORDING) {
             var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
-            name = "⌁ " + (rb.loadedName() != null ? rb.loadedName() : rb.isEmpty() ? "пустой маршрут" : "маршрут не сохранён");
+            String actual=m.isRoutePlaying() ? com.farmmacro.route.RouteWalker.INSTANCE.activeName() : rb.loadedName();
+            name = "⌁ " + (actual != null ? actual : rb.isEmpty() ? "пустой маршрут" : "маршрут не сохранён");
         } else {
             name = m.getLoadedName() != null ? m.getLoadedName()
                     : m.getFrameCount() > 0 ? "несохранённая запись" : "нет макроса";
@@ -292,7 +300,7 @@ public final class FarmHud {
     private static final String[] EDITOR_HINTS = {
             "ЛКМ — точка · зажать — двигать", "Shift+ЛКМ — вставить", "ПКМ — удалить",
             "Shift+ПКМ — параметры", "Alt+ЛКМ — выделить ещё · Ctrl+A — все",
-            "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+D — спуск на этаж ниже", "Ctrl+Z — отменить"};
+            "Стрелки — сдвиг в блоке (Shift — мелко)", "Ctrl+D — спуск на этаж ниже", "Ctrl+R — рандом маршрута", "Ctrl+Z — отменить"};
 
     private static int drawEditor(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         if (!com.farmmacro.route.RouteEditor.isActive()) return 0;
@@ -378,8 +386,12 @@ public final class FarmHud {
     /** Плашка «СЛУЧАЙНОСТЬ · сид» — пока играет проход со случайностью. */
     private static int drawHuman(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         var h = com.farmmacro.macro.Humanizer.ACTIVE;
-        if (h == null || !MacroManager.INSTANCE.isPlaying()) return 0;
-        return line(g, mc, x, y, w, "СЛУЧАЙНОСТЬ · " + h.status() + " · сид " + h.seed, 0xFFE08CFF);
+        if (!MacroManager.INSTANCE.isPlaying()) return 0;
+        var rw=com.farmmacro.route.RouteWalker.INSTANCE;
+        int variant=MacroManager.INSTANCE.isRoutePlaying() ? rw.variantNumber() : 0;
+        if(h==null && variant==0) return 0;
+        return line(g,mc,x,y,w,"СЛУЧАЙНОСТЬ · " + (variant>0 ? "вариант " + variant + " · сид " + rw.variantSeed() : "")
+                + (h==null ? "" : " · " + h.status() + " · сид ввода " + h.seed),0xFFE08CFF);
     }
 
     /**
@@ -414,10 +426,12 @@ public final class FarmHud {
         if (!m.isReturning()) return 0;
         var rw = m.returnWalker();
         String text = rw.planning() ? "ВОЗВРАТ " + rw.what() + " · ищу путь…"
+                : rw.waitingForChunk() ? "ВОЗВРАТ · жду загрузки чанка"
                 : rw.openingDoor() ? "ВОЗВРАТ " + rw.what() + " · открываю дверь"
                 : rw.turningToRoute() ? "ВОЗВРАТ · поворот к маршруту"
                 : String.format(java.util.Locale.ROOT, "ВОЗВРАТ %s · %.1f бл%s", rw.what(), rw.remaining(mc.player),
                 rw.replans() > 0 ? " · путь ×" + (rw.replans() + 1) : "");
+        if(rw.usingCache()) text += " · по кэшу";
         return line(g, mc, x, y, w, text, 0xFF7FD8FF);
     }
 

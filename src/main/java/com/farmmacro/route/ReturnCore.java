@@ -33,6 +33,7 @@ public final class ReturnCore {
     public String reason;
     /** Куда смотреть (yaw, pitch) — ReturnWalker поворачивает «как мышь». */
     public float wantYaw, wantPitch;
+    public boolean naturalLook;public double lookAhead=2.5;
     /** В этот тик стоим ради поворота. */
     public boolean turningInPlace;
     private int lowTicks;
@@ -190,6 +191,7 @@ public final class ReturnCore {
         double[] look = lookPoint(x, z, t);
         if (Math.hypot(look[0] - x, look[1] - z) > 0.3) wantYaw = WalkCore.yawTo(x, z, look[0], look[1]);
         wantPitch = endPitch;
+        if(naturalLook){var a=com.farmmacro.camera.PathLook.angles(route.points,t,x,y,z,lookAhead,wantYaw);wantYaw=a[0];wantPitch=a[1];}
         double err = Math.abs(WalkCore.wrap(wantYaw - yaw));
         if (err > TURN_STOP_DEG && (onGround || flying)) {
             out.forward = out.back = out.left = out.right = false;

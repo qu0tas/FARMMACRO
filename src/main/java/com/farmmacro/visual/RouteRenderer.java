@@ -81,7 +81,26 @@ public final class RouteRenderer {
     }
 
     // ── маршрут по точкам: кеш и состояние редактора ──
-    private static RoutePath pointPath;
+    private static RoutePath pointPath, playingPointPath, previewPath;
+    private static int playingKey=-1;
+    private static double playingSpacing=-1,previewSpacing=-1;
+    private static com.farmmacro.route.PointRoute previewKey;
+    private static RoutePath playingPath(ModConfig c) {
+        var rw=com.farmmacro.route.RouteWalker.INSTANCE;
+        if(playingKey!=rw.pathRevision() || playingSpacing!=c.routeArrowSpacing) {
+            playingPointPath=RoutePath.fromPoints(rw.activePoints(),4.0,c.routeArrowSpacing);
+            playingKey=rw.pathRevision();playingSpacing=c.routeArrowSpacing;
+        }
+        return playingPointPath;
+    }
+    private static RoutePath previewPath(ModConfig c) {
+        var preview=com.farmmacro.route.RouteVariants.preview();
+        if(preview!=previewKey || previewSpacing!=c.routeArrowSpacing) {
+            previewPath=preview==null ? null : RoutePath.fromPoints(preview.points,4.0,c.routeArrowSpacing);
+            previewKey=preview;previewSpacing=c.routeArrowSpacing;
+        }
+        return previewPath;
+    }
     private static int pointKeyRev = -1;
     private static double pointKeySpacing = -1;
 
@@ -155,7 +174,8 @@ public final class RouteRenderer {
 
         RoutePath p;
         if (points) {
-            p = pointPath(c);
+            p = m.isRoutePlaying() && !editorActive
+                    ? playingPath(c) : pointPath(c);
             String dim = RouteBuffer.INSTANCE.route().dimension;
             if (dim != null && !RouteBuffer.INSTANCE.isEmpty() && !dim.equals(RouteBuffer.dimensionId(mc))) return;
         } else {
@@ -193,6 +213,9 @@ public final class RouteRenderer {
         long ms = System.currentTimeMillis();
         final float pulse = (float) (0.65 + 0.35 * Math.sin(ms / 220.0));
         final boolean pts = points;
+        final RoutePath variant=editorActive ? previewPath(c) : null;
+        final var endSettings=com.farmmacro.route.RouteBuffer.INSTANCE.settings().routeEnd.copy();
+        final var exitPoints=com.farmmacro.route.RouteBuffer.INSTANCE.points().stream().map(com.farmmacro.route.RoutePoint::copy).toList();
 
         PoseStack ps = ctx.poseStack();
         ps.pushPose();
@@ -201,6 +224,15 @@ public final class RouteRenderer {
             Builder normal = new Builder(false, 1f);
             ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.debugQuads(), (pose, vc) -> Guard.runOrDisable(GUARD, () ->
                     emitAll(normal.with(pose, vc), p, c, px0, py0, pz0, r2, cx, cy, cz, cur, recording, w, actions, pulse, m, pts)));
+            if(editorActive&&endSettings.walks()&&!exitPoints.isEmpty()){var last=exitPoints.getLast();var d=endSettings.vector(exitPoints);ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc)->Guard.runOrDisable(GUARD,()->{Builder b=new Builder(false,1f).with(pose,vc);for(double t=0;t<endSettings.distance;t+=.5){double to=Math.min(t+.25,endSettings.distance);ribbon(b,(float)(last.x+d[0]*t),(float)last.y+.04f,(float)(last.z+d[1]*t),(float)(last.x+d[0]*to),(float)last.y+.04f,(float)(last.z+d[1]*to),cx,cy,cz,w,0xFFAA44,.9f);}}));}
+            if(variant!=null) ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc) -> Guard.runOrDisable(GUARD,() -> {
+                Builder b=new Builder(false,1f).with(pose,vc);
+                for(int i=1;i<variant.size && i<MAX_SEGMENTS;i++) {
+                    float dx=variant.x[i]-px0,dz=variant.z[i]-pz0;
+                    if(dx*dx+dz*dz<=r2) ribbon(b,variant.x[i-1],variant.y[i-1]+.025f,variant.z[i-1],
+                            variant.x[i],variant.y[i]+.025f,variant.z[i],cx,cy,cz,w,0xC77DFF,.95f);
+                }
+            }));
             if (!"off".equals(xray)) {
                 Builder see = new Builder(true, "full".equals(xray) ? 0.9f : 0.42f);
                 ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.textBackgroundSeeThrough(), (pose, vc) -> Guard.runOrDisable(GUARD, () ->
@@ -214,7 +246,8 @@ public final class RouteRenderer {
 
     /** Номера точек над ними (как таблички имён: видно и сквозь блоки). */
     private static void labels(LevelRenderContext ctx, Minecraft mc, Vec3 cam, Vec3 me, ModConfig c) {
-        List<com.farmmacro.route.RoutePoint> pts = RouteBuffer.INSTANCE.points();
+        List<com.farmmacro.route.RoutePoint> pts = MacroManager.INSTANCE.isRoutePlaying() && !editorActive
+                ? com.farmmacro.route.RouteWalker.INSTANCE.activePoints() : RouteBuffer.INSTANCE.points();
         double r = Math.min(c.routeRadius, 48);
         double r2 = r * r;
         int sel = editorActive ? RouteBuffer.INSTANCE.selected() : -1, shown = 0;
@@ -324,7 +357,8 @@ public final class RouteRenderer {
     /** Точки маршрута, выбранная/наведённая, цель автохода. */
     private static void emitPoints(Builder b, ModConfig c, float px, float pz, float r2,
                                    float cx, float cy, float cz, int cur, float pulse) {
-        List<com.farmmacro.route.RoutePoint> pts = RouteBuffer.INSTANCE.points();
+        List<com.farmmacro.route.RoutePoint> pts = MacroManager.INSTANCE.isRoutePlaying() && !editorActive
+                ? com.farmmacro.route.RouteWalker.INSTANCE.activePoints() : RouteBuffer.INSTANCE.points();
         // выбранная/наведённая точка — только в редакторе (раньше жёлтый столб оставался на последней точке после стопа)
         int sel = editorActive ? RouteBuffer.INSTANCE.selected() : -1;
         int hov = editorActive ? editorHover : -1;

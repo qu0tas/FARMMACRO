@@ -5,6 +5,7 @@ package com.farmmacro.config;
  * поэтому при смене размера окна плашка остаётся у своего края. placed=false — стоит в стопке справа, как раньше.
  */
 public class HudSlot {
+    public String backgroundColor="",accentColor="";public int opacity=-1;
     public boolean placed = false;
     /** Якорь по X: 0 — левый край, 0.5 — центр, 1 — правый край (так же по Y). */
     public double  ax = 1, ay = 0;
@@ -16,10 +17,11 @@ public class HudSlot {
     public HudSlot copy() {
         HudSlot s = new HudSlot();
         s.placed = placed; s.ax = ax; s.ay = ay; s.ox = ox; s.oy = oy; s.scale = scale; s.hidden = hidden;
-        return s;
+        s.backgroundColor=backgroundColor;s.accentColor=accentColor;s.opacity=opacity;return s;
     }
 
     public void sanitize() {
+        if(!com.farmmacro.gui.UiStyle.validColor(backgroundColor))backgroundColor="";if(!com.farmmacro.gui.UiStyle.validColor(accentColor))accentColor="";opacity=Math.clamp(opacity,-1,100);
         ax = ax < 0.25 ? 0 : ax > 0.75 ? 1 : 0.5;
         ay = ay < 0.25 ? 0 : ay > 0.75 ? 1 : 0.5;
         if (!Double.isFinite(ox)) ox = 6;

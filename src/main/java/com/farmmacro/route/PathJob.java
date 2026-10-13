@@ -47,8 +47,19 @@ public final class PathJob {
         int bx = (int) Math.floor(px), bz = (int) Math.floor(pz);
         LevelSnapshot snap = LevelSnapshot.capture(mc.level, bx - r, bz - r, bx + r, bz + r, y0, y1);
         long snapUs = (System.nanoTime() - t0) / 1000;
-        CompletableFuture<PathFinder.Result> f = CompletableFuture.supplyAsync(
-                () -> new PathFinder(new PathLevel(snap), prm).find(px, py, pz, onGround, gl), EXEC);
+        ChunkCacheStore cache=ChunkCache.store(mc);
+        ChunkCache.updateSnapshot(snap,cache);
+        java.util.Set<Long> missing=new java.util.HashSet<>();
+        if(cache!=null) for(int cx=(bx-r)>>4;cx<=(bx+r)>>4;cx++) for(int cz=(bz-r)>>4;cz<=(bz+r)>>4;cz++) {
+            long k=CachedChunk.key(cx,cz); if(!snap.containsChunk(k)) missing.add(k);
+        }
+        CompletableFuture<PathFinder.Result> f = CompletableFuture.supplyAsync(() -> {
+            CachedPathWorld world=new CachedPathWorld(new PathLevel(snap),snap::containsChunk,
+                    cache==null ? java.util.Map.of() : cache.load(missing));
+            PathFinder.Result result=new PathFinder(world,prm).find(px,py,pz,onGround,gl);
+            result.cachedCells=world.witnesses(result,px,py,pz);
+            return result;
+        }, EXEC);
         return new PathJob(f, snapUs, snap.sections);
     }
 

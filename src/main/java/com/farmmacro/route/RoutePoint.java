@@ -42,6 +42,13 @@ public class RoutePoint {
     /** Ожидаемая высота падения, блоков (считает редактор по миру; 0 — неизвестно, не проверяется). */
     public double  dropDepth;
 
+    /** Null local ranges inherit route-wide values; explicit 0..0 disables an addition. */
+    public RouteRandomSettings.Range rndPause, rndBeforeDrop, rndLanding, rndChance, rndOffset;
+    /** Concrete generated timings also survive Save copy. -1 edge release means legacy humanizer. */
+    public int beforeDropTicks, edgeReleaseTicks = -1;
+
+    public PointAction pointAction = new PointAction();
+
     public RoutePoint() {}
 
     public RoutePoint(double x, double y, double z) { this.x = x; this.y = y; this.z = z; }
@@ -53,6 +60,10 @@ public class RoutePoint {
         p.ox = ox; p.oz = oz;
         p.drop = drop; p.dropDir = dropDir; p.landPauseTicks = landPauseTicks; p.airHold = airHold; p.dropDepth = dropDepth;
         p.fly = fly; p.climb = climb;
+        p.beforeDropTicks = beforeDropTicks; p.edgeReleaseTicks = edgeReleaseTicks;
+        p.rndPause = cp(rndPause); p.rndBeforeDrop = cp(rndBeforeDrop); p.rndLanding = cp(rndLanding);
+        p.rndChance = cp(rndChance); p.rndOffset = cp(rndOffset);
+        p.pointAction = pointAction == null ? new PointAction() : pointAction.copy();
         return p;
     }
 
@@ -60,6 +71,7 @@ public class RoutePoint {
     public RoutePoint withPos(double nx, double ny, double nz) {
         RoutePoint p = copy();
         p.moveCenter(nx, ny, nz);
+        p.pointAction = pointAction == null ? new PointAction() : pointAction.copy();
         return p;
     }
 
@@ -120,8 +132,16 @@ public class RoutePoint {
 
     /** Приводит значения к допустимым (ручная правка файла). */
     public void sanitize() {
+        if(pointAction==null)pointAction=new PointAction();pointAction.sanitize();
         if (!NONE.equals(action) && !ATTACK.equals(action) && !USE.equals(action)) action = NONE;
         slot = Math.max(0, Math.min(9, slot));
+        beforeDropTicks = Math.max(0, Math.min(1200, beforeDropTicks));
+        edgeReleaseTicks = Math.max(-1, Math.min(6, edgeReleaseTicks));
+        if (rndPause != null) rndPause.sanitize(1200);
+        if (rndBeforeDrop != null) rndBeforeDrop.sanitize(1200);
+        if (rndLanding != null) rndLanding.sanitize(1200);
+        if (rndChance != null) rndChance.sanitize(100);
+        if (rndOffset != null) rndOffset.sanitize(.15);
         pauseTicks = Math.max(0, Math.min(20 * 60, pauseTicks));
         landPauseTicks = Math.max(0, Math.min(20 * 60, landPauseTicks));
         if (dropDir == null || !DROP_DIRS.contains(dropDir)) dropDir = DIR_AUTO;
@@ -134,5 +154,6 @@ public class RoutePoint {
         }
     }
 
+    private static RouteRandomSettings.Range cp(RouteRandomSettings.Range r) { return r == null ? null : r.copy(); }
     public boolean finite() { return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z); }
 }

@@ -34,6 +34,10 @@ public final class WalkCore {
 
     private List<RoutePoint> pts;
     private int target, seg = -1, pauseLeft, jumpTicks;
+    private boolean finishPause;
+    private int actionPoint=-1,actionHandled=-1;
+    public int actionPoint(){return actionPoint;}
+    public void completeAction(){actionHandled=actionPoint;actionPoint=-1;}
     private boolean done, pausingNow;
 
     // ── спуск ──
@@ -75,10 +79,10 @@ public final class WalkCore {
     private double expectSum;
 
     public void start(PointRoute route, int index, int stuckTicks) {
-        pts = route.points;
+        pts = route.points; actionPoint=actionHandled=-1;
         target = Math.max(0, Math.min(pts.size() - 1, index));
         seg = target - 1;
-        pauseLeft = 0; jumpTicks = 0; done = false;
+        pauseLeft = 0; jumpTicks = 0; done = false; finishPause=false;
         dropPhase = D_NONE; dropTicks = 0; landLeft = 0; floorTicks = 0; hasStart = false; lastFall = Double.NaN;
         reach = null;
         extPause = 0; extNow = false;
@@ -111,14 +115,22 @@ public final class WalkCore {
         out.sprint = out.sneak = out.attack = out.use = out.jump = false;
         out.slot = -1; out.panic = null;
         if (done || pts.isEmpty()) { done = true; return out; }
+        if(finishPause) {
+            pausingNow=pauseLeft>0;
+            if(pauseLeft>0) pauseLeft--;
+            if(pauseLeft<=0) { finishPause=false;done=true; }
+            return out;
+        }
         boolean knowY = !Double.isNaN(y);
 
         RoutePoint t = pts.get(target);
         double rr = reach != null && target < reach.length ? reach[target] : reachRadius;
+        if(actionPoint>=0){pausingNow=true;resetStuck(stuckTicks);return out;}
+        if(pauseLeft==0&&dropPhase==D_NONE&&actionHandled!=target&&t.pointAction!=null&&t.pointAction.active()&&reached(x,y,z,t,rr,floor&&knowY)){actionPoint=target;pausingNow=true;resetStuck(stuckTicks);return out;}
         if (pauseLeft == 0 && dropPhase == D_NONE && reached(x, y, z, t, rr, floor && knowY)) {
             RoutePoint q = pts.get(target);
             seg = target;
-            pauseLeft = q.pauseTicks;
+            pauseLeft = q.pauseTicks + (q.drop ? q.beforeDropTicks : 0);
             jumpTicks = q.jump ? 2 : 0;
             resetStuck(stuckTicks);
             floorTicks = 0;
@@ -132,7 +144,12 @@ public final class WalkCore {
             }
             hasStart = false;
             target++;
-            if (target >= pts.size()) { done = true; target = pts.size() - 1; dropPhase = D_NONE; return out; }
+            if (target >= pts.size()) {
+                target = pts.size() - 1; dropPhase = D_NONE;
+                finishPause=pauseLeft>0; done=!finishPause;
+                if(finishPause) { pauseLeft--; pausingNow=true; }
+                return out;
+            }
             t = pts.get(target);
         }
         RoutePoint s = seg >= 0 ? pts.get(seg) : null;
@@ -215,7 +232,7 @@ public final class WalkCore {
             }
             case D_AIR -> {
                 dropTicks++;
-                if (!onGround && q != null && q.airHold) keysFor(dropDx, dropDz, yaw, out);
+                if (!onGround && q != null && (q.airHold || dropTicks <= q.edgeReleaseTicks)) keysFor(dropDx, dropDz, yaw, out);
                 if (onGround) {
                     double fell = knowY ? dropFromY - y : Double.NaN;
                     lastFall = fell;
@@ -322,7 +339,7 @@ public final class WalkCore {
     }
 
     /** Направление (dx, dz) в мире → W/A/S/D по осям камеры (8 направлений). */
-    private static void keysFor(double dx, double dz, float yaw, Out out) {
+    public static void keysFor(double dx, double dz, float yaw, Out out) {
         double n = Math.hypot(dx, dz);
         if (n < 1e-9) return;
         double r = Math.toRadians(yaw), sin = Math.sin(r), cos = Math.cos(r);

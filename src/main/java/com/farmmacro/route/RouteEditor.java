@@ -38,6 +38,7 @@ public final class RouteEditor {
     private static boolean undoWasDown, selAllWasDown, dropWasDown;
     /** Стрелки: какая была нажата в прошлом тике, сколько тиков держится, когда был последний сдвиг (для Ctrl+Z одним шагом). */
     private static int arrowHeld = -1, arrowTicks;
+    private static boolean randomWasDown;
     private static long lastNudgeMs;
     private static List<Integer> lastNudgeSel = List.of();
 
@@ -130,6 +131,10 @@ public final class RouteEditor {
         }
         if (MacroManager.INSTANCE.getState() != MacroManager.State.IDLE) { setActive(mc, false); return; }
 
+        boolean random=mc.screen==null && mc.hasControlDown()
+                && InputConstants.isKeyDown(mc.getWindow(),InputConstants.KEY_R);
+        if(random && !randomWasDown) mc.setScreen(new com.farmmacro.gui.RouteVariantScreen());
+        randomWasDown=random;
         // перетаскивание
         if (dragIndex >= 0) {
             if (mc.screen != null || !mc.options.keyAttack.isDown() || RouteBuffer.INSTANCE.get(dragIndex) == null) {

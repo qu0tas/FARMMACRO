@@ -445,3 +445,17 @@ N («Продолжить с места») дальше «До дороги не
 ## 12. Файлы
 
 `config/farmmacro.json` — настройки; `config/farmmacro/configs/` — профили; `config/farmmacro_macros/` — записи (v5); `config/farmmacro_routes/` — маршруты (v5); `config/farmmacro/sounds/` — звуки; v1.14: `config/farmmacro/screenshots/` — скриншоты паник, `config/farmmacro/discord-webhook.txt` — адрес webhook (секрет, не в профилях).
+
+
+## 1.17.0: новые настройки
+
+Полное описание поведения и ограничений: [журнал релизов](../RELEASES-1.16.3-1.17.0.md).
+
+- ⚙ маршрута → Конец маршрута: mode, distance 1–30, direction auto/±x/±z, command, delayMinMs/delayMaxMs, windowSeconds 1–60, postPauseMs/postJitterMs. Defaults: none, 3 бл, /warp garden, 500–1200 мс, 8 с, 1000 ±300 мс.
+- Shift+ПКМ, расширенный режим → Тип точки: waitMs/jitterMs, position radius/timeoutMs/panicOnTimeout, item slot/itemId/blockXYZ/cooldownMs, command. Тип position проверяется после достижения обычного радиуса точки. В простом режиме все типы исполняются как ordinary, файл не меняется.
+- Визуал → Свое оформление: uiCustomColors/uiColors (#RRGGBB; пусто — тема), uiBackgroundOpacity, hudBackgroundOpacity, uiCornerScale, uiSoftShadows, customUiImages. Плашки: HudSlot.backgroundColor/accentColor/opacity (-1 наследует общую alpha). Остальная прозрачность элементов и стандартная палитра остаются читаемыми.
+- PNG в config/farmmacro/ui: background.png (фон окна), hud.png (фон HUD); icons/status.png, editor.png, hold.png, mouselock.png, view.png, human.png, return.png, delays.png, susp.png, panic.png, server.png, schedule.png, nav.png. До 2 МБ / 2048×2048; после правки нажать «Перезагрузить изображения». Иконки рисуются 12×12 в нижнем правом углу плашки.
+- Визуал → CROP FEVER: cropFeverEnabled true, volume 70%, dancers 3 (1–8), scale 18% (5–40%). Громкость учитывает громкость Minecraft.
+- Визуал → Камера авто-возврата: pathNaturalLook true, pathLookAhead 2.5 (.5–8 бл). returnTurnSpeed по-прежнему определяет скорость мышиного поворота.
+
+**Только сборка, в игре не проверено.**

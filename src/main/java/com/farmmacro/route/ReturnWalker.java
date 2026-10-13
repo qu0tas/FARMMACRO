@@ -28,6 +28,10 @@ public final class ReturnWalker {
     private List<PathFinder.Goal> goals;
     private boolean active;
     private int replans;
+    private java.util.Map<CachedPathWorld.Cell,Short> cachedCells=java.util.Map.of();
+    private int cachedWait;
+    public boolean waitingForChunk() { return cachedWait>0; }
+    public boolean usingCache() { return !cachedCells.isEmpty(); }
     private String fail;
     private PathFinder.Goal goal;
     private com.farmmacro.macro.Humanizer.RouteShaper shaper;
@@ -97,7 +101,7 @@ public final class ReturnWalker {
     }
 
     private static void logPlan(PathFinder.Result r, PathJob j) {
-        EventLog.log("RETURN", "поиск пути: " + r + String.format(Locale.ROOT, " (%d клеток, %.1f мс в фоне; снимок %d секций — %.1f мс)",
+        EventLog.log("RETURN", "поиск пути: " + r + (r.cachedCells.isEmpty() ? "" : " · по кэшу") + String.format(Locale.ROOT, " (%d клеток, %.1f мс в фоне; снимок %d секций — %.1f мс)",
                 r.expanded, r.micros / 1000.0, j.sections, j.snapMicros / 1000.0));
     }
 
@@ -112,6 +116,7 @@ public final class ReturnWalker {
         replans = 0; fail = null; ticks = 0; noFly = false; tap = 0; tapTries = 0; failedPlanning = false;
         door = null; doorTicks = 0; doorClicks = 0; useHold = 0; useWait = 0;
         path = List.of();
+        cachedCells=java.util.Map.of();
         active = true;
         plan(mc, J_BEGIN, true);
     }
@@ -152,6 +157,7 @@ public final class ReturnWalker {
 
     private void start(PathFinder.Result r, LocalPlayer p, float endYaw, float endPitch) {
         goal = r.goal;
+        cachedCells=new java.util.HashMap<>(r.cachedCells); cachedWait=0;
         path = r.points;
         core.start(r.points, p.getX(), p.getZ(), endYaw, endPitch);
         var h = com.farmmacro.macro.Humanizer.lap();
@@ -178,8 +184,34 @@ public final class ReturnWalker {
         Options o = mc.options;
         ticks++;
         if (job != null) return tickJob(mc, p, o);
+        if(!cachedCells.isEmpty()) {
+            PathLevel live=new PathLevel(mc.level);
+            if(!c.chunkCacheEnabled || CachedPathWorld.mismatch(cachedCells,live,k -> mc.level.hasChunk((int)(k>>32),(int)k))) {
+                release(o);
+                if(++replans>c.returnReplans) { fail="кэш не совпал с миром: лимит перестроений";active=false;return Status.FAIL; }
+                EventLog.log("RETURN","кэш не совпал с загруженными блоками — перестроение");
+                plan(mc,J_REPLAN,!noFly);return Status.RUNNING;
+            }
+            cachedCells.keySet().removeIf(cell -> mc.level.hasChunk(cell.x()>>4,cell.z()>>4));
+        }
+        // Never walk blindly into unknown client terrain: wait for the immediate footprint to load.
+        if(path!=null && !path.isEmpty()) {
+            RoutePoint next=path.get(Math.min(core.target(),path.size()-1));
+            double dx=next.x-p.getX(),dz=next.z-p.getZ(),n=Math.hypot(dx,dz);
+            double step=Math.min(2,n),nx=p.getX()+(n<1e-9?0:dx/n*step),nz=p.getZ()+(n<1e-9?0:dz/n*step);
+            boolean ready=true;
+            for(double ax:new double[]{nx-.3,nx+.3}) for(double az:new double[]{nz-.3,nz+.3})
+                if(!mc.level.hasChunk(((int)Math.floor(ax))>>4,((int)Math.floor(az))>>4)) ready=false;
+            if(!ready) {
+                release(o);core.core().resetStuckWindow();
+                if(++cachedWait>200) { fail="область пути по кэшу не загрузилась за 10 с";active=false;return Status.FAIL; }
+                return Status.RUNNING;
+            }
+        }
+        cachedWait=0;
         if (doorStep(mc, p, o, c)) return Status.RUNNING;
         boolean flying = p.getAbilities().flying;
+        core.naturalLook=c.pathNaturalLook;core.lookAhead=c.pathLookAhead;
         ReturnCore.Phase ph = core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), flying, p.getYRot(), p.getXRot(), p.horizontalCollision, out);
         if (core.needFly && ph == ReturnCore.Phase.WALK) {
             // взлёт: прыжок — отпустить — прыжок (окно игры 7 тиков), до TAP_TRIES попыток; не вышло — путь без полёта
@@ -332,7 +364,7 @@ public final class ReturnWalker {
         double fromNow = ReturnCore.angle(p.getYRot(), p.getXRot(), wy, wp);
         boolean need;
         if (end) need = fromIssued > 0.05 || (!busy && fromNow > ReturnCore.END_TOL_DEG);
-        else need = busy ? fromIssued > 20 : fromNow > 6;
+        else need = busy ? fromIssued > 14 : fromNow > (c.pathNaturalLook ? 2.5 : 6);
         if (!need) return;
         // поворачиваемся к ближайшему эквиваленту yaw (без лишних оборотов)
         float ty = p.getYRot() + WalkCore.wrap(wy - p.getYRot());

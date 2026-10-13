@@ -386,7 +386,8 @@ public final class Humanizer {
                 else if (chance(s.gapChance)) startGap();
             }
             // оторвался от края спуска → клавиша ещё 0…edgeReleaseMax тиков (если в полёте не держим)
-            if (prevDrop == WalkCore.D_EDGE && dropPhase == WalkCore.D_AIR && !airHold && prevMask > 0) {
+            if (prevDrop == WalkCore.D_EDGE && dropPhase == WalkCore.D_AIR && !airHold && prevMask > 0
+                    && (pts == null || target <= 0 || target - 1 >= pts.size() || pts.get(target - 1).edgeReleaseTicks < 0)) {
                 overlapMask = prevMask; overlapLeft = range(0, s.edgeReleaseMax); overlapAnyDist = true;
             }
             if (dropPhase == WalkCore.D_LAND) { overlapLeft = 0; stepLeft = 0; }

@@ -53,12 +53,14 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
         void close(boolean modified);
         /** Маршрут: сколько точек с галочкой «Зажим мыши» (−1 — неизвестно / не маршрут). */
         default int heldPoints() { return -1; }
+        default com.farmmacro.route.PointRoute pointRoute() { return null; }
     }
 
     private final Screen parent;
     private final Target t;
     private final List<Rows.Row> rows = new ArrayList<>();
     private double scroll;
+    private final DragWindow dragWindow=new DragWindow();
     private boolean modified;
     private String tooltip;
     private boolean wantHand;
@@ -75,8 +77,8 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
 
     private int wW() { return Math.min(340, width - 16); }
     private int wH() { return Math.min(320, height - 16); }
-    private int wX() { return (width - wW()) / 2; }
-    private int wY() { return (height - wH()) / 2; }
+    private int wX() { return dragWindow.x(width,wW()); }
+    private int wY() { return dragWindow.y(height,wH()); }
     private int cX() { return wX() + 10; }
     private int cY() { return wY() + 36; }
     private int cW() { return wW() - 20; }
@@ -97,6 +99,8 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
         buildCamera();
         buildHold();
         buildHuman();
+        if(t.route())RouteEndRows.build(rows,t.settings().routeEnd,t::editable,this::edit);
+        if (t.route()) RouteRandomRows.build(rows,t.settings().routeRandom,t.pointRoute(),t::editable,this::edit,this::build);
         rows.add(new Rows.End());
         rows.add(new Rows.MoreToggle(() -> Rows.hiddenAdvanced(rows), () -> {
             cfg().uiAdvanced = !cfg().uiAdvanced;
@@ -120,7 +124,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn("Взять стандартные", Rows.Style.SECONDARY, () -> {
                     edit(() -> {
                         MacroSettings d = MacroSettings.forNew();
-                        t.settings().camera = d.camera; t.settings().hold = d.hold; t.settings().human = d.human;
+                        t.settings().camera = d.camera; t.settings().hold = d.hold; t.settings().human = d.human; t.settings().routeRandom = d.routeRandom;t.settings().routeEnd=d.routeEnd;
                     });
                     build();
                 }).enabledIf(t::editable).tip("Поставить сюда настройки «по умолчанию для новых»")));
@@ -386,6 +390,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
             public void changed() { rb.changed(); }
             public int length() { return rb.size(); }
             public boolean route() { return true; }
+            public com.farmmacro.route.PointRoute pointRoute() { return RouteBuffer.INSTANCE.route(); }
             public boolean editable() { return idle() && !rb.isEmpty(); }
             public String note() { return "Маршрут в памяти: чтобы настройки попали в файл, нажми «Сохранить» у маршрута."; }
             public int heldPoints() { int n = 0; for (var p : rb.points()) if (p.hold) n++; return n; }
@@ -443,6 +448,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
             public void changed() {}
             public int length() { return len; }
             public boolean route() { return true; }
+            public com.farmmacro.route.PointRoute pointRoute() { return r; }
             public boolean editable() { return idle(); }
             public String note() {
                 return "Записывается в файл при закрытии окна" + (loaded
@@ -509,6 +515,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
+        if(dragWindow.click(e.x(),e.y(),e.button(),doubleClick,width,height,wW(),wH()))return true;
         Rows.clearWheelFocus();
         double mx = e.x(), my = e.y();
         Rows.Row typing = Rows.focusedRow();
@@ -525,7 +532,9 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
     }
 
     @Override
-    public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+    public boolean mouseDragged(MouseButtonEvent e,double dx,double dy){if(dragWindow.move(e.x(),e.y()))return true;return super.mouseDragged(e,dx,dy);}
+    @Override public boolean mouseReleased(MouseButtonEvent e){if(dragWindow.release())return true;return super.mouseReleased(e);}
+    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         for (Rows.Row r : rows) {
             if (r.lastH > 0 && my >= r.lastY && my < r.lastY + r.lastH) {
                 if (r.scroll(this, mx, my, sy)) return true;

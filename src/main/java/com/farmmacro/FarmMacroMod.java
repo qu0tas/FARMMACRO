@@ -45,9 +45,11 @@ public class FarmMacroMod implements ClientModInitializer {
         ModConfig.load();
         PanicSound.init();
         ModConfig cfg = ModConfig.INSTANCE;
+        if(cfg.customUiImages)com.farmmacro.gui.CustomUiAssets.reload();
 
         FarmHud.register();
         com.farmmacro.fun.Foxy.register();
+        com.farmmacro.fun.CropFever.register();
         PanicOverlayRenderer.register();
         ChinaHatRenderer.register();
         com.farmmacro.visual.CheeksLayer.register();
@@ -75,9 +77,11 @@ public class FarmMacroMod implements ClientModInitializer {
         com.farmmacro.macro.ReconnectScreenHook.register();
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
+        com.farmmacro.route.ChunkCache.register();
         // v1.13: отключение от сервера во время макроса — паника; новый сервер — сброс замера лагов
         // v1.13.1: при переподключении — не паника, а повторный вход (Reconnect)
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            com.farmmacro.fun.CropFever.reset(client);
             boolean playing = MacroManager.INSTANCE.playingOrJustLost()
                     && (client.screen == null || client.screen instanceof net.minecraft.client.gui.screens.ChatScreen);
             boolean reconnect = com.farmmacro.macro.Reconnect.wouldReconnect(client, playing);
@@ -97,10 +101,12 @@ public class FarmMacroMod implements ClientModInitializer {
 
     private static void onTick(Minecraft mc) {
         MacroManager macro = MacroManager.INSTANCE;
+        Guard.run("route/cache",() -> com.farmmacro.route.ChunkCache.tick(mc));
         Guard.run("panic/effects", PanicDetector.INSTANCE::tickEffects);
         Guard.run("panic/banwave", com.farmmacro.panic.BanwaveWatch::tick);
         Guard.run("macro/reconnect", () -> com.farmmacro.macro.Reconnect.tick(mc));
         Guard.run("fun/foxy", () -> com.farmmacro.fun.Foxy.tick(mc));
+        Guard.run("fun/crop_fever",()->com.farmmacro.fun.CropFever.tick(mc));
         Guard.run("visual/perf", () -> com.farmmacro.visual.PerformanceMode.tick(mc));
         Guard.run("camera/ungrab", () -> com.farmmacro.camera.Ungrab.tick(mc));
         Guard.run("panic/always", () -> PanicDetector.INSTANCE.tickAlways(mc));
@@ -132,7 +138,9 @@ public class FarmMacroMod implements ClientModInitializer {
             return;
         }
 
-        while (keyRecord.consumeClick())   macro.toggleRecording(mc);
+        while (keyRecord.consumeClick()) {
+            if(!(RouteEditor.isActive() && mc.hasControlDown())) macro.toggleRecording(mc);
+        }
         while (keyPlay.consumeClick())     macro.togglePlayback(mc);
         while (keyClear.consumeClick())    macro.clearRecording(mc);
         while (keyResume.consumeClick())   macro.resumeFromSaved(mc);

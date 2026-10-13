@@ -20,6 +20,7 @@ public final class Ui {
     public static float RADIUS = 1f;
     public static boolean SHADOWS = true;
     private static String theme = null;
+    private static final int[] base=new int[22];
 
     /** id → название в меню. По умолчанию — «quiet» (синий под логотип Kaelix). */
     public static final String[][] THEMES = {
@@ -64,12 +65,16 @@ public final class Ui {
             }
         }
         theme = id;
+        base[0]=WINDOW;base[1]=SIDEBAR;base[2]=HEADER;base[3]=CARD;base[4]=CARD_HOVER;base[5]=FIELD;base[6]=BORDER;base[7]=TEXT;base[8]=SUB;base[9]=DIM;base[10]=ACCENT;base[11]=ACCENT_HI;base[12]=ON;base[13]=DANGER;base[14]=WARN;base[15]=TRACK_OFF;base[16]=TOGGLE_ON;base[17]=KNOB_ON;base[18]=KNOB_OFF;base[19]=ON_ACCENT;base[20]=TOOLTIP;base[21]=HUD_BG;
     }
 
     /** Применить тему из конфига, если она сменилась (дёшево — сравнение строк). */
     public static void sync(String id) {
         if (id == null) id = "quiet";
         if (!id.equals(theme)) applyTheme(id);
+        var c=com.farmmacro.config.ModConfig.INSTANCE;
+        WINDOW=c.uiCustomColors?UiStyle.color(c.uiColors.get("WINDOW"),base[0]):base[0];SIDEBAR=c.uiCustomColors?UiStyle.color(c.uiColors.get("SIDEBAR"),base[1]):base[1];HEADER=c.uiCustomColors?UiStyle.color(c.uiColors.get("HEADER"),base[2]):base[2];CARD=c.uiCustomColors?UiStyle.color(c.uiColors.get("CARD"),base[3]):base[3];CARD_HOVER=c.uiCustomColors?UiStyle.color(c.uiColors.get("CARD_HOVER"),base[4]):base[4];FIELD=c.uiCustomColors?UiStyle.color(c.uiColors.get("FIELD"),base[5]):base[5];BORDER=c.uiCustomColors?UiStyle.color(c.uiColors.get("BORDER"),base[6]):base[6];TEXT=c.uiCustomColors?UiStyle.color(c.uiColors.get("TEXT"),base[7]):base[7];SUB=c.uiCustomColors?UiStyle.color(c.uiColors.get("SUB"),base[8]):base[8];DIM=c.uiCustomColors?UiStyle.color(c.uiColors.get("DIM"),base[9]):base[9];ACCENT=c.uiCustomColors?UiStyle.color(c.uiColors.get("ACCENT"),base[10]):base[10];ACCENT_HI=c.uiCustomColors?UiStyle.color(c.uiColors.get("ACCENT_HI"),base[11]):base[11];ON=c.uiCustomColors?UiStyle.color(c.uiColors.get("ON"),base[12]):base[12];DANGER=c.uiCustomColors?UiStyle.color(c.uiColors.get("DANGER"),base[13]):base[13];WARN=c.uiCustomColors?UiStyle.color(c.uiColors.get("WARN"),base[14]):base[14];TRACK_OFF=c.uiCustomColors?UiStyle.color(c.uiColors.get("TRACK_OFF"),base[15]):base[15];TOGGLE_ON=c.uiCustomColors?UiStyle.color(c.uiColors.get("TOGGLE_ON"),base[16]):base[16];KNOB_ON=c.uiCustomColors?UiStyle.color(c.uiColors.get("KNOB_ON"),base[17]):base[17];KNOB_OFF=c.uiCustomColors?UiStyle.color(c.uiColors.get("KNOB_OFF"),base[18]):base[18];ON_ACCENT=c.uiCustomColors?UiStyle.color(c.uiColors.get("ON_ACCENT"),base[19]):base[19];TOOLTIP=c.uiCustomColors?UiStyle.color(c.uiColors.get("TOOLTIP"),base[20]):base[20];HUD_BG=c.uiCustomColors?UiStyle.color(c.uiColors.get("HUD_BG"),base[21]):base[21];
+        WINDOW=UiStyle.opacity(WINDOW,c.uiBackgroundOpacity);SIDEBAR=UiStyle.opacity(SIDEBAR,c.uiBackgroundOpacity);HEADER=UiStyle.opacity(HEADER,c.uiBackgroundOpacity);CARD=UiStyle.opacity(CARD,c.uiBackgroundOpacity);CARD_HOVER=UiStyle.opacity(CARD_HOVER,c.uiBackgroundOpacity);HUD_BG=UiStyle.opacity(HUD_BG,c.hudBackgroundOpacity);RADIUS=(float)c.uiCornerScale;SHADOWS=c.uiSoftShadows;
     }
 
     private static void set(int window, int sidebar, int header, int card, int cardHover, int field, int border,
@@ -162,6 +167,7 @@ public final class Ui {
     /** v1.16.0: подложка окна. Минималистично — тонкая рамка. */
     public static void window(GuiGraphicsExtractor g, int x, int y, int w, int h, int r) {
         roundBordered(g, x, y, w, h, r, WINDOW, BORDER);
+        CustomUiAssets.draw(g,"background",x+1,y+1,w-2,h-2,com.farmmacro.config.ModConfig.INSTANCE.uiBackgroundOpacity);
     }
 
     /** v1.16.0: блок-карточка (текущий макрос/маршрут). Минималистично — тонкая рамка без заливки. */

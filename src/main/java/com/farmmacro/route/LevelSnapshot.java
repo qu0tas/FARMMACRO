@@ -57,6 +57,33 @@ public final class LevelSnapshot implements BlockGetter {
         return s;
     }
 
+    public boolean containsChunk(long key) { return chunks.containsKey(key); }
+    public java.util.Set<Long> chunkKeys() { return java.util.Set.copyOf(chunks.keySet()); }
+    public static LevelSnapshot chunk(Level level, LevelChunk ch) {
+        int lo=level.getMinSectionY(), hi=lo+ch.getSections().length-1;
+        LevelSnapshot s=new LevelSnapshot(level.getMinY(),level.getHeight(),lo,hi);
+        LevelChunkSection[] dst=new LevelChunkSection[ch.getSections().length];
+        boolean[] air=new boolean[dst.length];
+        for(int i=0;i<dst.length;i++) {
+            var sec=ch.getSections()[i]; air[i]=sec==null || sec.hasOnlyAir();
+            if(!air[i]) { dst[i]=sec.copy(); s.sections++; }
+        }
+        long k=key(ch.getPos().x(),ch.getPos().z()); s.chunks.put(k,dst);s.airOnly.put(k,air);
+        return s;
+    }
+    /** Worker thread only. Retains exact top in sixteenth-block units and boundary plates. */
+    public CachedChunk navigation(long k) {
+        int cx=(int)(k>>32),cz=(int)k;
+        PathLevel w=new PathLevel(this);
+        java.util.Map<Integer,short[]> data=new java.util.TreeMap<>();
+        for(int sy=secLo;sy<=secHi;sy++) {
+            short[] cells=new short[4096];
+            for(int y=0;y<16;y++) for(int z=0;z<16;z++) for(int x=0;x<16;x++)
+                cells[(y<<8)|(z<<4)|x]=CachedChunk.cell(w,(cx<<4)+x,(sy<<4)+y,(cz<<4)+z);
+            data.put(sy,cells);
+        }
+        return new CachedChunk(cx,cz,data);
+    }
     @Override
     public BlockState getBlockState(BlockPos pos) {
         int x = pos.getX(), y = pos.getY(), z = pos.getZ();

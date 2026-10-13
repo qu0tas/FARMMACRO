@@ -86,6 +86,7 @@ public final class PathFinder {
     /** Итог. ok — путь есть: points (без стартовой клетки, последняя — точка цели), goal, cost; иначе reason. */
     public static final class Result {
         public boolean ok;
+        public java.util.Map<CachedPathWorld.Cell,Short> cachedCells = java.util.Map.of();
         public String reason;
         public Goal goal;
         public double cost;

@@ -190,6 +190,7 @@ public class PanicDetector {
 
     /** v1.13: системный чат / надпись над хотбаром / титр — перезагрузка, лимбо, гость на ферме. */
     public void onSystemText(String text, String where) {
+        if(!"надпись над хотбаром".equals(where))com.farmmacro.fun.CropFever.onText(text,false);
         if (armed() && player() != null) {
             world.onServerText(text, where);
             if (!"надпись над хотбаром".equals(where)) players.onSystemText(text, ModConfig.INSTANCE);
@@ -260,6 +261,7 @@ public class PanicDetector {
         if (!armed() || !ModConfig.INSTANCE.detectGuiOpen || screen == null) return;
         if (screen instanceof PauseScreen || screen instanceof ChatScreen
                 || screen instanceof FarmMacroScreen || screen instanceof SaveMacroScreen
+                || screen instanceof com.farmmacro.gui.RouteVariantScreen
                 || screen instanceof com.farmmacro.gui.PointEditScreen
                 || screen instanceof com.farmmacro.gui.MacroSettingsScreen
                 || screen instanceof com.farmmacro.hud.HudEditorScreen) return;
@@ -293,6 +295,7 @@ public class PanicDetector {
             return;
         }
         if (!armed()) return;
+        if(com.farmmacro.route.RouteEndRuntime.INSTANCE.serverMove(mvKind,dist)){markServerPush();updatePrev(p);return;}
         markServerPush();                                     // позицию задал сервер — не «аномалия скорости»
         if (!c.detectServerMove) { updatePrev(p); return; }
         float dYaw = angleDiff(p.getYRot(), mvYaw), dPitch = Math.abs(p.getXRot() - mvPitch);
@@ -499,6 +502,7 @@ public class PanicDetector {
     }
 
     public void onTitle(String text, boolean subtitle) {
+        if(com.farmmacro.fun.CropFever.onText(text,!subtitle))return;
         if (!armed() || text == null || text.isBlank()) return;
         world.onServerText(text, subtitle ? "подзаголовок" : "титр");
         if (!ModConfig.INSTANCE.detectTitle) return;

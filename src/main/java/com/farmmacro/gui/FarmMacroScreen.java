@@ -1115,6 +1115,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
     }
 
     private void buildVisual() {
+        CustomizationRows.build(rows,FarmMacroScreen::save);
         java.util.function.BooleanSupplier ro = () -> cfg().routeEnabled;
         rows.add(new Rows.Section("Интерфейс").key("v.ui"));
         rows.add(new Rows.Selector("Тема", "Цвета меню и HUD. Меняется сразу", () -> THEME_CHOICES,
@@ -1343,6 +1344,28 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(number("До дороги не дальше", "«Продолжить с места»: дальше — идёт к маршруту своим путём (или отказ, если возврат выключен)",
                 () -> cfg().resumeAnywhereMaxDist, v -> cfg().resumeAnywhereMaxDist = v, 0.5, 16, 0.5, 1, v -> Rows.num(v) + " бл"));
 
+        rows.add(new Rows.Buttons(
+                new Rows.Btn("Зарандомить",Rows.Style.SECONDARY,() -> {
+                    if(MacroManager.INSTANCE.getState()!=MacroManager.State.IDLE) return;
+                    com.farmmacro.route.RouteVariants.clearPreview(); com.farmmacro.route.RouteVariants.nextPreview();
+                    com.farmmacro.route.RouteEditor.setActive(minecraft,true); minecraft.setScreen(null);
+                }),
+                new Rows.Btn("Ещё",Rows.Style.SECONDARY,() -> {
+                    if(MacroManager.INSTANCE.getState()!=MacroManager.State.IDLE) return;
+                    com.farmmacro.route.RouteVariants.nextPreview();
+                    com.farmmacro.route.RouteEditor.setActive(minecraft,true); minecraft.setScreen(null);
+                }),
+                new Rows.Btn("Сохранить копией",Rows.Style.SECONDARY,() -> {
+                    boolean ok=com.farmmacro.route.RouteVariants.saveCopy();
+                    MacroManager.INSTANCE.msgPublic(minecraft,ok ? "§aВариант сохранён как новый маршрут _rnd" : "§cНет превью или ошибка сохранения");
+                    pendingRebuild=true;
+                }).enabledIf(() -> com.farmmacro.route.RouteVariants.preview()!=null)));
+        rows.add(new Rows.Section("Кэш чанков"));
+        rows.add(toggle("Кэш чанков", "Поиск видит ранее загруженные области; свежий мир всегда важнее кэша",
+                () -> cfg().chunkCacheEnabled,v -> cfg().chunkCacheEnabled=v));
+        rows.add(number("Лимит кэша, МБ", "Общий лимит всех серверов/измерений; старые регионы удаляются первыми",
+                () -> cfg().chunkCacheMb,v -> cfg().chunkCacheMb=(int)v,1,4096,1,16,v -> (int)v+" МБ").integer());
+        rows.add(new Rows.Buttons(new Rows.Btn("Очистить кэш",Rows.Style.SECONDARY,com.farmmacro.route.ChunkCache::clear)));
         // v1.15 «Возврат на маршрут»
         rows.add(new Rows.Section("Возврат на маршрут").key("r.return"));
         java.util.function.BooleanSupplier ret = () -> cfg().returnEnabled;
@@ -2077,7 +2100,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         if (Ui.inside(mx, my, x + w - 24, y + 7, 16, 16)) { clickSound(); onClose(); return true; }
         if (modeW > 0 && Ui.inside(mx, my, modeX, y + 8, modeW, 14)) { clickSound(); toggleAdvanced(); return true; }
         // v1.15.1: заголовок — тащить окно; двойной клик — обратно в центр
-        if (Ui.inside(mx, my, x, y, w - 28, HEADER_H)) {
+        if (e.button()==0&&(Ui.inside(mx, my, x, y, w - 28, HEADER_H)||Ui.inside(mx,my,x,y,w,winH())&&!Ui.inside(mx,my,x+4,y+4,w-8,winH()-8))) {
             long now = System.currentTimeMillis();
             if (now - lastHeaderClick < 350) {
                 cfg().guiOffsetX = 0; cfg().guiOffsetY = 0; save();

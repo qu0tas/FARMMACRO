@@ -14,6 +14,8 @@ public class MacroSettings {
     public HoldSettings hold = new HoldSettings();
     /** «Случайность» (v5): каждый проход немного другой. В старых файлах нет — выключено. */
     public HumanSettings human = new HumanSettings();
+    public com.farmmacro.route.RouteRandomSettings routeRandom = new com.farmmacro.route.RouteRandomSettings();
+    public com.farmmacro.route.RouteEndSettings routeEnd = new com.farmmacro.route.RouteEndSettings();
 
     /**
      * v1.12.1: настройки для нового маршрута / новой записи — копия «по умолчанию для новых»
@@ -43,6 +45,8 @@ public class MacroSettings {
         s.camera = camera == null ? new CameraBinding() : camera.copy();
         s.hold = hold == null ? new HoldSettings() : hold.copy();
         s.human = human == null ? new HumanSettings() : human.copy();
+        s.routeRandom = routeRandom == null ? new com.farmmacro.route.RouteRandomSettings() : routeRandom.copy();
+        s.routeEnd = routeEnd == null ? new com.farmmacro.route.RouteEndSettings() : routeEnd.copy();
         return s;
     }
 
@@ -53,6 +57,9 @@ public class MacroSettings {
         if (hold == null) hold = new HoldSettings();
         hold.sort();
         human = HumanSettings.sanitize(human);
+        if (routeRandom == null) routeRandom = new com.farmmacro.route.RouteRandomSettings();
+        routeRandom.sanitize();
+        if(routeEnd==null)routeEnd=new com.farmmacro.route.RouteEndSettings();routeEnd.sanitize();
     }
 
     /**
@@ -66,6 +73,9 @@ public class MacroSettings {
         s.camera = CameraBinding.sanitize(s.camera);
         s.hold = HoldSettings.sanitize(s.hold);
         s.human = HumanSettings.sanitize(s.human);
+        if (s.routeRandom == null) s.routeRandom = new com.farmmacro.route.RouteRandomSettings();
+        s.routeRandom.sanitize();
+        if(s.routeEnd==null)s.routeEnd=new com.farmmacro.route.RouteEndSettings();s.routeEnd.sanitize();
         return s;
     }
 
