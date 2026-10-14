@@ -37,6 +37,11 @@ public final class ReturnCore {
     /** В этот тик стоим ради поворота. */
     public boolean turningInPlace;
     private int lowTicks;
+    public PathFinder.World steeringWorld;
+    public final GroundGuide guide=new GroundGuide();
+    public boolean guided;
+    public double guideX,guideZ;
+    private double observedVx,observedVz;
     /** v1.16.2 лестница: лучшая ошибка по высоте и тиков без прогресса. */
     private double climbBest = Double.MAX_VALUE;
     private int climbStall;
@@ -55,7 +60,7 @@ public final class ReturnCore {
         this.endYaw = endYaw; this.endPitch = endPitch;
         core.start(route, 0, STUCK_TICKS);
         phase = route.points.isEmpty() ? Phase.TURN : Phase.WALK;
-        reason = null; lowTicks = 0; lastX = Double.NaN; needFly = false; climbBest = Double.MAX_VALUE; climbStall = 0;
+        reason = null; lowTicks = 0; guide.reset(); guided=false; lastX = Double.NaN; needFly = false; climbBest = Double.MAX_VALUE; climbStall = 0;
         wantYaw = endYaw; wantPitch = endPitch;
     }
 
@@ -100,6 +105,8 @@ public final class ReturnCore {
     public Phase tick(double x, double y, double z, boolean onGround, boolean flying, float yaw, float pitch,
                       boolean horizontalCollision, WalkCore.Out out) {
         needFly = false;
+        observedVx=Double.isNaN(lastX)?0:x-lastX;observedVz=Double.isNaN(lastX)?0:z-lastZ;
+        guided=false;
         speed = Double.isNaN(lastX) ? 0 : Math.hypot(x - lastX, z - lastZ);
         lastX = x; lastZ = z;
         out.forward = out.back = out.left = out.right = out.jump = out.sprint = out.sneak = out.attack = out.use = false;
@@ -192,6 +199,31 @@ public final class ReturnCore {
         if (Math.hypot(look[0] - x, look[1] - z) > 0.3) wantYaw = WalkCore.yawTo(x, z, look[0], look[1]);
         wantPitch = endPitch;
         if(naturalLook){var a=com.farmmacro.camera.PathLook.angles(route.points,t,x,y,z,lookAhead,wantYaw);wantYaw=a[0];wantPitch=a[1];}
+        boolean special=tp.fly||tp.climb||out.jump||!onGround||core.dropPhase()!=WalkCore.D_NONE||core.pausing();
+        if(naturalLook && steeringWorld!=null && !special && !flying) {
+            double d=Math.hypot(tp.x-x,tp.z-z);
+            // Rounded corner remains within the waypoint acceptance corridor. Never skip action vertices.
+            double gx=tp.x,gz=tp.z;
+            boolean corner=false;
+            if(t+1<route.points.size()) {
+                var next=route.points.get(t+1);
+                corner=Math.abs(WalkCore.wrap(WalkCore.yawTo(x,z,tp.x,tp.z)-WalkCore.yawTo(tp.x,tp.z,next.x,next.z)))>25;
+                if(d<.5 && !next.fly&&!next.climb&&!tp.jump && Math.abs(next.y-y)<.1) {
+                    double len=Math.hypot(next.x-tp.x,next.z-tp.z),k=Math.min(.18,len)/Math.max(1e-6,len);
+                    double cx=tp.x+(next.x-tp.x)*k,cz=tp.z+(next.z-tp.z)*k;
+                    if(new GroundProbe(steeringWorld).clear(x,y,z,cx,cz,.32)){gx=cx;gz=cz;}
+                }
+            }
+            guide.tick(new GroundProbe(steeringWorld),x,y,z,observedVx,observedVz,yaw,gx,gz,remaining(x,z),corner&&d<1.3,out);
+            guided=true;guideX=guide.aimX;guideZ=guide.aimZ;
+            // Look at the chosen corridor, not a conflicting independent point around a wall.
+            float localYaw=WalkCore.yawTo(x,z,guideX,guideZ);
+            if(guide.state==GroundGuide.State.AVOID||guide.state==GroundGuide.State.BLOCKED
+                ||Math.abs(WalkCore.wrap(wantYaw-localYaw))>50) wantYaw=localYaw;
+            if(guide.blockedTicks()>12) return replan("проход заблокирован");
+            if(guide.state==GroundGuide.State.ALIGN || guide.state==GroundGuide.State.BRAKE || guide.state==GroundGuide.State.BLOCKED)core.resetStuckWindow();
+            return phase;
+        }
         double err = Math.abs(WalkCore.wrap(wantYaw - yaw));
         if (err > TURN_STOP_DEG && (onGround || flying)) {
             out.forward = out.back = out.left = out.right = false;

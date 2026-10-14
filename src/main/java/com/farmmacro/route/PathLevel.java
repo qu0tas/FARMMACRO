@@ -73,6 +73,20 @@ public final class PathLevel implements PathFinder.World {
         return PathFinder.H_NONE;
     }
 
+    @Override public boolean bodyClear(double x,double y,double z,double radius,double height) {
+        AABB body=new AABB(x-radius,y,z-radius,x+radius,y+height,z+radius);
+        for(int bx=(int)Math.floor(body.minX);bx<=(int)Math.floor(body.maxX);bx++)
+          for(int bz=(int)Math.floor(body.minZ);bz<=(int)Math.floor(body.maxZ);bz++)
+            for(int by=(int)Math.floor(y)-1;by<=(int)Math.floor(y+height);by++) {
+              BlockPos at=new BlockPos(bx,by,bz);
+              BlockState st=level.getBlockState(at);
+              if(st.is(Blocks.VOID_AIR)) return false;
+              for(AABB box:st.getCollisionShape(level,at).toAabbs())
+                if(box.move(at).intersects(body)) return false;
+            }
+        return true;
+    }
+
     @Override public double top(int x, int y, int z) { load(x, y, z); return lTop; }
     @Override public int hazard(int x, int y, int z) { load(x, y, z); return lHaz; }
     @Override public int edges(int x, int y, int z) { load(x, y, z); return lEdges; }

@@ -429,9 +429,10 @@ public final class FarmHud {
                 : rw.waitingForChunk() ? "ВОЗВРАТ · жду загрузки чанка"
                 : rw.openingDoor() ? "ВОЗВРАТ " + rw.what() + " · открываю дверь"
                 : rw.turningToRoute() ? "ВОЗВРАТ · поворот к маршруту"
-                : String.format(java.util.Locale.ROOT, "ВОЗВРАТ %s · %.1f бл%s", rw.what(), rw.remaining(mc.player),
+                : String.format(java.util.Locale.ROOT, "ВОЗВРАТ %s · %.1f бл%s · "+rw.motionState(), rw.what(), rw.remaining(mc.player),
                 rw.replans() > 0 ? " · путь ×" + (rw.replans() + 1) : "");
         if(rw.usingCache()) text += " · по кэшу";
+        if(ModConfig.INSTANCE.pathDebug && rw.steeringPoint()!=null){var v=rw.steeringPoint();text+=String.format(java.util.Locale.ROOT," · цель %.1f/%.1f · узлов %d",v[0],v[1],rw.path().size());}
         return line(g, mc, x, y, w, text, 0xFF7FD8FF);
     }
 

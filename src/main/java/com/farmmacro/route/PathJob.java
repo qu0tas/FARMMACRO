@@ -11,7 +11,7 @@ import java.util.concurrent.Executors;
 /**
  * v1.16.2: поиск пути в фоне. В главном потоке — только снимок блоков ({@link LevelSnapshot}, единицы мс);
  * A* ({@link PathFinder}) идёт в отдельном потоке «Kaelix-path», игра не подвисает. Результат забирают из тика
- * ({@link #done()} → {@link #result()}). Отменённый поиск досчитывается и выбрасывается.
+ * ({@link #done()} → {@link #result()}). Отменённый поиск кооперативно прекращается на ближайшей итерации A*.
  */
 public final class PathJob {
     private static final ExecutorService EXEC = Executors.newSingleThreadExecutor(r -> {
@@ -24,11 +24,13 @@ public final class PathJob {
     public static final int Y_MARGIN = 24;
 
     private final CompletableFuture<PathFinder.Result> fut;
+    private final java.util.concurrent.atomic.AtomicBoolean cancelled;
     /** Время снимка в главном потоке, мкс; секций скопировано. */
     public final long snapMicros;
     public final int sections;
 
-    private PathJob(CompletableFuture<PathFinder.Result> f, long snapMicros, int sections) {
+    private PathJob(CompletableFuture<PathFinder.Result> f, long snapMicros, int sections, java.util.concurrent.atomic.AtomicBoolean cancelled) {
+        this.cancelled=cancelled;
         this.fut = f; this.snapMicros = snapMicros; this.sections = sections;
     }
 
@@ -37,6 +39,7 @@ public final class PathJob {
         long t0 = System.nanoTime();
         LocalPlayer p = mc.player;
         PathFinder.Params prm = ReturnWalker.params(p, fly);
+        var cancelled=new java.util.concurrent.atomic.AtomicBoolean();prm.cancelled=cancelled::get;
         double px = p.getX(), py = p.getY(), pz = p.getZ();
         boolean onGround = p.onGround();
         List<PathFinder.Goal> gl = List.copyOf(goals);
@@ -54,13 +57,14 @@ public final class PathJob {
             long k=CachedChunk.key(cx,cz); if(!snap.containsChunk(k)) missing.add(k);
         }
         CompletableFuture<PathFinder.Result> f = CompletableFuture.supplyAsync(() -> {
+            if(cancelled.get()){var aborted=new PathFinder.Result();aborted.reason="поиск отменён";return aborted;}
             CachedPathWorld world=new CachedPathWorld(new PathLevel(snap),snap::containsChunk,
                     cache==null ? java.util.Map.of() : cache.load(missing));
             PathFinder.Result result=new PathFinder(world,prm).find(px,py,pz,onGround,gl);
             result.cachedCells=world.witnesses(result,px,py,pz);
             return result;
         }, EXEC);
-        return new PathJob(f, snapUs, snap.sections);
+        return new PathJob(f, snapUs, snap.sections,cancelled);
     }
 
     public boolean done() { return fut.isDone(); }
@@ -77,5 +81,5 @@ public final class PathJob {
         }
     }
 
-    public void cancel() { fut.cancel(false); }
+    public void cancel() { cancelled.set(true);fut.cancel(false); }
 }

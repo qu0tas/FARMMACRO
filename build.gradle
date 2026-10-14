@@ -16,6 +16,7 @@ dependencies {
 }
 
 processResources {
+    inputs.property("navTestMode", project.hasProperty("navTest"))
 	def props = [version: project.version, minecraft_version: project.minecraft_version,
 	             loader_version: project.loader_version, fabric_version: project.fabric_version]
 	inputs.properties props
@@ -88,3 +89,37 @@ tasks.register('checkRemovedFiles') {
 	}
 }
 tasks.named('compileJava') { dependsOn 'checkRemovedFiles' }
+
+// Opt-in integration harness: never included in the distributable JAR.
+if (project.hasProperty('navTest')) {
+    sourceSets {
+        navTest {
+            compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+            runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+        }
+    }
+    loom {
+        mods {
+            farmmacro { sourceSet sourceSets.main; sourceSet sourceSets.navTest }
+        }
+        runs {
+            client {
+                runDir 'run-navclient'
+                vmArg '-Dfarmmacro.navTest=true'
+                programArgs '--quickPlayMultiplayer', '127.0.0.1:25567', '--username', 'NavTester'
+            }
+            server { runDir 'run-navserver' }
+        }
+    }
+    tasks.named('processResources') {
+        doLast {
+            def f = file("$buildDir/resources/main/fabric.mod.json")
+            def data = new groovy.json.JsonSlurper().parse(f)
+            data.entrypoints.client.add('com.farmmacro.navtest.NavClientTest')
+            f.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(data))
+        }
+    }
+    tasks.named('runClient') { dependsOn tasks.named('navTestClasses'); classpath += sourceSets.navTest.output; maxHeapSize='768m' }
+    tasks.named('runServer') { maxHeapSize='512m' }
+}
+

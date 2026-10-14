@@ -1,0 +1,13 @@
+open: PASS status=DONE ticks=92 goalError=0.109 maxYaw/tick=0.00 maxSpeed/tick=0.216 moving=72 idle=20 replans=0 fail=null
+wall-corner: PASS status=DONE ticks=113 goalError=0.151 maxYaw/tick=13.58 maxSpeed/tick=0.257 moving=96 idle=17 replans=0 fail=null
+one-block-corridor: PASS status=DONE ticks=89 goalError=0.109 maxYaw/tick=0.00 maxSpeed/tick=0.216 moving=72 idle=17 replans=0 fail=null
+single-obstacle: PASS status=DONE ticks=95 goalError=0.044 maxYaw/tick=8.63 maxSpeed/tick=0.216 moving=78 idle=17 replans=0 fail=null
+slalom: PASS status=DONE ticks=110 goalError=0.126 maxYaw/tick=16.13 maxSpeed/tick=0.255 moving=92 idle=18 replans=0 fail=null
+steps: PASS status=DONE ticks=116 goalError=0.132 maxYaw/tick=14.63 maxSpeed/tick=0.256 moving=97 idle=19 replans=0 fail=null
+dead-end: PASS status=FAIL ticks=1 goalError=15.000 maxYaw/tick=0.00 maxSpeed/tick=0.000 moving=0 idle=1 replans=0 fail=путь не найден (тупик: вокруг стены, вода, лава или обрыв > 3 бл)
+dynamic-obstacle: PASS status=DONE ticks=127 goalError=0.173 maxYaw/tick=14.48 maxSpeed/tick=0.251 moving=108 idle=19 replans=1 fail=null
+stop-at-goal: PASS status=DONE ticks=91 goalError=0.109 maxYaw/tick=0.00 maxSpeed/tick=0.216 moving=72 idle=19 replans=0 fail=null
+teleport-cancel: PASS status=FAIL ticks=27 goalError=11.225 maxYaw/tick=0.00 maxSpeed/tick=18.175 moving=25 idle=2 replans=0 fail=мир/игрок/позиция изменились — навигация отменена
+moving-target: PASS status=DONE ticks=99 goalError=0.008 maxYaw/tick=8.47 maxSpeed/tick=0.216 moving=83 idle=16 replans=0 fail=null
+long-run: PASS status=DONE ticks=697 goalError=0.155 maxYaw/tick=18.15 maxSpeed/tick=0.218 moving=484 idle=213 replans=0 fail=null
+death-cancel: PASS status=FAIL ticks=26 goalError=10.295 maxYaw/tick=0.00 maxSpeed/tick=0.216 moving=23 idle=3 replans=0 fail=мир/игрок/позиция изменились — навигация отменена

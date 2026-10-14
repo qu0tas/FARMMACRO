@@ -28,6 +28,30 @@ public final class ReturnWalker {
     private List<PathFinder.Goal> goals;
     private boolean active;
     private int replans;
+    private net.minecraft.client.multiplayer.ClientLevel startedLevel;
+    private double previousX,previousY,previousZ;
+    public String motionState(){return core.guided ? switch(core.guide.state){
+        case WALK -> "иду"; case CORNER -> "поворот"; case AVOID -> "обход";
+        case BRAKE -> "замедляюсь"; case BLOCKED -> "проверяю проход"; case ALIGN -> "осматриваю путь";
+    } : "иду";}
+    public int pathIndex(){return core.target();}
+    public List<double[]> debugRays(){
+        if(!core.guided)return List.of();
+        var rays=new java.util.ArrayList<double[]>();
+        for(int i=0;i<core.guide.rays;i++)rays.add(new double[]{core.guide.rayX[i],core.guide.rayZ[i],core.guide.rayPass[i]?1:0});
+        return rays;
+    }
+    private int lastGoalUpdate=-100,goalUpdates;
+    /** Live target API for future pest module; call only with a verified target on the client thread. */
+    public boolean updateGoal(Minecraft mc,double x,double y,double z){
+        if(!active||goals==null||goals.size()!=1||!Double.isFinite(x)||!Double.isFinite(y)||!Double.isFinite(z))return false;
+        var old=goals.getFirst();
+        if(ticks-lastGoalUpdate<12||Math.sqrt(Math.pow(old.x-x,2)+Math.pow(old.y-y,2)+Math.pow(old.z-z,2))<.9)return false;
+        if(goalUpdates>=30){fail="цель слишком часто меняет позицию — стоп";stop(mc);release(mc.options);return false;}
+        goalUpdates++;lastGoalUpdate=ticks;goals=PathFinder.pointGoal(x,y,z,old.join);
+        release(mc.options);plan(mc,J_REPLAN,!noFly);return true;
+    }
+    public double[] steeringPoint(){return core.guided?new double[]{core.guideX,core.guideZ}:null;}
     private java.util.Map<CachedPathWorld.Cell,Short> cachedCells=java.util.Map.of();
     private int cachedWait;
     public boolean waitingForChunk() { return cachedWait>0; }
@@ -110,9 +134,12 @@ public final class ReturnWalker {
      * куда придём; известна после поиска). Не нашли — {@link #tick} вернёт FAIL ({@link #failText}, {@link #failedPlanning}).
      */
     public void begin(Minecraft mc, List<PathFinder.Goal> goals, java.util.function.IntFunction<float[]> endCam, String what) {
-        this.goals = goals;
+        startedLevel=mc.level;
+        if(mc.player!=null){previousX=mc.player.getX();previousY=mc.player.getY();previousZ=mc.player.getZ();}
+        this.goals = List.copyOf(goals);
         this.what = what;
         this.endCam = endCam;
+        goalUpdates=0;lastGoalUpdate=-100;
         replans = 0; fail = null; ticks = 0; noFly = false; tap = 0; tapTries = 0; failedPlanning = false;
         door = null; doorTicks = 0; doorClicks = 0; useHold = 0; useWait = 0;
         path = List.of();
@@ -122,7 +149,9 @@ public final class ReturnWalker {
     }
 
     private void plan(Minecraft mc, int kind, boolean fly) {
+        com.farmmacro.camera.SmoothTurn.stopFollowing();
         if (job != null) job.cancel();
+        path=List.of();
         job = PathJob.start(mc, goals, fly);
         jobKind = kind; jobTicks = 0;
     }
@@ -162,11 +191,13 @@ public final class ReturnWalker {
         core.start(r.points, p.getX(), p.getZ(), endYaw, endPitch);
         var h = com.farmmacro.macro.Humanizer.lap();
         shaper = h != null ? h.routeShaper(0).route(core.points()) : null;
-        if (h != null) core.core().setReach(h.reachRadii(core.points().size(), ReturnCore.REACH));
+        if (h != null && !com.farmmacro.config.ModConfig.INSTANCE.pathNaturalLook) core.core().setReach(h.reachRadii(core.points().size(), ReturnCore.REACH));
         issuedYaw = Float.NaN; issuedPitch = Float.NaN;
     }
 
     public void stop(Minecraft mc) {
+        if(active && mc!=null) release(mc.options);
+        com.farmmacro.camera.SmoothTurn.stopFollowing();
         if (active && com.farmmacro.camera.SmoothTurn.isActive()) com.farmmacro.camera.SmoothTurn.stop();
         if (job != null) { job.cancel(); job = null; }
         door = null;
@@ -179,16 +210,21 @@ public final class ReturnWalker {
     public int joinIndex() { return goal == null ? 0 : goal.join; }
 
     public Status tick(Minecraft mc, ModConfig c) {
-        if (!active) return Status.FAIL;
+        if (!active) { com.farmmacro.camera.SmoothTurn.stopFollowing(); release(mc.options); return Status.FAIL; }
         LocalPlayer p = mc.player;
         Options o = mc.options;
-        ticks++;
+        if(p==null || mc.level==null || mc.level!=startedLevel || !p.isAlive()
+            || Math.sqrt(Math.pow(p.getX()-previousX,2)+Math.pow(p.getY()-previousY,2)+Math.pow(p.getZ()-previousZ,2))>8) {
+            fail="мир/игрок/позиция изменились — навигация отменена";stop(mc);release(o);return Status.FAIL;
+        }
+        previousX=p.getX();previousY=p.getY();previousZ=p.getZ();
+        if(++ticks>12000){fail="превышено время навигации (10 минут)";stop(mc);release(o);return Status.FAIL;}
         if (job != null) return tickJob(mc, p, o);
         if(!cachedCells.isEmpty()) {
             PathLevel live=new PathLevel(mc.level);
             if(!c.chunkCacheEnabled || CachedPathWorld.mismatch(cachedCells,live,k -> mc.level.hasChunk((int)(k>>32),(int)k))) {
                 release(o);
-                if(++replans>c.returnReplans) { fail="кэш не совпал с миром: лимит перестроений";active=false;return Status.FAIL; }
+                if(++replans>c.returnReplans) { fail="кэш не совпал с миром: лимит перестроений";stop(mc);return Status.FAIL; }
                 EventLog.log("RETURN","кэш не совпал с загруженными блоками — перестроение");
                 plan(mc,J_REPLAN,!noFly);return Status.RUNNING;
             }
@@ -203,14 +239,15 @@ public final class ReturnWalker {
             for(double ax:new double[]{nx-.3,nx+.3}) for(double az:new double[]{nz-.3,nz+.3})
                 if(!mc.level.hasChunk(((int)Math.floor(ax))>>4,((int)Math.floor(az))>>4)) ready=false;
             if(!ready) {
-                release(o);core.core().resetStuckWindow();
-                if(++cachedWait>200) { fail="область пути по кэшу не загрузилась за 10 с";active=false;return Status.FAIL; }
+                release(o);com.farmmacro.camera.SmoothTurn.stopFollowing();core.core().resetStuckWindow();
+                if(++cachedWait>200) { fail="область пути по кэшу не загрузилась за 10 с";stop(mc);return Status.FAIL; }
                 return Status.RUNNING;
             }
         }
         cachedWait=0;
         if (doorStep(mc, p, o, c)) return Status.RUNNING;
         boolean flying = p.getAbilities().flying;
+        core.steeringWorld=new PathLevel(mc.level);
         core.naturalLook=c.pathNaturalLook;core.lookAhead=c.pathLookAhead;
         ReturnCore.Phase ph = core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), flying, p.getYRot(), p.getXRot(), p.horizontalCollision, out);
         if (core.needFly && ph == ReturnCore.Phase.WALK) {
@@ -236,7 +273,7 @@ public final class ReturnWalker {
             release(o);
             if (++replans > c.returnReplans) {
                 fail = "сбили с пути " + replans + " раз (" + core.reason + ")";
-                active = false;
+                stop(mc);
                 return Status.FAIL;
             }
             EventLog.log("RETURN", "новый путь (" + replans + "/" + c.returnReplans + "): " + core.reason);
@@ -244,13 +281,14 @@ public final class ReturnWalker {
             return Status.RUNNING;
         }
         if (ph == ReturnCore.Phase.DONE) {
+            com.farmmacro.camera.SmoothTurn.stopFollowing();
             release(o);
             active = false;
             EventLog.log("RETURN", what + ": на маршруте, продолжаю с точки " + (joinIndex() + 1) + " (" + ticks + " т, перепланов " + replans + ")");
             return Status.DONE;
         }
         turn(p, c);
-        if (shaper != null && ph == ReturnCore.Phase.WALK && !core.turningInPlace) {
+        if (!c.pathNaturalLook && shaper != null && ph == ReturnCore.Phase.WALK && !core.turningInPlace) {
             shaper.tick(out, p.getX(), p.getZ(), core.target(), WalkCore.D_NONE, false);
             if (shaper.idleNow) core.core().resetStuckWindow();
         }
@@ -276,6 +314,7 @@ public final class ReturnWalker {
         if (door == null) {
             door = findDoor(mc, p);
             if (door == null) return false;
+            com.farmmacro.camera.SmoothTurn.stopFollowing();
             doorTicks = 0; doorClicks = 0; useHold = 0; useWait = 0; doorYaw = Float.NaN;
             EventLog.log("RETURN", "дверь на пути (" + door.toShortString() + ") — открываю");
         }
@@ -292,6 +331,7 @@ public final class ReturnWalker {
             release(o);
             fail = "дверь " + door.toShortString() + " не открывается (приват или редстоун?)";
             active = false;
+            com.farmmacro.camera.SmoothTurn.stopFollowing();
             door = null;
             return true;   // tick() вернёт FAIL на следующем тике
         }
@@ -358,6 +398,10 @@ public final class ReturnWalker {
     /** Камера — «как мышь»: новая цель, если желаемый взгляд ушёл от поставленного (по ходу — > 6°, в конце — точно). */
     private void turn(LocalPlayer p, ModConfig c) {
         float wy = core.wantYaw, wp = core.wantPitch;
+        if(c.pathNaturalLook) {
+            com.farmmacro.camera.SmoothTurn.followMouse(p.getYRot()+WalkCore.wrap(wy-p.getYRot()),wp,c.returnTurnSpeed);
+            return;
+        }
         boolean end = core.phase() == ReturnCore.Phase.TURN;
         boolean busy = com.farmmacro.camera.SmoothTurn.isActive();
         double fromIssued = Float.isNaN(issuedYaw) ? 1e9 : ReturnCore.angle(issuedYaw, issuedPitch, wy, wp);

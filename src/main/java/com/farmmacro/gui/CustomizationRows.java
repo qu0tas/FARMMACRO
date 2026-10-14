@@ -418,11 +418,23 @@ final class CustomizationRows {
                 5,
                 Rows::num)
             .integer());
-    rows.add(new Rows.Section("Камера авто-возврата").closed());
+    rows.add(new Rows.Toggle(
+        "Светомузыка CROP FEVER",
+        "Цветные переливы и мягкая пульсация; при чувствительности к мерцанию выключите",
+        () -> c.cropFeverLights, v -> { c.cropFeverLights = v; save.run(); }));
+    rows.add(new Rows.Number(
+        "Сила светомузыки, %",
+        "0 — без эффекта; цвета полупрозрачные, танцоры остаются поверх",
+        () -> c.cropFeverLightStrength,
+        v -> { c.cropFeverLightStrength = (int) v; save.run(); },
+        0, 100, 5, 10, Rows::num).integer().showIf(() -> c.cropFeverLights));
+    rows.add(new Rows.Section("Навигация и камера авто-возврата").closed());
+    rows.add(new Rows.Toggle("Отладка навигации", "Путь, выбранное направление и проверки препятствий в мире; подробности в HUD",
+        () -> c.pathDebug, v -> {c.pathDebug=v;save.run();}));
     rows.add(
         new Rows.Toggle(
             "Естественный взгляд по пути",
-            "Учитывает высоту пути; поворот через алгоритм сенсы мыши",
+            "Единый контроллер камеры и движения, локальный обход; выключение возвращает прежнее управление",
             () -> c.pathNaturalLook,
             v -> {
               c.pathNaturalLook = v;

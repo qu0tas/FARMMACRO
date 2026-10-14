@@ -30,6 +30,13 @@ public final class SmoothTurn {
     private static long lastNs;
     /** v1.11.1 «как мышь» (camMouseLike): план поворота по пикселям мыши; null — обычный плавный. */
     private static MouseTurn mouse;
+    private static TrackingTurn tracking;
+    /** Retarget without restarting angular velocity. Dedicated to autonomous navigation. */
+    public static void followMouse(float yaw,float pitch,double degPerSec) {
+        if(tracking==null){stop();tracking=new TrackingTurn();lastNs=0;}
+        targetYaw=yaw;targetPitch=Mth.clamp(pitch,-89f,89f);speed=degPerSec;mouse=null;active=true;
+    }
+    public static void stopFollowing(){if(tracking!=null)stop();}
 
     /**
      * Начать (или перенацелить) поворот.
@@ -47,6 +54,7 @@ public final class SmoothTurn {
     public static float targetPitch() { return targetPitch; }
 
     private static void turnTo(float yaw, float pitch, double degPerSec, boolean forceMouse) {
+        tracking=null;
         if (!active) lastNs = 0;
         targetYaw = yaw;
         targetPitch = Mth.clamp(pitch, -90f, 90f);
@@ -65,7 +73,7 @@ public final class SmoothTurn {
         active = true;
     }
 
-    public static void stop()          { active = false; mouse = null; }
+    public static void stop()          { active = false; mouse = null; tracking=null; }
     public static boolean isActive()   { return active; }
 
     /** Сколько градусов осталось довернуть (0, если поворота нет). */
@@ -80,11 +88,17 @@ public final class SmoothTurn {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
         long now = System.nanoTime();
-        if (!active || p == null) { lastNs = 0; if (p == null) active = false; return; }
+        if (!active || p == null) { lastNs = 0; if (p == null) stop(); return; }
         if (mc.isPaused()) { lastNs = now; return; }
         double dt = lastNs == 0 ? 1 / 60.0 : Math.min(0.1, (now - lastNs) / 1e9);
         lastNs = now;
 
+        if(tracking!=null){
+            var d=tracking.frame(p.getYRot(),p.getXRot(),targetYaw,targetPitch,
+                mc.options.sensitivity().get(),speed,dt);
+            if(d.yaw()!=0||d.pitch()!=0)apply(p,(float)d.yaw(),(float)d.pitch());
+            return;
+        }
         if (mouse != null) {
             long[] d = mouse.frame(dt);
             if (d[0] != 0 || d[1] != 0) apply(p, (float) (d[0] * mouse.step), (float) (d[1] * mouse.step));

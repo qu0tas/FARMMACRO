@@ -126,6 +126,16 @@ public final class CropFever {
                   (int) (Math.min(sw, sh) * .68)));
       int h = w * BEING.h / BEING.w;
       long elapsed = now - CORE.began;
+      if (c.cropFeverLights && c.cropFeverLightStrength > 0) {
+        // One non-overlapping wash; dancers are drawn above it in their own stratum.
+        for (int band = 0; band < FeverLights.BANDS; band++) {
+          var light = FeverLights.sample(elapsed, band, c.cropFeverLightStrength);
+          int left = (int) ((long) sw * band / FeverLights.BANDS);
+          int right = (int) ((long) sw * (band + 1) / FeverLights.BANDS);
+          if (right > left) g.fillGradient(left, 0, right, sh, light.top(), light.bottom());
+        }
+        g.nextStratum();
+      }
       for (int i = 0; i < c.cropFeverDancers; i++) {
         var p = FeverMotion.pose(CORE.began, elapsed, i, sw, sh, w, h);
         var pose = g.pose();

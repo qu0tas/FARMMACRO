@@ -165,6 +165,7 @@ public final class RouteRenderer {
         LocalPlayer player = mc.player;
         if (player == null || mc.level == null) return;
         MacroManager m = MacroManager.INSTANCE;
+        if(c.pathDebug && m.isReturning())collectNavigation(ctx,mc,m.returnWalker());
         boolean playing = m.isPlaying() || m.isCountingDown();
         boolean points = editorActive || (m.getSourceKind() == MacroManager.SourceKind.ROUTE && !RouteBuffer.INSTANCE.isEmpty());
         if (!editorActive) {
@@ -242,6 +243,28 @@ public final class RouteRenderer {
             ps.popPose();
         }
         if (points) labels(ctx, mc, cam, me, c);
+    }
+
+    /** Bounded, opt-in live navigation diagnostics. No text or render-state shared with the farm route. */
+    public static void collectNavigation(LevelRenderContext ctx,Minecraft mc,com.farmmacro.route.ReturnWalker rw){
+        var pts=List.copyOf(rw.path());int index=Math.min(rw.pathIndex(),pts.size());
+        var rays=rw.debugRays();var aim=rw.steeringPoint();
+        Vec3 cam=ctx.levelState().cameraRenderState.pos;
+        double x=mc.player.getX(),y=mc.player.getY()+.09,z=mc.player.getZ();
+        PoseStack ps=ctx.poseStack();ps.pushPose();
+        try{
+            ps.translate(-cam.x,-cam.y,-cam.z);
+            ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc)->Guard.runOrDisable("visual/navigation",()->{
+                Builder b=new Builder(false,1f).with(pose,vc);
+                double ax=x,ay=y,az=z;
+                for(int i=index;i<pts.size()&&i<index+64;i++){
+                    var p=pts.get(i);ribbon(b,(float)ax,(float)ay,(float)az,(float)p.x,(float)p.y+.09f,(float)p.z,(float)cam.x,(float)cam.y,(float)cam.z,.025f,0x69B7FF,.7f);
+                    ax=p.x;ay=p.y+.09;az=p.z;
+                }
+                for(var ray:rays)ribbon(b,(float)x,(float)y,(float)z,(float)ray[0],(float)y,(float)ray[1],(float)cam.x,(float)cam.y,(float)cam.z,.012f,ray[2]>0?0x70BAAA:0xCF956B,.45f);
+                if(aim!=null)ribbon(b,(float)x,(float)y+.03f,(float)z,(float)aim[0],(float)y+.03f,(float)aim[1],(float)cam.x,(float)cam.y,(float)cam.z,.04f,0x83E6A4,.9f);
+            }));
+        }finally{ps.popPose();}
     }
 
     /** Номера точек над ними (как таблички имён: видно и сквозь блоки). */

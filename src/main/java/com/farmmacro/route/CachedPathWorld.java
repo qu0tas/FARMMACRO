@@ -18,6 +18,12 @@ public final class CachedPathWorld implements PathFinder.World {
         short v=c==null ? CachedChunk.encode(-1,PathFinder.H_DANGER,0) : c.cell(x,y,z);
         return v;
     }
+    @Override public boolean bodyClear(double x,double y,double z,double radius,double height) {
+        for(int bx=(int)Math.floor(x-radius);bx<=(int)Math.floor(x+radius);bx++)
+          for(int bz=(int)Math.floor(z-radius);bz<=(int)Math.floor(z+radius);bz++)
+            if(!fresh(bx,bz)) return true; // Cached cells are checked conservatively by the planner.
+        return fresh.bodyClear(x,y,z,radius,height);
+    }
     public double top(int x,int y,int z) { return fresh(x,z) ? fresh.top(x,y,z) : CachedChunk.top(cached(x,y,z)); }
     public int hazard(int x,int y,int z) { return fresh(x,z) ? fresh.hazard(x,y,z) : CachedChunk.hazard(cached(x,y,z)); }
     public int edges(int x,int y,int z) { return fresh(x,z) ? fresh.edges(x,y,z) : CachedChunk.edges(cached(x,y,z)); }

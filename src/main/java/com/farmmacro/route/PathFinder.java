@@ -31,6 +31,8 @@ public final class PathFinder {
         int hazard(int x, int y, int z);
         /** v1.16.2: тонкие пластины у граней клетки (биты {@link #E_PX}…{@link #E_NZ}) — через эту грань не пройти. */
         default int edges(int x, int y, int z) { return 0; }
+        /** Exact shape veto when available; coarse/cache worlds remain conservative through top/edges. */
+        default boolean bodyClear(double x,double y,double z,double radius,double height) { return true; }
     }
 
     /** Опасность клетки; H_CLIMB — по ней лезут (лестница, лиана, леса), H_DOOR — закрытая дверь/калитка, открыть ПКМ. */
@@ -72,6 +74,7 @@ public final class PathFinder {
         public double maxDist = 64;
         /** Сколько узлов раскрыть, прежде чем сдаться. */
         public int maxNodes = 150_000;
+        public java.util.function.BooleanSupplier cancelled=()->false;
         /** v1.15.1: можно лететь (полёт от предмета/способности): ходы в воздухе на 26 соседей. */
         public boolean fly;
         /** Полёт: не выше этого над самой высокой из (старт, цели), блоков. */
@@ -367,6 +370,7 @@ public final class PathFinder {
         push(h(sx, sz), s);
         int expanded = 0;
         while (hn > 0) {
+            if (Thread.currentThread().isInterrupted() || prm.cancelled.getAsBoolean()) { r.reason="поиск отменён"; return r; }
             int id = pop();
             if (id < 0) {                                           // сток — лучшая цель найдена
                 int k = -id - 1;
@@ -437,6 +441,9 @@ public final class PathFinder {
                 }
                 m = Move.WALK; cost = diag ? C_DIAG : C_WALK;
             }
+            if (m == Move.WALK && !door && !w.bodyClear(x2+.5,f+.001,z2+.5,.30,BODY-.002)) continue;
+            if (m == Move.WALK) for(int[] side: new int[][]{{1,0},{-1,0},{0,1},{0,-1}})
+                if(!clear(x2+side[0],z2+side[1],f,f+BODY)) cost+=.12;
             if (lavaNear(x2, z2, f)) cost += C_LAVA_NEAR;
             if (door) cost += C_DOOR;
             double ng = g[id] + cost;
@@ -636,6 +643,7 @@ public final class PathFinder {
         int ax = fl(a[0]), az = fl(a[2]), bx = fl(b[0]), bz = fl(b[2]);
         for (int s = 0; s <= steps; s++) {
             double t = (double) s / steps, x = a[0] + dx * t, z = a[2] + dz * t, y = a[1] + (b[1] - a[1]) * t;
+            if(!w.bodyClear(x,y+.001,z,.30,BODY-.002))return false;
             for (int o = 0; o < 3; o++) {
                 double off = offs[o];
                 double qx = x - uz * off, qz = z + ux * off;
