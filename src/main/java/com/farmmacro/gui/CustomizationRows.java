@@ -28,6 +28,34 @@ final class CustomizationRows {
 
   static void build(List<Rows.Row> rows, Runnable save) {
     var c = ModConfig.INSTANCE;
+    rows.add(new Rows.Section("Экран загрузки Kaelix").closed());
+    rows.add(
+        new Rows.Toggle(
+            "Загрузка в стиле Kaelix",
+            "Выкл — обычный экран Mojang при следующей загрузке",
+            () -> c.kaelixLoading,
+            v -> {
+              c.kaelixLoading = v;
+              save.run();
+            }));
+    rows.add(
+        new Rows.Toggle(
+            "Foxy и Fortnite",
+            "Только рисунки, без звуков и скримеров",
+            () -> c.loadingMemes,
+            v -> {
+              c.loadingMemes = v;
+              save.run();
+            }));
+    rows.add(
+        new Rows.Toggle(
+            "Анимация загрузки",
+            "Выкл — неподвижные логотип и персонажи",
+            () -> c.loadingMotion,
+            v -> {
+              c.loadingMotion = v;
+              save.run();
+            }));
     rows.add(new Rows.Section("Свое оформление").closed());
     rows.add(
         new Rows.Toggle(

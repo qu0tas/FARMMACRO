@@ -10,7 +10,7 @@
 - Паника = стоп + экран + звук; по желанию игрока — человеческая реакция (выкл по умолчанию). Реакция: оглядеться и одна фраза в чат; любой ввод игрока её сразу прекращает. Вывод окна игры вперёд остаётся отдельной настройкой (v1.16.3); других автоматических действий паника не делает.
 
 ## 2. Стек
-Minecraft **26.1.2** (официальные имена Mojang, игра не обфусцирована) · `net.fabricmc.fabric-loom` 1.18.3 (без remap, `implementation`) · Loader 0.19.5 · Fabric API 0.155.3+26.1.2 · Gradle 9.7.1 · Java 25 · mod_version 1.17.0.
+Minecraft **26.1.2** (официальные имена Mojang, игра не обфусцирована) · `net.fabricmc.fabric-loom` 1.18.3 (без remap, `implementation`) · Loader 0.19.5 · Fabric API 0.155.3+26.1.2 · Gradle 9.7.1 · Java 25 · mod_version 1.17.1.
 
 ## 3. Архитектура (`src/main/java/com/farmmacro`)
 | Файл | Роль |
@@ -140,6 +140,17 @@ Minecraft **26.1.2** (официальные имена Mojang, игра не о
 - В игре: см. чек-лист в разделе 7.
 
 ## 6. Журнал
+### v1.17.1 — Загрузка в стиле Kaelix
+**Что / зачем**:
+- `mixin/KaelixLoadingMixin`: LoadingOverlay.registerTextures TAIL → ранние bundled текстуры; extractRenderState HEAD/cancellable → только новое оформление. Shadow minecraft/reload/fadeIn/currentProgress/fadeInStart/fadeOutStart проверены javap MC26.1.2. **Tick, onFinish/checkExceptions не перехватываются**; fadeInStart ставится для прежнего isReadyToFadeOut, fade-out 1000…2000 мс и setOverlay(null) по-прежнему в render. При выходе сначала рисуется нижний экран; Guard по ошибке отключает только кастомный render и продолжает vanilla.
+- `loading/LoadingLook`: чистая математика масштаба 960×540 / реального сглаженного progress / процента / fade / removal. `LoadingFlags`: parse только трёх bool, defaults true, мусор → defaults. `LoadingOptions`: однократное ограниченное чтение farmmacro.json перед client-init, без save; после ModConfig.load (FarmMacroMod) живые UI-переключатели.
+- `loading/LoadingTextures`: registerAndLoad, собственный ReloadableTexture.loadContents через classloader JAR → NativeImage + blur/clamp metadata. Первый экран не требует готового ResourceManager или Font; TextureManager управляет GPU-ресурсами. Атласы K и dance переиспользуются, word/labels/digits/Foxy новые. В draw нет I/O/декодирования, сетевых/игровых действий или звука.
+- `loading/KaelixLoading`: фон 090D17, синие/голубые акценты существующего логотипа, K (96 кадров), bitmap word/stages/проценты, реальная полоска; небольшие Foxy и два Fortnite (107 кадров с точными мс), bob/наклон, без green screen. Все фоны/спрайты затухают с alpha; не вызывается существующая Foxy.scare и CropFever detector.
+- ModConfig.kaelixLoading/loadingMemes/loadingMotion, default true, меню Визуал → Экран загрузки Kaelix. Off → vanilla, memes off → чистый бренд, motion off → статичные K/Foxy/танцоры.
+- `tools/loading/generate_loading_art.py`, `preview_loading.py`: исходные assets и воспроизводимые офлайн-композиции. README, CHANGELOG, whatsnew, SETTINGS, RELEASES-1.16.3-1.17.1 обновлены. Версия 1.17.1, 1.17.0 сохранена отдельно.
+**Как проверено**: build routeStress успешно, LoadingLookCheck 1739 проверок (80 размеров, progress/fade/remove, JSON switches и RGBA), прежние stress прошли. Просмотрены wide/classic/small/ultrawide/clean/complete PNG — это не игровой рендер. Статический аудит: runtime не использует Font/sound/network, не меняет tick/callbacks; тайминги dancer совпадают с being.json.
+**Осталось**: реальный старт клиента/применение mixin, F3+T, смена/ошибка ресурспака, fade/Font до init, GUI 2/3/4, моды других загрузочных экранов. **Только сборка, в игре не проверено.**
+
 ### v1.17.0 — Конец маршрута, типы точек, CROP FEVER и оформление
 **Что / зачем**:
 - `RouteEndSettings`, `RouteEndCore`, `TeleportWindow`: чистые политики выхода, диапазон задержки команды, ограниченная ходьба, ожидание падения, один deadline/одно потребление телепорта, один trailing rotation ≤500 мс без нового окна, POST-пауза. Режимы none/walk/command/both, defaults 3 бл, /warp garden, 8 с. В both падение и команда не открывают два окна; ранний телепорт отменяет отложенную команду.

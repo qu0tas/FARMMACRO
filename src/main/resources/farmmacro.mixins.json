@@ -19,7 +19,8 @@
     "ReactionInputMixin",
     "ReactionKeyMixin",
     "UngrabAttackMixin",
-    "UngrabMixin"
+    "UngrabMixin",
+    "KaelixLoadingMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -20,6 +20,7 @@ import java.nio.file.StandardCopyOption;
  * после загрузки значения проходят {@link #sanitize()}.
  */
 public class ModConfig {
+    public boolean kaelixLoading=true,loadingMemes=true,loadingMotion=true;
     public boolean uiCustomColors=false,customUiImages=false;
     public java.util.Map<String,String> uiColors=new java.util.LinkedHashMap<>();
     public int uiBackgroundOpacity=100,hudBackgroundOpacity=78;public double uiCornerScale=.35;

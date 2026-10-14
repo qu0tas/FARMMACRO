@@ -37,6 +37,7 @@ public final class RouteStress {
         com.farmmacro.route.Release117Check.main();
         com.farmmacro.fun.CropFeverMediaCheck.main();
         com.farmmacro.fun.FeverMotionCheck.main();
+        com.farmmacro.loading.LoadingLookCheck.main();
         com.farmmacro.route.ChunkCacheCheck.main();
         com.farmmacro.macro.DelayCheck.main();
         com.farmmacro.route.FlyCheck.main();

@@ -43,6 +43,7 @@ public class FarmMacroMod implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         ModConfig.load();
+        com.farmmacro.loading.LoadingOptions.clientReady();
         PanicSound.init();
         ModConfig cfg = ModConfig.INSTANCE;
         if(cfg.customUiImages)com.farmmacro.gui.CustomUiAssets.reload();
