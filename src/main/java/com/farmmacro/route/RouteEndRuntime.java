@@ -16,6 +16,7 @@ public final class RouteEndRuntime {
   }
 
   public void begin(Minecraft mc) {
+    if(com.farmmacro.panic.PanicHandoff.pending()){cancel();return;}
     begun = true;
     var w = RouteWalker.INSTANCE;
     var s = w.activeSettings().routeEnd;
@@ -30,6 +31,7 @@ public final class RouteEndRuntime {
   }
 
   public boolean tick(Minecraft mc) {
+    if(com.farmmacro.panic.PanicHandoff.pending()){cancel();release(mc);return false;}
     var p = mc.player;
     if (p == null) {
       cancel();
@@ -68,6 +70,7 @@ public final class RouteEndRuntime {
   }
 
   public static void send(Minecraft mc, String text) {
+    if(com.farmmacro.panic.PanicHandoff.pending())return;
     text = RouteEndSettings.cleanCommand(text);
     if (text.isBlank() || mc.getConnection() == null) return;
     if (text.startsWith("/")) {

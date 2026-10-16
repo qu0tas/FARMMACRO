@@ -29,6 +29,7 @@ public final class RouteVariants {
         }
         public PointRoute next() { return next(true); }
         public PointRoute next(boolean chooseAlternative) {
+            if(routes.getFirst().settings.farm.enabled){number=0;variantSeed=0;return routes.getFirst().copy();}
             double total = weights.stream().mapToDouble(Double::doubleValue).sum(), roll = rng.nextDouble(total);
             int chosen = 0;
             for (int i = 0; i < weights.size(); i++) { roll -= weights.get(i); if (roll < 0) { chosen = i; break; } }

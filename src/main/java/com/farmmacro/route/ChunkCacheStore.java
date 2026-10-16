@@ -98,16 +98,17 @@ public final class ChunkCacheStore {
         } finally { Files.deleteIfExists(tmp); }
         trim();
     }
-    public synchronized Map<Long,CachedChunk> load(Set<Long> keys) {
+    public synchronized Map<Long,CachedChunk> load(Set<Long> keys) {return load(keys,()->false);}
+    public synchronized Map<Long,CachedChunk> load(Set<Long> keys,java.util.function.BooleanSupplier cancelled) {
         Map<Path,Set<Long>> groups=new LinkedHashMap<>();
         for(long k:keys) groups.computeIfAbsent(file((int)(k>>32),(int)k),p -> new HashSet<>()).add(k);
-        Map<Long,CachedChunk> out=new HashMap<>();
-        for(var g:groups.entrySet()) {
+        Map<Long,CachedChunk> out=new HashMap<>();long decodedBytes=0;
+        for(var g:groups.entrySet()) {if(cancelled.getAsBoolean()||out.size()>=128||decodedBytes>=32L*1024*1024)break;
             try {
                 var r=readRegion(g.getKey());
-                for(long k:g.getValue()) if(r.containsKey(k)) {
-                    try { out.put(k,decode(k,r.get(k))); } catch(IOException badChunk) { /* unknown, not air */ }
-                }
+                for(long k:g.getValue()) {if(cancelled.getAsBoolean()||out.size()>=128||decodedBytes>=32L*1024*1024)break;if(r.containsKey(k)) {
+                    try {var chunk=decode(k,r.get(k));long bytes=chunk.cellBytes();if(decodedBytes+bytes>32L*1024*1024)continue;out.put(k,chunk);decodedBytes+=bytes;} catch(IOException badChunk) { /* unknown, not air */ }
+                }}
                 if(!r.isEmpty()) Files.setLastModifiedTime(g.getKey(),java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
             } catch(IOException badRegion) { /* missing or corrupt region stays unknown */ }
         }

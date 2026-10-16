@@ -60,6 +60,7 @@ public final class Mousemat {
      * Начать Snap к пресету. @return false — Mousemat не найден (вызывающий решает: обычный поворот или ничего).
      */
     public static boolean start(Minecraft mc, ModConfig.CamPreset preset, String what) {
+        if(com.farmmacro.route.NavigationInput.busy()||!com.farmmacro.panic.PanicHandoff.allowStart(mc))return false;
         LocalPlayer p = mc.player;
         if (p == null || preset == null) return false;
         int s = findSlot(p, preset.matSlot);

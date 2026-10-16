@@ -27,16 +27,16 @@ public class EditorInputMixin {
 
     @Inject(method = "startAttack", at = @At("HEAD"), cancellable = true)
     private void farmmacro$noAttack(CallbackInfoReturnable<Boolean> cir) {
-        if (RouteEditor.isActive()) cir.setReturnValue(false);
+        if (RouteEditor.isActive() || com.farmmacro.camera.Freecam.active()) cir.setReturnValue(false);
     }
 
     @Inject(method = "startUseItem", at = @At("HEAD"), cancellable = true)
     private void farmmacro$noUse(CallbackInfo ci) {
-        if (RouteEditor.isActive()) ci.cancel();
+        if (RouteEditor.isActive() || com.farmmacro.camera.Freecam.active()) ci.cancel();
     }
 
     @Inject(method = "continueAttack", at = @At("HEAD"), cancellable = true)
     private void farmmacro$noContinue(boolean down, CallbackInfo ci) {
-        if (RouteEditor.isActive()) ci.cancel();
+        if (RouteEditor.isActive() || com.farmmacro.camera.Freecam.active()) ci.cancel();
     }
 }

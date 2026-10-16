@@ -28,6 +28,8 @@ public final class LevelSnapshot implements BlockGetter {
     private final Map<Long, boolean[]> airOnly = new HashMap<>();
     /** Сколько секций скопировано (для журнала). */
     public int sections;
+    public static final int MAX_CAPTURE_SECTIONS=4096;
+    public static final class CaptureLimit extends RuntimeException {private CaptureLimit(){super("снимок пути превысил 4096 непустых секций; уменьши радиус");}}
 
     private LevelSnapshot(int minY, int height, int secLo, int secHi) {
         this.minY = minY; this.height = height; this.secLo = secLo; this.secHi = secHi;
@@ -48,6 +50,7 @@ public final class LevelSnapshot implements BlockGetter {
             for (int sy = lo; sy <= hi; sy++) {
                 int idx = level.getSectionIndexFromSectionY(sy);
                 if (idx < 0 || idx >= src.length || src[idx] == null || src[idx].hasOnlyAir()) { air[sy - lo] = true; continue; }
+                if(s.sections>=MAX_CAPTURE_SECTIONS)throw new CaptureLimit();
                 dst[sy - lo] = src[idx].copy();
                 s.sections++;
             }

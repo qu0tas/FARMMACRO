@@ -20,7 +20,14 @@
     "ReactionKeyMixin",
     "UngrabAttackMixin",
     "UngrabMixin",
-    "KaelixLoadingMixin"
+    "KaelixLoadingMixin",
+    "AimFrameMixin",
+    "CombatCrouchInputMixin",
+    "PerformanceFpsMixin",
+    "PerformanceParticlesMixin",
+    "PerformanceSoundMixin",
+    "NavigationSprintMixin",
+    "FreecamCameraMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -73,6 +73,10 @@ public final class Detectors {
         // ── Камера и руки ──
         t("rotation", G_HANDS, "Поворот камеры", "Камера повернулась не макросом (мышь)", "Камера повернулась (yaw 6.200° > 5.000°)",
                 () -> c().detectRotation, v -> c().detectRotation = v);
+        t("safetyWeapon", G_HANDS, "Аварийный стоп: оружие/предмет", "Исчезновение/подмена предмета или чужая смена слота, в том числе при aim без макроса", "Glacial Scythe исчезла из руки — полный стоп",
+                () -> c().detectAutomationWeapon, v -> c().detectAutomationWeapon = v);
+        t("safetyTeleport", G_TP, "Аварийный стоп: телепорт", "Любой пакет позиции/респавн при автоматике, даже маленький откат; без мягкого режима лагов", "Сервер сменил позицию — полный стоп",
+                () -> c().detectAutomationTeleport, v -> c().detectAutomationTeleport = v);
         t("slot", G_HANDS, "Смена слота", "Слот сменился сам или от сервера", "Слот сменился: 1 → 3",
                 () -> c().detectSlotChange, v -> c().detectSlotChange = v);
         t("heldItem", G_HANDS, "Предмет в руке", "Предмет сменился или пропал сам (/give, /clear)", "Предмет в руке сменился: Мотыга → Палка",
@@ -102,8 +106,6 @@ public final class Detectors {
                 () -> c().detectVelocity, v -> c().detectVelocity = v);
         t("moveAttrs", G_MOVE, "Параметры движения", "Сервер изменил скорость, прыжок, гравитацию, размер", "Сервер изменил скорость: 0.1000 → 0.1300 (+30.0 %)",
                 () -> c().detectMoveAttrs, v -> c().detectMoveAttrs = v);
-        t("inventoryFull", G_MOVE, "Полный инвентарь", "Нет свободного слота ≈ 0.5 с", "Инвентарь полон",
-                () -> c().panicInventoryFull, v -> c().panicInventoryFull = v);
         // ── Блоки и мир ──
         t("blockNear", G_WORLD, "Блок рядом", "Сервер поставил твёрдый блок вплотную", "Рядом появился блок: Камень 10 64 -3",
                 () -> c().detectBlockInFace, v -> c().detectBlockInFace = v);
@@ -126,6 +128,8 @@ public final class Detectors {
         t("farmBlock", G_WORLD, "Блок на ферме", "Поставили блок на ферме — очки, упёрся — паника", "Упёрся в блок, поставленный сервером: Камень 4 70 9",
                 () -> c().detectFarmBlock, v -> c().detectFarmBlock = v);
         // ── Чат ──
+        t("nearbyChat", G_CHAT, "Обращение игрока рядом", "Приветствие/обращение от известного недавнего соседа: стоп и передача управления, без автоответа", "Alex (рядом): hi — управление тебе",
+                () -> c().detectNearbyChat, v -> c().detectNearbyChat = v);
         t("chat", G_CHAT, "Чат: ник и слова", "Сообщение с ником или словом из списка", "Чат (ник) от Admin: «Steve, are you there?»",
                 () -> c().detectChat, v -> c().detectChat = v);
         t("title", G_CHAT, "Титры", "/title на экране", "Титр на экране: «MACRO CHECK»",
@@ -162,6 +166,8 @@ public final class Detectors {
                 () -> c().detectRestart, v -> c().detectRestart = v);
         t("bps", G_SERVER, "Урожай не ломается (BPS)", "Блоков в секунду меньше порога", "Урожай не ломается: 1.2 блоков/с < 3.0",
                 () -> c().detectBps, v -> c().detectBps = v);
+        t("farmingXp",G_SERVER,"Пропал текст Farming XP","Только после наблюдения XP в текущем непрерывном сборе; не чат и не доказательство ghost blocks",
+                "Пропал ранее видимый текст Farming XP во время сбора",()->c().detectFarmingXp,v->c().detectFarmingXp=v);
         t("desync", G_SERVER, "Рассинхрон", "Сломанные блоки вернулись на место", "Рассинхрон: 15 из 20 сломанных блоков вернулись",
                 () -> c().detectDesync, v -> c().detectDesync = v);
         t("banwave", G_SERVER, "Банвейв (Hypixel)", "Банов за окно больше порога (нужен API-ключ)", "Банвейв: 120 банов за 15 мин (порог 100)",
@@ -180,7 +186,14 @@ public final class Detectors {
     public static List<Def> all() { return Collections.unmodifiableList(LIST); }
     public static Def get(String id) { return BY_ID.get(id); }
 
-    public static String name(String id) { Def d = BY_ID.get(id); return d != null ? d.name() : id; }
+    public static String name(String id) {
+        if("combatTeleport".equals(id))return "Combat: телепорт";
+        if("combatWeapon".equals(id))return "Combat: потеря оружия";
+        if("combatChat".equals(id))return "Combat: обращение в чате";
+        if("combatRotation".equals(id))return "Combat: серверная камера";
+        if("combatOverlap".equals(id))return "Combat: пересечение с игроком";
+        Def d=BY_ID.get(id);return d!=null?d.name():id;
+    }
 
     // ── Действие, звук, вес (настройки — в ModConfig) ────────────────────────
 
@@ -314,8 +327,8 @@ public final class Detectors {
     /** «Включить все» / «Выключить все» (кроме BPS, банвейва и Jacob — им нужны свои данные; при «вкл» не трогаем). */
     public static void setAll(boolean on) {
         for (Def d : LIST) {
-            if (on && (d.id().equals("bps") || d.id().equals("banwave") || d.id().equals("jacob") || d.id().equals("drift")
-                    || d.id().equals("inventoryFull") || d.id().equals("lagback"))) continue;
+            if (on && (d.id().equals("bps") || d.id().equals("farmingXp") || d.id().equals("banwave") || d.id().equals("jacob") || d.id().equals("drift")
+                    || d.id().equals("lagback"))) continue;
             d.setEnabled(on);
         }
     }

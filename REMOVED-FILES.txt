@@ -1,0 +1,10 @@
+src/main/java/com/farmmacro/gui/PestAssistRows.java
+src/main/java/com/farmmacro/gui/PestRows.java
+src/main/java/com/farmmacro/gui/VisitorRows.java
+src/main/java/com/farmmacro/visitor/VisitorBazaar.java
+src/main/java/com/farmmacro/visitor/VisitorBudget.java
+src/main/java/com/farmmacro/visitor/VisitorCompactors.java
+src/main/java/com/farmmacro/visitor/VisitorJar.java
+src/main/java/com/farmmacro/gui/SaleRows.java
+src/main/java/com/farmmacro/gui/LoadoutRows.java
+src/main/java/com/farmmacro/macro/ReconnectScreenHook.java

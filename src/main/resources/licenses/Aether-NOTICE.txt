@@ -1,0 +1,40 @@
+Kaelix distribution and Aether attribution (introduced in alpha24)
+
+This combined distribution is provided under GNU GPL version 3 (see LICENSE).
+The pre-existing independent Kaelix code remains available under its original
+CC0 grant (LICENSE-CC0); that grant is not revoked. The prior Fabric metadata
+said MIT while the root license was CC0; metadata now describes this combined
+distribution. Other third-party assets retain their included license notices.
+
+Aether contributors, https://github.com/mizly/aether
+Pinned revision: 34d3b894d407fe06a5ba1e822f0616f17beccd7b
+Original: src/main/java/dev/aether/modules/pathfinding/rotation/strategy/TrackingRotationStrategy.java
+Upstream license: GNU GPL version 3, reproduced in LICENSE and third_party/aether/LICENSE.
+Adaptation: com/farmmacro/combat/AetherTrackingTurn.java, Kaelix alpha24.
+Changed package/dependencies and return record; added a sensitivity-quantized
+residual adapter. The exponential joint yaw/pitch step is ported from upstream.
+Original relevant source is retained under third_party/aether/.
+The controller is wired to Combat Aether mode and camera-only no-target search.
+Alpha28 additionally adapts RotationManager timing/easing/tracking/noise/GCD
+and all EasingType curves into motion/AetherTurn and motion/AetherEasing,
+with independent motion/MotionSettings and farm boundary pause wiring.
+Pinned revision remains the same. Original sources and three JSON presets,
+including SHA256 hashes, are retained under third_party/aether/alpha28/.
+Original preset copies are also in assets/farmmacro/motion/aether/.
+Differences: monotonic dt, sensitivity residuals, bounded accumulated speed
+budget, Entity.turn application, existing Kaelix manual/panic guards instead
+of upstream FailsafeManager. See docs/MOTION-AETHER.md for scope/exclusions.
+This is NOT a wholesale port of Aether, PestManager, flight, pathfinding,
+or any staff-detection/evasion subsystem. Combat remains independent.
+
+No warranty. The full corresponding Kaelix source and Gradle build scripts
+accompany the binary in kaelix-2.0.0-alpha.33-github-files.zip. Keep that source
+and these notices with redistribution of this GPL-covered combined binary.
+The original upstream project is a reference, not a binary dependency.
+
+Alpha29 adds Kaelix-owned binding lease/wait/manual-stop adapters around the
+existing Aether rotation engine; no new upstream code copied in this stage.
+
+Alpha30 adds Kaelix-owned passive Skill/Pets HUD parsers; no new Aether code.
+
+Alpha31 adds original Kaelix UI/HUD presentation and pure layout geometry; no new upstream code.

@@ -32,6 +32,9 @@ public final class FlyCheck {
         PathFinder.Result r = find(g, x, y, z, goals, true, 12);
         if (!r.ok) return new Sim(false, 0, x, y, z, false, 0, r.reason);
         ReturnCore rc = new ReturnCore();
+        rc.steeringWorld=g;
+        FlightArrival arrival=new FlightArrival();
+        double previousX=x,previousY=y,previousZ=z;
         rc.start(r.points, x, z, 0f, 0f);
         WalkCore.Out out = new WalkCore.Out();
         float yaw = 0, pitch = 0;
@@ -40,12 +43,21 @@ public final class FlyCheck {
         int takeoffs = 0, replans = 0;
         for (int t = 0; t < maxTicks; t++) {
             ReturnCore.Phase ph = rc.tick(x, y, z, onGround, flying, yaw, pitch, false, out);
-            if (ph == ReturnCore.Phase.DONE) return new Sim(true, t, x, y, z, flying, takeoffs, null);
+            if (ph == ReturnCore.Phase.DONE) {
+                // ReturnWalker owns final arrival: ReturnCore DONE alone is not a landing.
+                var result=arrival.tick(g,true,onGround,flying,x,y,z,x-previousX,y-previousY,z-previousZ,yaw,r.points.getLast(),out);
+                if(result==FlightArrival.Result.FAIL)return new Sim(false,t,x,y,z,flying,takeoffs,arrival.reason);
+                if(result==FlightArrival.Result.DONE)return new Sim(true,t,x,y,z,flying,takeoffs,null);
+                if(Math.hypot(r.points.getLast().x-x,r.points.getLast().z-z)>.2)
+                    rc.wantYaw=WalkCore.yawTo(x,z,r.points.getLast().x,r.points.getLast().z);
+            }
+            previousX=x;previousY=y;previousZ=z;
             if (ph == ReturnCore.Phase.REPLAN) {
                 if (++replans > 5) return new Sim(false, t, x, y, z, flying, takeoffs, "replans: " + rc.reason);
                 PathFinder.Params p = new PathFinder.Params(); p.fly = true; p.flyingNow = flying;
                 PathFinder.Result r2 = new PathFinder(g, p).find(x, y, z, onGround, goals);
                 if (!r2.ok) return new Sim(false, t, x, y, z, flying, takeoffs, r2.reason);
+                r=r2;arrival.reset();
                 rc.start(r2.points, x, z, 0f, 0f);
                 continue;
             }

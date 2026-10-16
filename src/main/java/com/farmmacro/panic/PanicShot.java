@@ -27,11 +27,8 @@ public final class PanicShot {
     private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Panic");
     private static final DateTimeFormatter NAME = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
     private static final DateTimeFormatter HUMAN = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-    private static final ExecutorService IO = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "FarmMacro-Screenshot");
-        t.setDaemon(true);
-        return t;
-    });
+    private static final java.util.concurrent.ThreadPoolExecutor IO = new java.util.concurrent.ThreadPoolExecutor(1,1,0,java.util.concurrent.TimeUnit.SECONDS,new java.util.concurrent.ArrayBlockingQueue<>(2),r->{Thread t=new Thread(r,"Kaelix-Screenshot");t.setDaemon(true);return t;},new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+    private static long lastShot;
 
     public static Path dir() { return ModConfig.modDir().resolve("screenshots"); }
 
@@ -43,27 +40,30 @@ public final class PanicShot {
     }
 
     /** Вызывается из triggerPanic (главный поток). */
-    public static void onPanic(Minecraft mc, String reason) {
+    public static void onPanic(Minecraft mc,String reason){onPanic(mc,null,reason);}
+    public static void onPanic(Minecraft mc, String id, String reason) {
         ModConfig c = ModConfig.INSTANCE;
         LocalDateTime now = LocalDateTime.now();
         boolean hook = c.webhookEnabled && DiscordNotify.configured();
         // v1.16.3 «Скрытие ника»: в Discord и в имени файла — без ника; снимок в режиме «только скриншоты» — после
         // кадра, нарисованного с заменой
-        String text = com.farmmacro.visual.NickHide.forText(Webhook.panicText(reason, HUMAN.format(now), server(mc)));
-        if (!c.panicScreenshot) {
+        String text = com.farmmacro.notify.DiscordEvents.panicText(mc,id,reason);
+        long nano=System.nanoTime();
+        if (!c.panicScreenshot || lastShot!=0&&nano-lastShot<10_000_000_000L || IO.getQueue().remainingCapacity()==0) {
             if (hook) DiscordNotify.send(text, null, "паника");
             return;
         }
-        String name = fileName(now, com.farmmacro.visual.NickHide.forText(reason));
+        lastShot=nano;
+        String name = fileName(now, ""); // No private chat/name/coordinates in the actual screenshot file name.
         com.farmmacro.visual.NickHide.armShot(() -> grab(mc, name, path -> {
-            if (hook) DiscordNotify.send(text, c.webhookScreenshot ? path : null, "паника");
+            if (hook) DiscordNotify.send(text, c.webhookScreenshot && c.webhookMediaConsent ? path : null, "паника");
         }));
     }
 
     /** Снимок основного кадра в файл; done(путь или null) — в фоновом потоке. */
     static void grab(Minecraft mc, String name, Consumer<Path> done) {
         try {
-            Screenshot.takeScreenshot(mc.getMainRenderTarget(), image -> IO.execute(() -> {
+            Screenshot.takeScreenshot(mc.getMainRenderTarget(), image -> {try{IO.execute(() -> {
                 Path out = null;
                 try (image) {
                     Files.createDirectories(dir());
@@ -71,14 +71,14 @@ public final class PanicShot {
                     image.writeToFile(out);
                     EventLog.log("SHOT", out.getFileName().toString());
                 } catch (Exception e) {
-                    LOGGER.warn("Скриншот паники не сохранён", e);
+                    LOGGER.warn("Скриншот паники не сохранён ({})", e.getClass().getSimpleName());
                     out = null;
                 }
                 done.accept(out);
-            }));
+            });}catch(java.util.concurrent.RejectedExecutionException e){image.close();done.accept(null);}});
         } catch (Exception e) {
-            LOGGER.warn("Скриншот паники не снят", e);
-            IO.execute(() -> done.accept(null));
+            LOGGER.warn("Скриншот паники не снят ({})", e.getClass().getSimpleName());
+            done.accept(null);
         }
     }
 

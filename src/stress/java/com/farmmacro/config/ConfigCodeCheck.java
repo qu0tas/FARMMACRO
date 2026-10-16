@@ -30,7 +30,16 @@ public final class ConfigCodeCheck {
         check(err(code.substring(0, code.length() / 2)) != null, "обрезанная строка");
         check(err(ConfigCode.PREFIX + "!!!") != null, "не base64");
         // «бомба»: 3 МБ пробелов — отказ
-        String bomb = ConfigCode.encode(" ".repeat(3 * 1024 * 1024));
+        String bomb;
+        // Construct raw compressed oversized JSON: encode() now parses/sanitizes JSON first,
+        // so whitespace alone becomes null instead of testing the decompressor limit.
+        try {
+            var bytes=new java.io.ByteArrayOutputStream();
+            try(var gzip=new java.util.zip.GZIPOutputStream(bytes)) {
+                gzip.write(("{\"data\":\""+"x".repeat(3*1024*1024)+"\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            bomb=ConfigCode.PREFIX+java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes.toByteArray());
+        } catch(java.io.IOException e) { throw new IllegalStateException(e); }
         check(err(bomb) != null, "слишком большая");
         System.out.printf("ConfigCodeCheck (v1.16.2 строка настроек): %d проверок — OK (строка %d симв. из JSON %d)%n", checks, code.length(), json.length());
     }

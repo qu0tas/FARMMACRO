@@ -13,10 +13,11 @@ public class HudSlot {
     public double  ox = 6, oy = 6;
     public double  scale = 1;
     public boolean hidden = false;
+    public boolean always = false;
 
     public HudSlot copy() {
         HudSlot s = new HudSlot();
-        s.placed = placed; s.ax = ax; s.ay = ay; s.ox = ox; s.oy = oy; s.scale = scale; s.hidden = hidden;
+        s.placed = placed; s.ax = ax; s.ay = ay; s.ox = ox; s.oy = oy; s.scale = scale; s.hidden = hidden;s.always=always;
         s.backgroundColor=backgroundColor;s.accentColor=accentColor;s.opacity=opacity;return s;
     }
 

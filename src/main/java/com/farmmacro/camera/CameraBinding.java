@@ -17,7 +17,7 @@ import java.util.Objects;
  *  • {@code none}   — камеру не трогаем;
  *  • {@code whole}  — один пресет на весь проход (ставится при старте и в начале каждого круга);
  *  • {@code points} — «с элемента N действует пресет X» (ставится при старте и когда дошли до N).
- * Ставится мгновенно ({@code Entity.absSnapRotationTo}), без плавности и случайности; после этого yaw/pitch не меняются.
+ * Kaelix/recording snapshot remains instant. Aether routes can opt into a guarded smooth turn; the caller MUST gate input.
  * После каждой установки детектору сообщается новый поворот ({@link PanicDetector#expectRotation}).
  * В смене хранится копия yaw/pitch/имени: если пресет удалили, работают сохранённые значения.
  */
@@ -116,31 +116,67 @@ public class CameraBinding {
      */
     public static void apply(Minecraft mc, Change c, String where) {
         LocalPlayer p = mc.player;
-        if (p == null || c == null) return;
+        if (p == null || c == null || SmoothTurn.bindingBusy()) return;
         SmoothTurn.stop();
         var human = com.farmmacro.macro.Humanizer.ACTIVE;
         float[] j = human != null ? human.cameraJitter() : new float[]{0, 0};
-        p.absSnapRotationTo(c.yaw() + j[0], c.pitch() + j[1]);
-        PanicDetector.INSTANCE.expectRotation(p.getYRot(), p.getXRot());
+        if(!com.farmmacro.motion.MotionController.absolute(com.farmmacro.macro.MacroManager.INSTANCE.isActive()?com.farmmacro.motion.MotionPolicy.Owner.FARM:com.farmmacro.motion.MotionPolicy.Owner.PRESET,c.yaw()+j[0],c.pitch()+j[1],true))return;
         p.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §b◎ " + c.label() + " §7(" + where + "): yaw "
                 + CameraPresets.deg(c.yaw()) + "°, pitch " + CameraPresets.deg(c.pitch()) + "°"));
     }
 
-    /** Следит, какая смена уже поставлена в текущем проходе. Одна на источник. */
+    /** One tracker per source. Only routes explicitly opt into alpha29's gated smooth binding. */
     public static final class Tracker {
         private Change applied;
         private boolean any;
-
-        public void reset() { applied = null; any = false; }
-
-        /** @return true — камеру только что поставили */
-        public boolean update(Minecraft mc, CameraBinding b, int index, String where) {
-            Change c = b == null ? null : b.at(index);
-            if (c == null || (any && c == applied)) return false;
-            apply(mc, c, where);
-            applied = c;
-            any = true;
+        private com.farmmacro.motion.CameraTurnLease.Ticket turn;
+        private com.farmmacro.motion.BindingTurnGate gate;
+        private Object player,world;
+        private String failure;
+        public void reset(){SmoothTurn.cancelBinding(turn);turn=null;gate=null;applied=null;any=false;failure=null;player=world=null;}
+        public String failure(){return failure==null?"установка камеры прервана":failure;}
+        public boolean waiting(){return turn!=null;}
+        public boolean failed(){return failure!=null;}
+        public boolean update(Minecraft mc,CameraBinding b,int index,String where){return update(mc,b,index,where,false);}
+        public boolean update(Minecraft mc,CameraBinding b,int index,String where,boolean route){
+            Change c=b==null?null:b.at(index);
+            if(c==null||(any&&c==applied))return false;
+            if(turn!=null){failure="новая привязка до завершения прежней";return false;}
+            applied=c;any=true;
+            var conf=com.farmmacro.config.ModConfig.INSTANCE;
+            if(!route||!conf.motion.aether()||!conf.motion.smoothBindings){apply(mc,c,where);return true;}
+            LocalPlayer p=mc.player;
+            if(p==null||mc.level==null||!safeSupport(p)||SmoothTurn.isActive()
+                ||com.farmmacro.camera.Freelook.active()||com.farmmacro.camera.MouseLock.isLocked()
+                ||Mousemat.busy()||com.farmmacro.panic.HumanReaction.running()){
+                failure="нет опоры или камера занята";return true;
+            }
+            float yaw=c.yaw(),pitch=Math.max(-89,Math.min(89,c.pitch()));
+            turn=SmoothTurn.beginBinding(yaw,pitch,conf.motion.bindingSpeed);
+            if(turn==null){failure="камера не получила управление";return true;}
+            player=p;world=mc.level;
+            gate=new com.farmmacro.motion.BindingTurnGate(turn,p.getX(),p.getY(),p.getZ(),System.nanoTime(),
+                com.farmmacro.motion.BindingTurnGate.timeout(yaw-p.getYRot(),pitch-p.getXRot(),conf.motion.bindingSpeed,conf.motion));
+            p.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §b◎ Поворот: "+c.label()+" §7("+where+")"));
             return true;
         }
+        public com.farmmacro.motion.BindingTurnGate.Result poll(Minecraft mc){
+            if(failure!=null)return com.farmmacro.motion.BindingTurnGate.Result.FAILED;
+            if(turn==null)return com.farmmacro.motion.BindingTurnGate.Result.READY;
+            LocalPlayer p=mc.player;
+            boolean context=p!=null&&p==player&&mc.level==world&&mc.screen==null&&com.farmmacro.window.BackgroundWork.permitted(mc)&&!mc.isPaused()
+                &&safeSupport(p)&&SmoothTurn.ownsBinding(turn)&&!com.farmmacro.route.NavigationInput.busy()
+                &&com.farmmacro.config.ModConfig.INSTANCE.motion.aether()&&com.farmmacro.config.ModConfig.INSTANCE.motion.smoothBindings
+                &&!com.farmmacro.panic.PanicHandoff.pending()&&!com.farmmacro.camera.Freelook.active()
+                &&!com.farmmacro.camera.MouseLock.isLocked()&&!Mousemat.busy()&&!com.farmmacro.panic.HumanReaction.running();
+            var state=p==null?com.farmmacro.motion.BindingTurnGate.Result.FAILED:gate.check(p.getX(),p.getY(),p.getZ(),p.getYRot(),p.getXRot(),mc.options.sensitivity().get(),context,System.nanoTime());
+            if(state==com.farmmacro.motion.BindingTurnGate.Result.READY){
+                if(!SmoothTurn.acknowledgeBinding(turn))state=com.farmmacro.motion.BindingTurnGate.Result.FAILED;
+                else {turn=null;gate=null;player=world=null;}
+            }
+            if(state==com.farmmacro.motion.BindingTurnGate.Result.FAILED){SmoothTurn.cancelBinding(turn);failure="поворот отменён, истёк срок или изменилась позиция/опора";}
+            return state;
+        }
+        private static boolean safeSupport(LocalPlayer p){return p.onGround()&&!p.getAbilities().flying&&!p.isFallFlying()&&!p.onClimbable()&&!p.isInWater()&&!p.isInLava();}
     }
 }

@@ -14,7 +14,7 @@ import net.minecraft.network.chat.Component;
  */
 public final class Ungrab {
     private static boolean active;
-    private static Boolean savedPauseOnLostFocus;
+
 
     private Ungrab() {}
 
@@ -27,13 +27,12 @@ public final class Ungrab {
 
     public static void on(Minecraft mc, String why) {
         if (active || mc.player == null) return;
-        if (why == null && !MacroManager.INSTANCE.isActive() && !com.farmmacro.macro.MouseHold.INSTANCE.isManual()) {
+        if (why == null && !com.farmmacro.window.BackgroundWork.running()) {
             msg(mc, "§7Курсор отпускается, пока идёт макрос (или зажим мыши L)");
             return;
         }
         active = true;
-        savedPauseOnLostFocus = mc.options.pauseOnLostFocus;
-        mc.options.pauseOnLostFocus = false;
+        com.farmmacro.window.BackgroundWork.tick(mc);
         mc.mouseHandler.releaseMouse();
         msg(mc, "§b◌ Курсор отпущен" + (why != null ? ": " + why : "") + " §7(" + MacroManager.keyName(FarmMacroMod.keyUngrab) + " — вернуть)");
     }
@@ -41,9 +40,8 @@ public final class Ungrab {
     public static void off(Minecraft mc, String why) {
         if (!active) return;
         active = false;
-        if (savedPauseOnLostFocus != null) mc.options.pauseOnLostFocus = savedPauseOnLostFocus;
-        savedPauseOnLostFocus = null;
-        if (mc.screen == null && mc.player != null) mc.mouseHandler.grabMouse();
+
+        if (mc.screen == null && mc.player != null && mc.isWindowActive()) mc.mouseHandler.grabMouse();
         msg(mc, why == null ? "§7◉ Курсор захвачен" : "§e◉ Курсор захвачен: " + why);
     }
 
@@ -53,14 +51,14 @@ public final class Ungrab {
     /** Ломать ли блоки без захвата курсора (из миксина): только пока отпущен и нет окна. */
     public static boolean attackWithoutGrab() {
         Minecraft mc = Minecraft.getInstance();
-        return active && mc.screen == null && mc.player != null;
+        return (active||com.farmmacro.config.ModConfig.INSTANCE.backgroundWork&&com.farmmacro.window.BackgroundWork.running()) && mc.screen == null && mc.player != null && !com.farmmacro.camera.Freecam.active();
     }
 
     /** Каждый тик: вышли из мира или макрос остановился — вернуть курсор. */
     public static void tick(Minecraft mc) {
         if (!active) return;
-        if (mc.player == null || mc.level == null) { active = false; if (savedPauseOnLostFocus != null) mc.options.pauseOnLostFocus = savedPauseOnLostFocus; savedPauseOnLostFocus = null; return; }
-        if (!MacroManager.INSTANCE.isActive() && !com.farmmacro.macro.MouseHold.INSTANCE.isManual()
+        if (mc.player == null || mc.level == null) { active = false;com.farmmacro.window.BackgroundWork.tick(mc); return; }
+        if (!com.farmmacro.window.BackgroundWork.running()
                 && com.farmmacro.macro.Scheduler.phase() != com.farmmacro.macro.Scheduler.Phase.BREAK) off(mc, "макрос остановлен");
     }
 

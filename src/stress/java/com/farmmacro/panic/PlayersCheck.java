@@ -145,7 +145,7 @@ public final class PlayersCheck {
         check(!Webhook.validUrl("http://discord.com/api/webhooks/1/x") && !Webhook.validUrl("https://evil.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz")
                 && !Webhook.validUrl(null), "неверный URL");
         String m = Webhook.masked(url);
-        check(!m.contains("abcdefghij") && m.startsWith("https://discord.com/api/webhooks/123456789012345678/"), "маска: " + m);
+        check(!m.contains("abcdefghij") && !m.contains("123456789012345678") && m.equals("https://discord.com/api/webhooks/••••/••••"), "маска должна скрывать и ID, и токен: " + m);
         String text = Webhook.panicText("Игрок рядом", "12:00", "mc.hypixel.net");
         check(text.contains("Паника") && text.contains("Игрок рядом") && text.contains("mc.hypixel.net"), "текст");
         check(Webhook.panicText("x".repeat(5000), "t", "s").length() <= Webhook.CONTENT_MAX, "длина");

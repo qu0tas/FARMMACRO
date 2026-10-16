@@ -316,6 +316,9 @@ final class CustomizationRows {
             },
             () -> panel,
             v -> panel = v));
+    rows.add(new Rows.Toggle("Выбранная плашка · всегда", "Показывать также вне работы; пустая функция будет подписана как неактивная, не запускается", ()->slot().always, v->{
+      if(panel.equals("all"))return;slot().always=v;if(v){slot().hidden=false;if(panel.equals("inventory"))c.hudInventory=true;}save.run();
+    }).enabledIf(()->!panel.equals("all")));
     rows.add(
         color(
             "Фон выбранной плашки",
@@ -428,32 +431,7 @@ final class CustomizationRows {
         () -> c.cropFeverLightStrength,
         v -> { c.cropFeverLightStrength = (int) v; save.run(); },
         0, 100, 5, 10, Rows::num).integer().showIf(() -> c.cropFeverLights));
-    rows.add(new Rows.Section("Навигация и камера авто-возврата").closed());
-    rows.add(new Rows.Toggle("Отладка навигации", "Путь, выбранное направление и проверки препятствий в мире; подробности в HUD",
-        () -> c.pathDebug, v -> {c.pathDebug=v;save.run();}));
-    rows.add(
-        new Rows.Toggle(
-            "Естественный взгляд по пути",
-            "Единый контроллер камеры и движения, локальный обход; выключение возвращает прежнее управление",
-            () -> c.pathNaturalLook,
-            v -> {
-              c.pathNaturalLook = v;
-              save.run();
-            }));
-    rows.add(
-        new Rows.Number(
-            "Смотреть вперед, бл",
-            null,
-            () -> c.pathLookAhead,
-            v -> {
-              c.pathLookAhead = v;
-              save.run();
-            },
-            .5,
-            8,
-            .25,
-            1,
-            Rows::num));
+
   }
 
   private static HudSlot slot() {

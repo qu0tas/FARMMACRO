@@ -22,6 +22,7 @@ final class HumanRows {
      */
     static void build(List<Rows.Row> rows, HumanSettings h, boolean route, boolean record,
                       BooleanSupplier editable, Consumer<Runnable> edit, Runnable rebuild) {
+        if(route)rows.add(new Rows.Note("Это настройки Kaelix. При выборе Aether в Kaelix Motion старый Humanizer маршрута не применяется; значения сохранены для переключения назад. Запись использует свой Humanizer.",Ui.SUB));
         BooleanSupplier on = () -> editable.getAsBoolean() && h.enabled;
         class N {
             Rows.Row n(String label, String tip, DoubleSupplier get, DoubleConsumer set, double min, double max,

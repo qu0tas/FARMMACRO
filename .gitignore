@@ -47,3 +47,6 @@ logs/
 # Isolated opt-in navigation integration test worlds/configs
 run-navclient/
 run-navserver/
+
+# User secrets, private local checkpoints, exported profiles and screenshots
+/config/

@@ -40,12 +40,35 @@ public final class ReturnCore {
     public PathFinder.World steeringWorld;
     public final GroundGuide guide=new GroundGuide();
     public boolean guided;
+    public final NavigationMotion motion=new NavigationMotion();
+    public long motionSeed;
+    public boolean landAtGoal=true;public boolean finishFacing=true;
+    private final FlightGuide flightGuide=new FlightGuide();
+    public String flightMode(){return flightGuide.mode.toString();}
+    public double flightSpeed=.6;
+    private void flightGaze(double x,double y,double z,float yaw){
+        if(route==null||route.points.isEmpty()||core.done())return;
+        RoutePoint view=route.points.get(core.target());
+        if(Math.hypot(view.x-x,view.z-z)<.7){
+            for(int i=core.target()+1;i<route.points.size();i++){
+                var next=route.points.get(i);
+                if(!next.fly)break;
+                if(Math.hypot(next.x-x,next.z-z)>.7){view=next;break;}
+            }
+        }
+        double d=Math.hypot(view.x-x,view.z-z);
+        wantYaw=d>.25?WalkCore.yawTo(x,z,view.x,view.z):yaw;
+        wantPitch=motion.heightLook?(float)Math.clamp(-Math.toDegrees(Math.atan2(view.y-y,Math.max(2,d))),-30,30):0;
+    }
+    private double lastY=Double.NaN,observedVy;
+    private final NavigationProgress progress=new NavigationProgress();
+    public final GroundTransition transition=new GroundTransition();
+    public final NavigationClimb climb=new NavigationClimb();
+    public final NavigationDrop drop=new NavigationDrop();
+    public boolean climbAttached;
+    private boolean openMotion;
     public double guideX,guideZ;
     private double observedVx,observedVz;
-    /** v1.16.2 лестница: лучшая ошибка по высоте и тиков без прогресса. */
-    private double climbBest = Double.MAX_VALUE;
-    private int climbStall;
-    public static final int CLIMB_STALL_TICKS = 40;
     private double startX, startZ;
 
     /** Путь pts от места (sx, sz); в конце повернуться к (endYaw, endPitch). */
@@ -59,8 +82,9 @@ public final class ReturnCore {
         for (RoutePoint p : pts) route.points.add(p.copy());
         this.endYaw = endYaw; this.endPitch = endPitch;
         core.start(route, 0, STUCK_TICKS);
+        core.requireHeight=true;flightGuide.reset();lastY=Double.NaN;motion.reset(motionSeed);progress.reset();transition.reset();climb.reset();drop.reset();
         phase = route.points.isEmpty() ? Phase.TURN : Phase.WALK;
-        reason = null; lowTicks = 0; guide.reset(); guided=false; lastX = Double.NaN; needFly = false; climbBest = Double.MAX_VALUE; climbStall = 0;
+        reason = null; lowTicks = 0; guide.reset(); guided=false; lastX = Double.NaN; needFly = false;
         wantYaw = endYaw; wantPitch = endPitch;
     }
 
@@ -104,6 +128,63 @@ public final class ReturnCore {
      */
     public Phase tick(double x, double y, double z, boolean onGround, boolean flying, float yaw, float pitch,
                       boolean horizontalCollision, WalkCore.Out out) {
+        observedVy=Double.isNaN(lastY)?0:y-lastY;lastY=y;
+        core.navigationFlying=flying;
+        motion.tick();
+        openMotion=false;
+        if(steeringWorld!=null && phase==Phase.WALK && !core.done()) {
+            RoutePoint p=route.points.get(core.target());
+            double d=Math.hypot(p.x-x,p.z-z);
+            openMotion=onGround&&!flying&&!p.fly&&!p.climb&&!p.drop&&!p.jump&&Math.abs(p.y-y)<.1&&d>5
+                &&Math.abs(WalkCore.wrap(WalkCore.yawTo(x,z,p.x,p.z)-yaw))<18
+                &&new GroundProbe(steeringWorld).clear(x,y,z,x+(p.x-x)/d*4,z+(p.z-z)/d*4,.42);
+        }
+        guide.speedLimit=motion.speed(openMotion);
+        Phase result=tickInternal(x,y,z,onGround,flying,yaw,pitch,horizontalCollision,out);
+        if(result==Phase.WALK && route!=null && !core.done()) {
+            RoutePoint next=route.points.get(core.target());
+            double distance=Math.hypot(next.x-x,next.z-z)+Math.abs(next.y-y)*.75;
+            boolean aligning=turningInPlace||transition.state==GroundTransition.State.ALIGN
+                ||guided&&guide.state==GroundGuide.State.ALIGN||flying&&flightGuide.mode==FlightGuide.Mode.ALIGN;
+            if(progress.tick(core.target(),distance,Math.abs(WalkCore.wrap(wantYaw-yaw)),aligning,core.pausing()))
+                return replan("нет сближения с точкой 4 секунды: движение туда-сюда не считается прогрессом");
+        }
+        if(result!=Phase.WALK || route==null || core.done())return result;
+        RoutePoint target=route.points.get(core.target());
+        motion.mode=flying||needFly?NavigationMotion.Mode.FLY:target.climb?NavigationMotion.Mode.CLIMB:out.jump?NavigationMotion.Mode.JUMP:
+            !onGround||core.dropPhase()!=WalkCore.D_NONE?NavigationMotion.Mode.FALL:NavigationMotion.Mode.WALK;
+        if(guided && steeringWorld!=null)motion.ground(steeringWorld,x,y,z,yaw,onGround,openMotion,guide,out);
+        if(flying && steeringWorld!=null) {
+            flightGuide.sprintAllowed=motion.sprintAllowed;flightGuide.normalSpeed=flightSpeed;
+            flightGuide.tick(x,y,z,observedVx,observedVy,observedVz,yaw,target.x,target.y,target.z,out);
+            if(!flightGuide.constrain(steeringWorld,x,y,z,observedVx,observedVy,observedVz,yaw,target.x,target.y,target.z,out))
+                return replan("предсказанный воздушный коридор заблокирован");
+            core.resetStuckWindow();
+            flightGaze(x,y,z,yaw);
+            return result; // Ground gaze must not overwrite flight alignment/lookahead.
+        }
+        if(needFly){flightGaze(x,y,z,yaw);return result;}
+        if(!naturalLook)return result;
+        double tx=guided?guideX:target.x,ty=target.y,tz=guided?guideZ:target.z;
+        if(Math.hypot(tx-x,tz-z)<.35 && Math.abs(target.y-y)<WalkCore.NAV_GROUND_HEIGHT_TOL && !target.climb && core.dropPhase()==WalkCore.D_NONE && core.target()+1<route.points.size()) {
+            RoutePoint next=route.points.get(core.target()+1);tx=next.x;tz=next.z;
+        }
+        float[] gaze=motion.gaze(x,y,z,tx,ty,tz,observedVx,observedVz,yaw);
+        // Bounded preview on clear ground prepares a bend without looking backwards or ignoring a local obstacle.
+        boolean preview=guided&&(guide.state==GroundGuide.State.WALK||guide.state==GroundGuide.State.CORNER);
+        wantYaw=preview?gaze[0]+(float)Math.clamp(WalkCore.wrap(wantYaw-gaze[0]),-25,25):gaze[0];
+        wantPitch=gaze[1];
+        // Gaze and movement share the same local intent. Do not run sideways through a sharp turn.
+        if(onGround&&!flying&&!target.climb&&!out.jump&&Math.abs(target.y-y)<.6&&core.dropPhase()==WalkCore.D_NONE
+            &&Math.abs(WalkCore.wrap(wantYaw-yaw))>65) {
+            out.forward=out.back=out.left=out.right=out.sprint=out.jump=false;
+            turningInPlace=true;motion.mode=NavigationMotion.Mode.ALIGN;core.resetStuckWindow();
+        }
+        return result;
+    }
+
+    private Phase tickInternal(double x, double y, double z, boolean onGround, boolean flying, float yaw, float pitch,
+                      boolean horizontalCollision, WalkCore.Out out) {
         needFly = false;
         observedVx=Double.isNaN(lastX)?0:x-lastX;observedVz=Double.isNaN(lastX)?0:z-lastZ;
         guided=false;
@@ -121,44 +202,40 @@ public final class ReturnCore {
         if (!core.done()) {
             RoutePoint ft = route.points.get(core.target());
             if (ft.fly && !flying) {                            // взлететь: стоим, ReturnWalker делает двойной прыжок
-                if (speed > 0.02) { core.resetStuckWindow(); return phase; }   // сначала погасить скорость — в воздухе инерция
+                flightGaze(x,y,z,yaw);
+                // Do not wait forever for tiny residual airborne drift before attempting legal flight.
+                if (onGround && speed > 0.08) { core.resetStuckWindow(); return phase; }
                 needFly = true;
                 core.resetStuckWindow();
                 return phase;
             }
-            if (flying) {
-                double dyErr = ft.y - y, hd = Math.hypot(ft.x - x, ft.z - z);
-                int ti = core.target();
-                boolean vertical = ti > 0 ? Math.hypot(route.points.get(ti - 1).x - ft.x, route.points.get(ti - 1).z - ft.z) < 0.05 : hd < 0.45;
-                // вертикальный отрезок — только вверх/вниз; горизонтальный, а мы ниже его высоты — сначала подняться
-                if ((vertical && Math.abs(dyErr) > 0.35) || (!vertical && dyErr > 0.5)) {
-                    out.jump = dyErr > 0; out.sneak = dyErr < 0;
-                    if (hd > 0.25 && speed < 0.06) core.resteer(x, z, yaw, out);   // снесло — мягко к клетке
-                    out.jump = dyErr > 0; out.sneak = dyErr < 0;
-                    core.resetStuckWindow();
-                    return phase;
-                }
-            }
+
         }
-        if (!core.done() && !flying) {
-            // v1.16.2 лестница/лиана/леса: точка «лезть» над/под нами — по высоте: вверх — держать прыжок
-            // (на лестнице прыжок = лезть), вниз — отпустить (сползаем); по XZ — держаться середины колонки
-            RoutePoint ft = route.points.get(core.target());
-            double dyErr = ft.y - y, hd = Math.hypot(ft.x - x, ft.z - z);
-            if (ft.climb && hd < 0.6 && (dyErr > 0.2 || dyErr < -0.45)) {
-                if (hd > 0.15) core.resteer(x, z, yaw, out);
-                out.sprint = false; out.sneak = false;
-                out.jump = dyErr > 0;
-                double err = Math.abs(dyErr);
-                if (err < climbBest - 0.05) { climbBest = err; climbStall = 0; }
-                else if (++climbStall > CLIMB_STALL_TICKS) return replan("застрял на лестнице");
-                core.resetStuckWindow();
-                return phase;
+        if(!core.done()&&!flying){
+            RoutePoint ft=route.points.get(core.target());
+            boolean leavingClimb=climbAttached;
+            if(!leavingClimb&&steeringWorld!=null&&core.target()>0){
+                var previous=route.points.get(core.target()-1);
+                // onClimbable can clear at the top before the full footprint reaches
+                // the platform. Keep the bounded exit while the last rung is observed.
+                leavingClimb=previous.climb&&Math.hypot(previous.x-x,previous.z-z)<1.3
+                    &&(steeringWorld.climb((int)Math.floor(previous.x),(int)Math.floor(previous.y-.01),(int)Math.floor(previous.z))!=null
+                        ||steeringWorld.climb((int)Math.floor(previous.x),(int)Math.floor(previous.y+.01),(int)Math.floor(previous.z))!=null);
             }
-            climbBest = Double.MAX_VALUE; climbStall = 0;
+            if(leavingClimb&&!ft.climb&&!ft.fly){
+                wantYaw=WalkCore.yawTo(x,z,ft.x,ft.z);
+                if(!climb.exit(steeringWorld,core.target(),ft,x,y,z,yaw,out))return replan(climb.reason);
+                if(Math.hypot(ft.x-x,ft.z-z)>.12||Math.abs(ft.y-y)>.19){core.resetStuckWindow();return phase;}
+            }
+            if(ft.climb&&Math.abs(ft.y-y)>.19){
+                if(steeringWorld==null)return replan("нет геометрии лестницы");
+                wantYaw=WalkCore.yawTo(x,z,ft.x,ft.z);
+                if(!climb.tick(steeringWorld,core.target(),ft,x,y,z,yaw,climbAttached,out))return replan(climb.reason);
+                core.resetStuckWindow();return phase;
+            }
         }
         core.tick(x, y, z, onGround, yaw, REACH, true, STUCK_TICKS, !flying, OFF_PATH, false, out);
-        out.attack = false; out.use = false; out.slot = -1; out.sneak = false; out.sprint = false;
+        out.attack = false; out.use = false; out.slot = -1; out.sneak = false; out.sprint = false; out.jump = false;
         if (out.panic != null) {
             String p = out.panic;
             out.panic = null;
@@ -167,14 +244,18 @@ public final class ReturnCore {
         }
         if (core.done()) {
             out.forward = out.back = out.left = out.right = out.jump = false;
-            if (flying && !onGround) { out.sneak = true; return phase; }   // сесть: полёт сам выключится на земле
-            phase = Phase.TURN;
+            if (flying) { phase=Phase.DONE;wantYaw=endYaw;wantPitch=endPitch;return phase; }   // сесть: полёт сам выключится на земле
+            phase = finishFacing?Phase.TURN:Phase.DONE;
             wantYaw = endYaw; wantPitch = endPitch;
             if (angle(yaw, pitch, endYaw, endPitch) <= END_TOL_DEG) phase = Phase.DONE;
             return phase;
         }
         int t = core.target();
         RoutePoint tp = route.points.get(t);
+        if(core.dropPhase()!=WalkCore.D_NONE&&!flying){
+            if(!drop.tick(steeringWorld,x,y,z,tp,yaw,core.dropPhase(),out))return replan(drop.reason);
+        }else drop.reset();
+        transition.target(t);
         // сбили с линии пути (в т. ч. на первом отрезке — от места старта; WalkCore там идёт прямо к точке)
         double ax = t > 0 ? route.points.get(t - 1).x : startX, az = t > 0 ? route.points.get(t - 1).z : startZ;
         if (RouteBuffer.distToSegmentXZ(x, z, ax, az, tp.x, tp.z) > (flying ? OFF_PATH_FLY : OFF_PATH)) return replan("сбили с пути");
@@ -182,25 +263,34 @@ public final class ReturnCore {
         double expY = Math.min(tp.y, t > 0 ? route.points.get(t - 1).y : tp.y);
         if (onGround && !flying && y < expY - 1.2) { if (++lowTicks >= 3) return replan("упал с пути"); }
         else lowTicks = 0;
-        if (flying) {
-            // по высоте — к точке; перед точкой с поворотом — тормозить (в воздухе инерция больше)
-            double dyErr = tp.y - y;
-            out.jump = dyErr > 0.15; out.sneak = dyErr < -0.25;
-            double hd = Math.hypot(tp.x - x, tp.z - z);
-            // скорость к точке: не больше 0.1 + 0.12·расстояние (в воздухе инерция ×0.91 за тик); быстрее — тормозить обратными
-            double want = 0.1 + 0.12 * hd;
-            if (speed > want + 0.03) {
-                boolean f = out.forward, b = out.back, l = out.left, r = out.right;
-                out.forward = b; out.back = f; out.left = r; out.right = l;
-            } else if (speed > want) out.forward = out.back = out.left = out.right = false;
-        }
         // взгляд: точка впереди по пути, не ближе LOOK_AHEAD
         double[] look = lookPoint(x, z, t);
         if (Math.hypot(look[0] - x, look[1] - z) > 0.3) wantYaw = WalkCore.yawTo(x, z, look[0], look[1]);
         wantPitch = endPitch;
         if(naturalLook){var a=com.farmmacro.camera.PathLook.angles(route.points,t,x,y,z,lookAhead,wantYaw);wantYaw=a[0];wantPitch=a[1];}
-        boolean special=tp.fly||tp.climb||out.jump||!onGround||core.dropPhase()!=WalkCore.D_NONE||core.pausing();
-        if(naturalLook && steeringWorld!=null && !special && !flying) {
+        if(!flying&&!tp.fly&&!tp.climb&&core.dropPhase()==WalkCore.D_NONE&&!core.pausing()
+            &&tp.y-y>Terrain.STEP){
+            wantYaw=WalkCore.yawTo(x,z,tp.x,tp.z);
+            if(!transition.rise(steeringWorld,x,y,z,tp,yaw,onGround,out))return replan(transition.reason);
+            turningInPlace=transition.state==GroundTransition.State.ALIGN;
+            core.resetStuckWindow();
+            return phase;
+        }
+        // A plain approach waypoint can be in the same cell as the next climb node.
+        // GroundGuide must not try to avoid that very ladder indefinitely.
+        if(steeringWorld!=null&&!flying&&onGround&&!tp.fly&&!tp.climb&&!tp.drop&&!tp.jump
+            &&core.dropPhase()==WalkCore.D_NONE&&!core.pausing()&&Math.abs(tp.y-y)<.19
+            &&Math.hypot(tp.x-x,tp.z-z)<=1.4&&t+1<route.points.size()){
+            var next=route.points.get(t+1);
+            if(next.climb&&Math.hypot(next.x-tp.x,next.z-tp.z)<.1
+                &&steeringWorld.climb((int)Math.floor(tp.x),(int)Math.floor(tp.y+.01),(int)Math.floor(tp.z))!=null){
+                wantYaw=WalkCore.yawTo(x,z,tp.x,tp.z);
+                if(!climb.approach(steeringWorld,t,tp,x,y,z,yaw,out))return replan(climb.reason);
+                core.resetStuckWindow();return phase;
+            }
+        }
+        boolean special=tp.fly||tp.climb||Math.abs(tp.y-y)>.6||out.jump||!onGround||core.dropPhase()!=WalkCore.D_NONE||core.pausing();
+        if(steeringWorld!=null && !special && !flying) {
             double d=Math.hypot(tp.x-x,tp.z-z);
             // Rounded corner remains within the waypoint acceptance corridor. Never skip action vertices.
             double gx=tp.x,gz=tp.z;
@@ -214,7 +304,9 @@ public final class ReturnCore {
                     if(new GroundProbe(steeringWorld).clear(x,y,z,cx,cz,.32)){gx=cx;gz=cz;}
                 }
             }
-            guide.tick(new GroundProbe(steeringWorld),x,y,z,observedVx,observedVz,yaw,gx,gz,remaining(x,z),corner&&d<1.3,out);
+            GroundProbe probe=new GroundProbe(steeringWorld);
+            if(naturalLook){double[] aim=motion.aim(probe,x,y,z,gx,gz,openMotion);gx=aim[0];gz=aim[1];}
+            guide.tick(probe,x,y,z,observedVx,observedVz,yaw,gx,gz,remaining(x,z),corner&&d<1.3,out);
             guided=true;guideX=guide.aimX;guideZ=guide.aimZ;
             // Look at the chosen corridor, not a conflicting independent point around a wall.
             float localYaw=WalkCore.yawTo(x,z,guideX,guideZ);
@@ -224,17 +316,15 @@ public final class ReturnCore {
             if(guide.state==GroundGuide.State.ALIGN || guide.state==GroundGuide.State.BRAKE || guide.state==GroundGuide.State.BLOCKED)core.resetStuckWindow();
             return phase;
         }
+        if(naturalLook && Math.hypot(tp.x-x,tp.z-z)>.35)wantYaw=WalkCore.yawTo(x,z,tp.x,tp.z);
         double err = Math.abs(WalkCore.wrap(wantYaw - yaw));
-        if (err > TURN_STOP_DEG && (onGround || flying)) {
+        if (err > TURN_STOP_DEG && (onGround || flying) && !out.jump) {
             out.forward = out.back = out.left = out.right = false;
             if (!flying) out.jump = false;
             turningInPlace = true;
             core.resetStuckWindow();
             return phase;
         }
-        // упёрся в ступеньку, а точка выше — прыжок (как в воде у бортика)
-        boolean moving = out.forward || out.back || out.left || out.right;
-        if (!flying && !out.jump && moving && horizontalCollision && onGround && tp.y > y + 0.4) out.jump = true;
         return phase;
     }
 

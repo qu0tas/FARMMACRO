@@ -98,6 +98,8 @@ public final class CameraPresets {
     }
 
     public static void apply(Minecraft mc, int index) {
+        if(SmoothTurn.bindingBusy()){msg(mc,"§cКамерой сейчас управляет привязка маршрута");return;}
+        if(com.farmmacro.route.NavigationInput.busy()){msg(mc,"§cКамерой сейчас управляет навигация");return;}
         List<CamPreset> l = list();
         if (index < 0 || index >= l.size() || mc.player == null) return;
         if (MacroManager.INSTANCE.controlsCamera()) { msg(mc, "§cКамерой сейчас управляет макрос"); return; }

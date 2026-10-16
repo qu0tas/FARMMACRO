@@ -17,7 +17,20 @@ public final class Guard {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Guard");
     private static final Set<String> DISABLED = ConcurrentHashMap.newKeySet();
-    private static final Set<String> LOGGED = ConcurrentHashMap.newKeySet();
+    private static final java.util.Map<String,Failure> FAILURES=new ConcurrentHashMap<>();
+    private static final class Failure {long count,lastLog;String type="?";}
+    private static void failure(String name,Throwable t){
+        Diagnostics.add(Diagnostics.Counter.GUARD_FAILURES);
+        // Names are internal constants. Never include arbitrary names/messages in the copied report.
+        String key=name!=null&&name.matches("[a-zA-Z0-9_/-]{1,80}")?name:"other";
+        Failure f;
+        synchronized(FAILURES){if(FAILURES.size()>=127&&!FAILURES.containsKey(key))key="other";f=FAILURES.computeIfAbsent(key,k->new Failure());}
+        synchronized(f){long now=System.nanoTime();f.count++;String type=t.getClass().getSimpleName();f.type=type.matches("[A-Za-z0-9_]{1,80}")?type:"Throwable";
+            if(f.count==1){f.lastLog=now;LOGGER.error("Ошибка в «{}» (далее ограничение журнала 30с)",key,t);}
+            else if(now-f.lastLog>=30_000_000_000L){f.lastLog=now;LOGGER.error("Ошибка в «{}»: {}, всего {}",key,f.type,f.count);}
+        }
+    }
+    public static String diagnosticSummary(){StringBuilder b=new StringBuilder();FAILURES.entrySet().stream().sorted(java.util.Map.Entry.comparingByKey()).limit(128).forEach(e->{var f=e.getValue();synchronized(f){b.append(e.getKey()).append(':').append(f.type).append('x').append(f.count).append(' ');}});return b.isEmpty()?"none":b.toString();}
 
     /** HUD-элемент, который после первого исключения выключается до перезапуска игры. */
     public static HudElement hud(String name, HudElement element) {
@@ -27,7 +40,7 @@ public final class Guard {
                 element.extractRenderState(g, delta);
             } catch (Throwable t) {
                 DISABLED.add(name);
-                LOGGER.error("HUD «{}» упал и отключён до перезапуска игры", name, t);
+                failure(name,t);
             }
         };
     }
@@ -41,8 +54,7 @@ public final class Guard {
             step.run();
             return true;
         } catch (Throwable t) {
-            if (LOGGED.add(name)) LOGGER.error("Ошибка в «{}» (дальше без стека)", name, t);
-            else LOGGER.error("Ошибка в «{}»: {}", name, t.toString());
+            failure(name,t);
             return false;
         }
     }
@@ -55,7 +67,7 @@ public final class Guard {
             return true;
         } catch (Throwable t) {
             DISABLED.add(name);
-            LOGGER.error("«{}» упал и отключён до перезапуска игры", name, t);
+            failure(name,t);
             return false;
         }
     }

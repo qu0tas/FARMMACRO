@@ -134,8 +134,10 @@ public final class DetectorsCheck {
         Detectors.setAll(false);
         check(Detectors.enabledCount() == 0, "выключить все: " + Detectors.enabledCount());
         Detectors.setAll(true);
-        check(!c.detectBps && !c.detectBanwave && !c.detectJacob && !c.detectDrift && !c.panicInventoryFull && !c.lagbackSoft,
-                "включить все не трогает BPS/банвейв/Jacob/сход/инвентарь/откат");
-        check(Detectors.enabledCount() == Detectors.all().size() - 6, "включить все: " + Detectors.enabledCount());
+        check(!c.detectBps && !c.detectBanwave && !c.detectJacob && !c.detectDrift && !c.lagbackSoft,
+                "включить все не трогает BPS/банвейв/Jacob/сход/откат");
+        Set<String> needsOwnData=Set.of("bps","farmingXp","banwave","jacob","drift","lagback");
+        for(Def d:Detectors.all())check(d.enabled()!=needsOwnData.contains(d.id()),"setAll unexpected: "+d.id());
+        check(Detectors.enabledCount() == Detectors.all().size() - needsOwnData.size(), "включить все: " + Detectors.enabledCount());
     }
 }

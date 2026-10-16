@@ -1,0 +1,57 @@
+Downloading https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+..............10%..............20%...............30%..............40%...............50%..............60%...............70%..............80%..............90%...............100%
+
+Welcome to Gradle 9.7.1!
+
+Here are the highlights of this release:
+ - Isolated Projects graduates to incubating
+ - Broader Configuration Cache compatibility
+ - Resilient Sync helps you fix broken builds
+ - More source locations in problem reports
+
+For more details see https://docs.gradle.org/9.7.1/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.18.3
+
+> Task :clean
+> Task :checkRemovedFiles
+
+> Task :compileJava
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :processResources
+> Task :classes
+> Task :processIncludeJars
+> Task :compileTestJava NO-SOURCE
+> Task :processTestResources NO-SOURCE
+> Task :testClasses UP-TO-DATE
+> Task :test NO-SOURCE
+> Task :validateAccessWidener NO-SOURCE
+> Task :check UP-TO-DATE
+> Task :jar
+> Task :assemble
+> Task :build
+> Task :compileStressJava
+> Task :processStressResources NO-SOURCE
+> Task :stressClasses
+
+> Task :quickCheck
+MotionQuickCheck: PASS (presets/easing/quantized turns/boundary copies; <=276 frames, no game)
+BindingQuickCheck: PASS (lease/stale-owner/cancel/angle/context/anchor/deadline table; no game)
+TelemetryQuickCheck: PASS (12 offline tables, absolute XP, independent skills, gaps/TTL/rate, Pets snapshots; no game)
+UiLayoutQuickCheck: PASS (four GUI sizes, shared bounds/hits, 2/1-column cards, keyboard; no game)
+OwnershipQuickCheck: PASS (exclusive camera/movement policy, background permissions, freecam math, one-shot migration/profile isolation; no game)
+ManualAimQuickCheck: PASS (boss names/type filters, deterministic bounded center turns, config/profile isolation; no game)
+ManualSlotQuickCheck: PASS (exact slots/item-ID/UUID, one-shot, expiry, empty, lifecycle, bow/heal/scythe; no game)
+ModuleRetirementCheck: OK (18 cards/5 categories/10 valid tab indices; legacy permission reset; inert Pests/Visitors/Bazaar/Loadouts entrypoints without game)
+AttendedQuickCheck: PASS (small start/transform/copy/config/retirement checks; no game or routeStress)
+
+[Incubating] Problems report is available at: file:///data/FARMMACRO/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 47s
+8 actionable tasks: 8 executed

@@ -40,10 +40,10 @@ public final class TrackingTurn {
   }
 
   private static final class Axis {
-    double v, residual;
+    double v, acceleration, residual;
 
     void reset() {
-      v = residual = 0;
+      v = acceleration = residual = 0;
     }
 
     double frame(double error, double step, double maxSpeed, double dt) {
@@ -60,14 +60,13 @@ public final class TrackingTurn {
       double h = dt / n;
       for (int i = 0; i < n; i++) {
         double e = error - delta;
-        double desired =
-            Math.copySign(
-                Math.min(maxSpeed, Math.min(Math.abs(e) * 7, Math.sqrt(2 * acc * Math.abs(e)))), e);
-        v += Math.clamp(desired - v, -acc * h, acc * h);
+        double desiredAcceleration=Math.clamp(42*e-13*v,-acc,acc);
+        acceleration += Math.clamp(desiredAcceleration-acceleration,-acc*14*h,acc*14*h);
+        v=Math.clamp(v+acceleration*h,-maxSpeed,maxSpeed);
         double d = v * h;
         if (Math.abs(d) > Math.abs(e) && Math.signum(d) == Math.signum(e)) {
           d = e;
-          v = 0;
+          v = acceleration = 0;
         }
         delta += d;
       }

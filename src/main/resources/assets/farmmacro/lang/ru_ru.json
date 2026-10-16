@@ -20,5 +20,15 @@
   "key.farmmacro.ungrab": "Kaelix: Отпустить курсор (макрос фармит дальше)",
   "key.farmmacro.hudedit": "Kaelix: Редактор HUD",
   "key.farmmacro.perf": "Kaelix: Режим производительности",
-  "key.farmmacro.pip": "Kaelix: Картинка в картинке (маленькое окно поверх всех)"
+  "key.farmmacro.pip": "Kaelix: Картинка в картинке (маленькое окно поверх всех)",
+  "key.farmmacro.pest": "Kaelix: охота на загруженных пестов (эксперимент)",
+  "key.farmmacro.aim": "Kaelix: aim assist — удерживать / переключать",
+  "key.farmmacro.take_control": "Kaelix: Взять управление после паники (не продолжать)",
+  "key.farmmacro.pest_pause": "Kaelix: Pests — ручная пауза",
+  "key.farmmacro.pest_finish": "Kaelix: Pests — завершить / вернуться",
+  "key.farmmacro.pest_traps": "Kaelix: обслуживание ловушек",
+  "key.farmmacro.loadout": "Применить выбранный лоадаут",
+  "key.farmmacro.visitors": "Визиторы: запуск / отмена (Alpha)",
+  "key.farmmacro.stash_sale": "Стеш → Bazaar: запуск / отмена",
+  "key.farmmacro.freecam": "Freecam (свободная камера)"
 }

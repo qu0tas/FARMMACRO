@@ -123,3 +123,12 @@ if (project.hasProperty('navTest')) {
     tasks.named('runServer') { maxHeapSize='512m' }
 }
 
+
+// Small explicit checks for attended-start and copy geometry; no routeStress/client/server.
+tasks.register('quickCheck', JavaExec) {
+ group = 'verification'
+ description = 'Small attended-start/copy/config checks only; no large simulations or game'
+ classpath = sourceSets.stress.runtimeClasspath
+ mainClass = 'com.farmmacro.release.AttendedQuickCheck'
+ jvmArgs = ['-Xmx256m']
+}

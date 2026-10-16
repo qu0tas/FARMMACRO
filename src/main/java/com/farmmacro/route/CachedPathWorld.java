@@ -24,6 +24,19 @@ public final class CachedPathWorld implements PathFinder.World {
             if(!fresh(bx,bz)) return true; // Cached cells are checked conservatively by the planner.
         return fresh.bodyClear(x,y,z,radius,height);
     }
+    @Override public boolean exactAt(double x,double z,double radius){
+        for(int bx=(int)Math.floor(x-radius);bx<=(int)Math.floor(x+radius);bx++)
+          for(int bz=(int)Math.floor(z-radius);bz<=(int)Math.floor(z+radius);bz++)if(!fresh(bx,bz))return false;
+        return fresh.exactAt(x,z,radius);
+    }
+    @Override public boolean openablePlanning(){return fresh.openablePlanning();}
+    @Override public double supportY(double x,double z,double min,double max){
+        return fresh((int)Math.floor(x),(int)Math.floor(z))?fresh.supportY(x,z,min,max):PathFinder.World.super.supportY(x,z,min,max);
+    }
+    @Override public PathFinder.World.Climb climb(int x,int y,int z){return fresh(x,z)?fresh.climb(x,y,z):null;}
+    @Override public boolean climbClear(double x,double y,double z,double radius,double height){
+        return exactAt(x,z,radius)&&fresh.climbClear(x,y,z,radius,height);
+    }
     public double top(int x,int y,int z) { return fresh(x,z) ? fresh.top(x,y,z) : CachedChunk.top(cached(x,y,z)); }
     public int hazard(int x,int y,int z) { return fresh(x,z) ? fresh.hazard(x,y,z) : CachedChunk.hazard(cached(x,y,z)); }
     public int edges(int x,int y,int z) { return fresh(x,z) ? fresh.edges(x,y,z) : CachedChunk.edges(cached(x,y,z)); }

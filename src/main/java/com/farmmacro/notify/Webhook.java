@@ -24,8 +24,7 @@ public final class Webhook {
     /** Для поля в меню: адрес без токена. */
     public static String masked(String url) {
         if (url == null || url.isBlank()) return "";
-        int i = url.lastIndexOf('/', url.length() - 2);
-        return i > 0 ? url.substring(0, i + 1) + "••••••" : "••••••";
+        return "https://discord.com/api/webhooks/••••/••••";
     }
 
     public static String panicText(String reason, String time, String server) {
@@ -35,7 +34,7 @@ public final class Webhook {
 
     public static String payload(String content) {
         JsonObject o = new JsonObject();
-        o.addProperty("content", content.length() <= CONTENT_MAX ? content : content.substring(0, CONTENT_MAX - 1) + "…");
+        o.addProperty("content", PrivateText.outgoing(content));
         o.addProperty("username", "Kaelix");
         JsonObject am = new JsonObject();
         am.add("parse", new JsonArray());

@@ -19,16 +19,34 @@ public class PanicOverlayRenderer {
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "panic_overlay"), Guard.hud("panic_overlay", (g, delta) -> {
             ModConfig cfg = ModConfig.INSTANCE;
             int left = PanicDetector.INSTANCE.getRedScreenTicks();
-            int max = cfg.panicRedScreenTicks;
-            if (!cfg.panicRedScreenEnabled || left <= 0 || max <= 0) return;
+            int max = PanicDetector.INSTANCE.getRedScreenMaxTicks();
+            if ((left <= 0 || max <= 0) && !PanicHandoff.pending()) return;
             if (com.farmmacro.visual.NickHide.shotPending()) return;   // v1.16.3: снимок без ника — без красного экрана
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null) return;
 
-            float ratio = Math.max(0, Math.min(1, (left - delta.getGameTimeDeltaPartialTick(false)) / (float) max));
-            draw(g, mc.getWindow().getGuiScaledWidth(), mc.getWindow().getGuiScaledHeight(), ratio,
-                    PanicDetector.INSTANCE.getOverlayText());
+            int w=mc.getWindow().getGuiScaledWidth(),h=mc.getWindow().getGuiScaledHeight();
+            if(left>0&&max>0){
+                float ratio = Math.max(0, Math.min(1, (left - delta.getGameTimeDeltaPartialTick(false)) / (float) max));
+                draw(g,w,h,ratio,PanicDetector.INSTANCE.getOverlayText());
+            }
+            if(PanicHandoff.pending())drawHandoff(g,w,h);
         }));
+    }
+
+    /** Persistent notice survives the red flash setting/timer, and does not claim to identify staff. */
+    private static void drawHandoff(GuiGraphicsExtractor g,int w,int h){
+        var mc=Minecraft.getInstance();int panelW=Math.min(420,w-16);
+        var lines=mc.font.split(net.minecraft.network.chat.Component.literal(PanicHandoff.reason()),Math.max(40,panelW-20));
+        int count=Math.min(3,lines.size()),panelH=54+count*10;
+        int x=(w-panelW)/2,y=Math.max(4,Math.min(h-panelH-4,h/2+24));
+        Ui.roundExact(g,x,y,panelW,panelH,8,0xE5101421);
+        g.fill(x,y,x+3,y+panelH,0xFFF05A67);
+        g.text(mc.font,"ПАНИКА · "+PanicHandoff.ageSeconds()+" с назад",x+10,y+7,0xFFFF7784,true);
+        g.text(mc.font,Ui.ellipsize(mc.font,PanicHandoff.detector(),panelW-20),x+10,y+19,0xFFFFFFFF,false);
+        for(int i=0;i<count;i++)g.text(mc.font,lines.get(i),x+10,y+31+i*10,0xFFE0E5F2,false);
+        String prompt="Нажми "+PanicHandoff.keyName()+", чтобы взять управление";
+        g.text(mc.font,Ui.ellipsize(mc.font,prompt,panelW-20),x+10,y+35+count*10,0xFF86EDBE,true);
     }
 
     /** v1.14.2-pre: рисование отдельно — мастер первого запуска показывает экран сам (HUD под экранами не рисуется). */

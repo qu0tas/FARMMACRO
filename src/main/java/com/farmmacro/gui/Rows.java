@@ -110,6 +110,7 @@ public final class Rows {
         final List<Row> children = new java.util.ArrayList<>();
         private String key;
         private boolean defaultOpen = true;
+        private Boolean localExpansion;
         private Runnable onClick;
         public Section(String title) { this.title = title; this.key = title; }
 
@@ -123,12 +124,15 @@ public final class Rows {
         public Section onClick(Runnable r) { onClick = r; return this; }
 
         boolean collapsible() { return onClick == null && !children.isEmpty() && !searching; }
+        public Section expandedLocally() { localExpansion=true; return this; }
         public boolean open() {
+            if(localExpansion!=null)return localExpansion;
             if (!collapsible()) return true;
             Boolean v = com.farmmacro.config.ModConfig.INSTANCE.uiSections.get(key);
             return v != null ? v : defaultOpen;
         }
         public void setOpen(boolean v) {
+            if(localExpansion!=null){localExpansion=v;return;}
             com.farmmacro.config.ModConfig.INSTANCE.uiSections.put(key, v);
             com.farmmacro.config.ModConfig.save();
         }
@@ -156,10 +160,9 @@ public final class Rows {
             Font f = c.font();
             int tx = x + 2, ty = y + 10;
             if (col || onClick != null) {
-                Ui.text(g, f, col ? (op ? "▾" : "▸") : "›", tx, ty, hot ? Ui.SUB : Ui.DIM);
-                tx += f.width("▾") + 4;
+                Ui.text(g, f, col ? (op ? "-" : "+") : "›", tx, ty, hot ? Ui.SUB : Ui.DIM);
+                tx += f.width("+") + 4;
             }
-            tx = Ui.spaced(g, f, title.toUpperCase(), tx, ty, hot ? Ui.TEXT : Ui.SUB, 1);
             String right = null;
             if (col) {
                 int on = 0, all = 0, rows = 0;
@@ -171,7 +174,10 @@ public final class Rows {
                 if (all > 0) right = on + "/" + all;
                 if (!op) right = (right != null ? right + " · " : "") + rows + " " + plural(rows);
             } else if (onClick != null) right = "перейти";
-            if (right != null && f.width(right) + 12 < x + w - tx) Ui.textRight(g, f, right, x + w - 2, ty, Ui.DIM);
+            int reserve=right==null?0:f.width(right)+12;String label=Ui.ellipsize(f,title,Math.max(8,x+w-tx-reserve));
+            Ui.text(g,f,label,tx,ty,hot?Ui.TEXT:Ui.SUB);
+            if(right!=null)Ui.textRight(g,f,right,x+w-2,ty,Ui.DIM);
+            if(hot&&!label.equals(title))c.tooltip(title);
             if (hot) { c.hand(); c.tooltip(onClick != null ? "Открыть вкладку с этим разделом" : op ? "Свернуть раздел" : "Развернуть раздел"); }
         }
 
@@ -578,7 +584,7 @@ public final class Rows {
         boolean allowed(String ch) { return true; }
         String initialText() { return query; }
         String commitText(String text) { set(text.strip()); return null; }
-        String editTip() { return "Ищет по названиям и подсказкам во всех вкладках · Esc — выйти из поля, ✕ — очистить"; }
+        String editTip() { return "На главной — поиск модулей; в настройках — параметров · Esc — выйти из поля, ✕ — очистить"; }
 
         void render(Ctx c, GuiGraphicsExtractor g, int x, int y, int w, int mx, int my, boolean hover) {
             int cx = x + 2, cy = y + 3, cw = w - 4;
@@ -588,10 +594,10 @@ public final class Rows {
                 return;
             }
             boolean hf = Ui.inside(mx, my, cx, cy, cw, 14);
-            g.fill(cx, cy + 14, cx + cw, cy + 15, hf ? Ui.SUB : Ui.BORDER);
-            if (query.isEmpty()) Ui.text(g, c.font(), "⌕ Поиск по всем настройкам…", cx + 6, cy + 3, Ui.DIM);
+            Ui.roundBordered(g,cx,cy,cw,15,4,Ui.FIELD,hf?Ui.SUB:Ui.BORDER);
+            if (query.isEmpty()) Ui.text(g, c.font(), "Поиск…", cx + 6, cy + 3, Ui.DIM);
             else {
-                Ui.text(g, c.font(), Ui.ellipsize(c.font(), "⌕ " + query, cw - 30), cx + 6, cy + 3, Ui.TEXT);
+                Ui.text(g, c.font(), Ui.ellipsize(c.font(), query, cw - 30), cx + 6, cy + 3, Ui.TEXT);
                 boolean hx = Ui.inside(mx, my, cx + cw - 16, cy, 16, 14);
                 Ui.textCentered(g, c.font(), "✕", cx + cw - 8, cy + 3, hx ? Ui.DANGER : Ui.SUB);
                 if (hx) c.tooltip("Очистить поиск");

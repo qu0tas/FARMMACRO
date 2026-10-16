@@ -30,7 +30,7 @@ public final class HumanReaction {
     /** Реагировать ли на этот детектор (null — общая паника без детектора: нет). */
     public static boolean reactsTo(String id) {
         ModConfig c = ModConfig.INSTANCE;
-        return id != null && c.reactIds != null && c.reactIds.contains(id);
+        return id != null && !AutomationSafety.manualHandoff(id) && c.reactIds != null && c.reactIds.contains(id);
     }
 
     public static void onPanic(Minecraft mc, String id, String reason) {

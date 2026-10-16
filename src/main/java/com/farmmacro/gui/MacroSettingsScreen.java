@@ -99,6 +99,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
         buildCamera();
         buildHold();
         buildHuman();
+        if(t.route())FarmSchemeRows.build(rows,t.settings().farm,t::editable,this::edit);
         if(t.route())RouteEndRows.build(rows,t.settings().routeEnd,t::editable,this::edit);
         if (t.route()) RouteRandomRows.build(rows,t.settings().routeRandom,t.pointRoute(),t::editable,this::edit,this::build);
         rows.add(new Rows.End());
@@ -117,6 +118,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn("Сделать по умолчанию", Rows.Style.SECONDARY, () -> {
                     MacroSettings s = t.settings().copy();
                     if (s.hold != null) s.hold.ranges.clear();       // участки кадров — свои у каждой записи
+                    s.farm.enabled=false;
                     cfg().newItemSettings = s;
                     cfg().sanitize();
                     ModConfig.save();
@@ -124,7 +126,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn("Взять стандартные", Rows.Style.SECONDARY, () -> {
                     edit(() -> {
                         MacroSettings d = MacroSettings.forNew();
-                        t.settings().camera = d.camera; t.settings().hold = d.hold; t.settings().human = d.human; t.settings().routeRandom = d.routeRandom;t.settings().routeEnd=d.routeEnd;
+                        t.settings().camera = d.camera; t.settings().hold = d.hold; t.settings().human = d.human; t.settings().routeRandom = d.routeRandom;t.settings().routeEnd=d.routeEnd;t.settings().farm=d.farm;
                     });
                     build();
                 }).enabledIf(t::editable).tip("Поставить сюда настройки «по умолчанию для новых»")));
@@ -160,7 +162,7 @@ public class MacroSettingsScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Section("Камера"));
         boolean noPresets = cfg().camPresets.isEmpty();
         rows.add(new Rows.Note("Камеру " + (t.route() ? "автоход" : "запись") + " не крутит. Можно поставить пресет: при старте и в "
-                + (t.route() ? "точках" : "кадрах") + " смены камера встаёт в него мгновенно, дальше yaw/pitch не меняются. "
+                + (t.route() ? "точках — Aether Motion может повернуть плавно с ожиданием на опоре; Kaelix оставляет мгновенную смену" : "кадрах — мгновенная смена") + ". После установки рабочий угол сохраняется. "
                 + "Свой поворот не даёт панику." + (noPresets ? " Сначала создай пресет во вкладке «Камера»." : ""),
                 noPresets ? Ui.WARN : Ui.SUB));
         List<Rows.Choice> modes = List.of(new Rows.Choice(CameraBinding.NONE, "Нет (как есть)"),

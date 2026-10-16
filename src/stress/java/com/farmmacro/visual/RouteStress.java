@@ -17,39 +17,57 @@ public final class RouteStress {
         report("Ферма рядами (ряды 96 бл, ЛКМ на рядах, дрожание ±3 мм)", farm(n), 48);
         report("Хаотичная прогулка (поворот каждые 1–3 с, прыжки) — худший случай", wander(n), 48);
         points();
-        com.farmmacro.route.WalkSim.main();
-        com.farmmacro.camera.CameraBindingCheck.main();
-        com.farmmacro.macro.HoldCheck.main();
-        com.farmmacro.gui.NumberInputCheck.main();
-        com.farmmacro.route.OffsetCheck.main();
-        com.farmmacro.route.DropCheck.main();
-        com.farmmacro.macro.HumanizerCheck.main();
-        com.farmmacro.macro.HumanizeGaussCheck.main();
-        com.farmmacro.macro.ViewCheck.main();
-        com.farmmacro.panic.SyncCheck.main();
-        com.farmmacro.route.VelocitySim.main();
-        com.farmmacro.camera.CropPresetsCheck.main();
-        com.farmmacro.panic.BigPanicCheck.main();
-        com.farmmacro.panic.PlayersCheck.main();
-        com.farmmacro.panic.DetectorsCheck.main();
-        com.farmmacro.route.PathCheck.main();
-        com.farmmacro.route.RouteRandomCheck.main();
-        com.farmmacro.route.Release117Check.main();
-        com.farmmacro.fun.CropFeverMediaCheck.main();
-        com.farmmacro.fun.FeverMotionCheck.main();
-        com.farmmacro.fun.FeverLightsCheck.main();
-        com.farmmacro.camera.TrackingTurnCheck.main();
-        com.farmmacro.route.GroundGuideCheck.main();
-        com.farmmacro.route.ReturnGuidedCheck.main();
-        com.farmmacro.loading.LoadingLookCheck.main();
-        com.farmmacro.route.ChunkCacheCheck.main();
-        com.farmmacro.macro.DelayCheck.main();
-        com.farmmacro.route.FlyCheck.main();
-        com.farmmacro.gui.ThemeCheck.main();
-        CheeksCheck.main();
-        com.farmmacro.config.ConfigCodeCheck.main();
-        com.farmmacro.window.WindowCheck.main();
-        try { com.farmmacro.panic.SuspicionCheck.main(); } catch (Exception e) { throw new IllegalStateException(e); }
+        List<String> failures = new ArrayList<>();
+        check(failures, "WalkSim", () -> com.farmmacro.route.WalkSim.main());
+        check(failures, "CameraBindingCheck", () -> com.farmmacro.camera.CameraBindingCheck.main());
+        check(failures, "HoldCheck", () -> com.farmmacro.macro.HoldCheck.main());
+        check(failures, "NumberInputCheck", () -> com.farmmacro.gui.NumberInputCheck.main());
+        check(failures, "OffsetCheck", () -> com.farmmacro.route.OffsetCheck.main());
+        check(failures, "DropCheck", () -> com.farmmacro.route.DropCheck.main());
+        check(failures, "HumanizerCheck", () -> com.farmmacro.macro.HumanizerCheck.main());
+        check(failures, "HumanizeGaussCheck", () -> com.farmmacro.macro.HumanizeGaussCheck.main());
+        check(failures, "ViewCheck", () -> com.farmmacro.macro.ViewCheck.main());
+        check(failures, "SyncCheck", () -> com.farmmacro.panic.SyncCheck.main());
+        check(failures, "VelocitySim", () -> com.farmmacro.route.VelocitySim.main());
+        check(failures, "CropPresetsCheck", () -> com.farmmacro.camera.CropPresetsCheck.main());
+        check(failures, "BigPanicCheck", () -> com.farmmacro.panic.BigPanicCheck.main());
+        check(failures, "PlayersCheck", () -> com.farmmacro.panic.PlayersCheck.main());
+        check(failures, "DetectorsCheck", () -> com.farmmacro.panic.DetectorsCheck.main());
+        check(failures, "CorrectionWindowCheck", () -> com.farmmacro.panic.CorrectionWindowCheck.main());
+        check(failures, "CombatRegressionCheck", () -> com.farmmacro.combat.CombatRegressionCheck.main());
+        check(failures, "InventorySlotsCheck", () -> com.farmmacro.hud.InventorySlotsCheck.main());
+        check(failures, "SaleStartCheck", () -> com.farmmacro.market.SaleStartCheck.main());
+        check(failures, "ModuleRetirementCheck", () -> com.farmmacro.gui.ModuleRetirementCheck.main());
+        check(failures, "NavigationBoundaryCheck", () -> com.farmmacro.route.NavigationBoundaryCheck.main());
+        check(failures, "PathCheck", () -> com.farmmacro.route.PathCheck.main());
+        check(failures, "RouteRandomCheck", () -> com.farmmacro.route.RouteRandomCheck.main());
+        check(failures, "Release117Check", () -> com.farmmacro.route.Release117Check.main());
+        check(failures, "CropFeverMediaCheck", () -> com.farmmacro.fun.CropFeverMediaCheck.main());
+        check(failures, "FeverMotionCheck", () -> com.farmmacro.fun.FeverMotionCheck.main());
+        check(failures, "FeverLightsCheck", () -> com.farmmacro.fun.FeverLightsCheck.main());
+        check(failures, "TrackingTurnCheck", () -> com.farmmacro.camera.TrackingTurnCheck.main());
+        check(failures, "GroundGuideCheck", () -> com.farmmacro.route.GroundGuideCheck.main());
+        check(failures, "ReturnGuidedCheck", () -> com.farmmacro.route.ReturnGuidedCheck.main());
+        check(failures, "LoadingLookCheck", () -> com.farmmacro.loading.LoadingLookCheck.main());
+        check(failures, "ChunkCacheCheck", () -> com.farmmacro.route.ChunkCacheCheck.main());
+        check(failures, "DelayCheck", () -> com.farmmacro.macro.DelayCheck.main());
+        check(failures, "FlyCheck", () -> com.farmmacro.route.FlyCheck.main());
+        check(failures, "ThemeCheck", () -> com.farmmacro.gui.ThemeCheck.main());
+        check(failures, "CheeksCheck", () -> CheeksCheck.main());
+        check(failures, "ConfigCodeCheck", () -> com.farmmacro.config.ConfigCodeCheck.main());
+        check(failures, "WindowCheck", () -> com.farmmacro.window.WindowCheck.main());
+        check(failures, "SuspicionCheck", () -> com.farmmacro.panic.SuspicionCheck.main());
+        if (!failures.isEmpty()) throw new IllegalStateException("Failed checks: " + failures);
+        System.out.println("RouteStress: ALL CHECKS PASSED");
+    }
+
+    @FunctionalInterface private interface Check { void run() throws Exception; }
+    private static void check(List<String> failures, String name, Check test) {
+        try { test.run(); } catch (Throwable failure) {
+            failures.add(name + ": " + failure);
+            System.err.println("CHECK FAILED: " + name);
+            failure.printStackTrace();
+        }
     }
 
     /** Маршрут по точкам (ряды 96×96, шаг 3): проверка рядов и геометрии ленты. */

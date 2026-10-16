@@ -56,6 +56,9 @@ public final class HandDelays {
         return SLOT.update(current, want, tick, () -> MODEL.next(DelayModel.Kind.SLOT, "слот " + (want + 1), now(), params()).ticks());
     }
 
+    /** Navigation handoff: cancel button gates only; do not change slot timing/model history. */
+    public static void releaseButtons(){ATTACK.reset(false);USE.reset(false);}
+
     /** Стоп/паника: сразу всё как есть. */
     public static void reset() { ATTACK.reset(false); USE.reset(false); SLOT.reset(); }
 }

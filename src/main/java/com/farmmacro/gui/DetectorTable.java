@@ -90,7 +90,7 @@ final class DetectorTable {
         rows.add(new Rows.Spacer(4));
         rows.add(new Rows.Buttons(
                 new Rows.Btn("Включить все", Rows.Style.SECONDARY, () -> { Detectors.setAll(true); save(); })
-                        .tip("Кроме тех, кому нужны свои данные или которые часто ложно срабатывают: BPS, банвейв, Jacob, сход с маршрута, полный инвентарь, откат назад"),
+                        .tip("Кроме тех, кому нужны свои данные или которые часто ложно срабатывают: BPS, банвейв, Jacob, сход с маршрута, откат назад"),
                 new Rows.Btn("Выключить все", Rows.Style.DANGER, () -> { Detectors.setAll(false); save(); })
                         .tip("Все детекторы выкл (главный выключатель «Паника включена» не трогает)"),
                 new Rows.Btn("Сбросить счётчики", Rows.Style.SECONDARY, Detectors::resetStats)
@@ -175,6 +175,7 @@ final class DetectorTable {
                 l.add(num("Минимум, блоков/с", null, () -> cfg().bpsMin, v -> cfg().bpsMin = v, 0.1, 40, 0.5, 2));
                 l.add(num("Окно, с", null, () -> cfg().bpsWindowSec, v -> cfg().bpsWindowSec = v, 2, 30, 1, 5));
             }
+            case "farmingXp" -> l.add(num("Без текста XP, с","Нужно ранее увидеть XP в том же сборе; +10тиков подтверждения",()->cfg().farmingXpMissingSec,v->cfg().farmingXpMissingSec=v,3,60,1,8));
             case "desync" -> l.add(num("Вернулось, %", null, () -> cfg().desyncPct, v -> cfg().desyncPct = v, 10, 100, 5, 10));
             case "banwave" -> {
                 l.add(inum("Банов", null, () -> cfg().banwaveThreshold, v -> cfg().banwaveThreshold = (int) v, 1, 100_000, 1, 50));
@@ -224,6 +225,7 @@ final class DetectorTable {
     // ── Раскладка столбцов ───────────────────────────────────────────────────
 
     private static boolean reacts(String id) {
+        if(com.farmmacro.panic.AutomationSafety.manualHandoff(id))return false;
         var ids = ModConfig.INSTANCE.reactIds;
         return (ids == null ? ModConfig.REACT_DEFAULT : ids).contains(id);
     }
@@ -425,7 +427,7 @@ final class DetectorTable {
                 Detectors.setSound(d.id(), nx.isEmpty() ? null : nx); save(); c.clickSound(); return true;
             }
             if (button != 0) return false;
-            if (d.hasSound() && Ui.inside(mx, my, k.react(), y + 2, R_W, 14)) {
+            if (d.hasSound() && !com.farmmacro.panic.AutomationSafety.manualHandoff(d.id()) && Ui.inside(mx, my, k.react(), y + 2, R_W, 14)) {
                 var ids = ModConfig.INSTANCE.reactIds;
                 if (ids == null) ids = ModConfig.INSTANCE.reactIds = new java.util.ArrayList<>(ModConfig.REACT_DEFAULT);
                 if (!ids.remove(d.id())) ids.add(d.id());

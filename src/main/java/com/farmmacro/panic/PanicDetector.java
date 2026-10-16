@@ -55,6 +55,8 @@ public class PanicDetector {
     private String pendingId, lastHitId, tickReason, tickId;
     /** Звук текущей паники (повторы) — свой у детектора или null (общий). */
     private String soundId;
+    private boolean combatEffect;
+    private int redScreenMaxTicks=60,soundRepeatTicks=30;
     private boolean lagWas;
 
     // захват состояния перед обработкой пакета движения
@@ -90,8 +92,6 @@ public class PanicDetector {
     private boolean idleLogged;
     /** Игроки, уже засчитанные «за радиусом» в этом запуске (null — ещё не запомнили стартовых). */
     private Set<UUID> farSeen;
-    /** Надписи над хотбаром (цифры → #), уже засчитанные в этом запуске. */
-    private final java.util.LinkedHashSet<String> actionSeen = new java.util.LinkedHashSet<>();
 
     private int redScreenTicksLeft;
     private int soundRepeatsLeft;
@@ -106,11 +106,12 @@ public class PanicDetector {
     // ── Состояние ────────────────────────────────────────────────────────────
 
     private static boolean armed() {
-        return MacroManager.INSTANCE.isPlaying() && ModConfig.INSTANCE.panicEnabled;
+        return (MacroManager.INSTANCE.isPlaying()||com.farmmacro.pest.PestHunter.INSTANCE.active()||com.farmmacro.visitor.Visitors.INSTANCE.active()||com.farmmacro.market.StashSales.INSTANCE.active()||com.farmmacro.macro.Scheduler.isBreak())&&ModConfig.INSTANCE.panicEnabled;
     }
 
     /** Срабатывание из пакета/GUI: через реестр; паника — в следующем тике. */
     void flag(String id, String reason) {
+        if(PanicHandoff.pending())return;
         if (hit(id, reason) == null) return;
         EventLog.log("FLAG", reason);
         if (pendingReason == null) {
@@ -173,14 +174,16 @@ public class PanicDetector {
     public void beginRun() {
         snapshot(Minecraft.getInstance());
         nearSeen = null; fallGraceTicks = 0;
-        farSeen = null; actionSeen.clear(); suspicion.reset();
+        farSeen = null; suspicion.reset();
         world.beginRun(Minecraft.getInstance().player);
+        AutomationSafety.INSTANCE.beginRun();
         players.beginRun();
         nearFresh = new HashSet<>(); nearDwell.clear();
         idleSinceMs = System.currentTimeMillis(); idleLogged = false;
     }
 
     /** v1.13: BPS для HUD (NaN — мало данных). */
+    public static java.util.List<String> sidebar(Minecraft mc) { return mc.level==null?java.util.List.of():WorldGuards.sidebar(mc.level); }
     public double bps() { return world.lastBps(); }
 
     /** v1.13: игрок сломал блок (MultiPlayerGameMode.destroyBlock). state — что было до ломания. */
@@ -190,6 +193,11 @@ public class PanicDetector {
 
     /** v1.13: системный чат / надпись над хотбаром / титр — перезагрузка, лимбо, гость на ферме. */
     public void onSystemText(String text, String where) {
+        if("надпись над хотбаром".equals(where)){
+            // Isolated opt-in telemetry parser only. Never forwards this channel to chat/suspicion.
+            if(armed())world.onActionbar(text);
+            return;
+        }
         if(!"надпись над хотбаром".equals(where))com.farmmacro.fun.CropFever.onText(text,false);
         if (armed() && player() != null) {
             world.onServerText(text, where);
@@ -198,7 +206,7 @@ public class PanicDetector {
     }
 
     /** v1.14: каждый тик, даже без макроса (возраст мира, свои телепорты — для «Массового телепорта»). */
-    public void tickAlways(Minecraft mc) { players.tickAlways(mc); }
+    public void tickAlways(Minecraft mc) { players.tickAlways(mc); NearbyChatGuard.INSTANCE.sample(mc); }
 
     /** v1.14: друг из белого списка («Паника → Друзья»). */
     public boolean isFriend(String name) { return players.isFriend(name); }
@@ -209,6 +217,7 @@ public class PanicDetector {
      */
     public void onDisconnect(Minecraft mc, boolean wasPlaying) {
         com.farmmacro.panic.LagGuard.INSTANCE.reset();
+        if(PanicHandoff.pending())return; // Preserve the original cause and acknowledgement requirement.
         if (!wasPlaying) return;
         mc.execute(() -> {
             ModConfig c = ModConfig.INSTANCE;
@@ -244,7 +253,7 @@ public class PanicDetector {
     public void allowFall(int ticks) { fallGraceTicks = Math.max(fallGraceTicks, ticks); }
 
     /** Макрос сам поставил этот слот — это не «внешняя» смена. */
-    public void expectSlot(int slot) { expectedSlot = slot; }
+    public void expectSlot(int slot) { expectedSlot = slot; AutomationSafety.INSTANCE.expectSlot(slot); }
 
     /** Макрос сам повернул камеру (replayCamera) — это не «чужой» поворот. */
     public void expectRotation(float yaw, float pitch) { prevYaw = yaw; prevPitch = pitch; }
@@ -258,15 +267,31 @@ public class PanicDetector {
     // ── Хуки из миксинов (главный поток) ─────────────────────────────────────
 
     public void onScreenOpening(Screen screen) {
-        if (!armed() || !ModConfig.INSTANCE.detectGuiOpen || screen == null) return;
-        if (screen instanceof PauseScreen || screen instanceof ChatScreen
-                || screen instanceof FarmMacroScreen || screen instanceof SaveMacroScreen
-                || screen instanceof com.farmmacro.gui.RouteVariantScreen
-                || screen instanceof com.farmmacro.gui.PointEditScreen
-                || screen instanceof com.farmmacro.gui.MacroSettingsScreen
-                || screen instanceof com.farmmacro.hud.HudEditorScreen) return;
-        flag("gui", "Открылось окно: " + screen.getTitle().getString()
-                + " (" + screen.getClass().getSimpleName() + ")");
+        if(screen==null)return;
+        if(com.farmmacro.market.StashSales.INSTANCE.expectScreen(screen)){com.farmmacro.camera.SmoothTurn.stop();return;}
+        com.farmmacro.market.StashSales.INSTANCE.screenOpening(screen);
+        if(com.farmmacro.visitor.Visitors.INSTANCE.expectScreen(screen)){com.farmmacro.camera.SmoothTurn.stop();return;}
+        com.farmmacro.visitor.Visitors.INSTANCE.screenOpening(screen);
+        if(com.farmmacro.loadout.GlobalLoadouts.INSTANCE.expectScreen(screen)){com.farmmacro.camera.SmoothTurn.stop();return;}
+        com.farmmacro.loadout.GlobalLoadouts.INSTANCE.screenOpening(screen);
+        if(com.farmmacro.pest.PestTraps.INSTANCE.expectScreen(screen)){com.farmmacro.camera.SmoothTurn.stop();return;}
+        Minecraft mc=Minecraft.getInstance();
+        com.farmmacro.combat.AimAssist.INSTANCE.handoff("открыто окно");
+        // Connection lifecycle has its own policy; do not cancel an intentionally configured reconnect here.
+        if(screen instanceof net.minecraft.client.gui.screens.DisconnectedScreen||mc.player==null||mc.level==null)return;
+        com.farmmacro.macro.Scheduler.cancel();com.farmmacro.macro.Reconnect.cancel();
+        com.farmmacro.camera.SmoothTurn.stop();com.farmmacro.camera.Mousemat.cancel();
+        HumanReaction.stop("открыто окно");
+        boolean own=screen instanceof PauseScreen||screen instanceof ChatScreen
+            ||screen instanceof FarmMacroScreen||screen instanceof SaveMacroScreen
+            ||screen instanceof com.farmmacro.gui.RouteVariantScreen||screen instanceof com.farmmacro.gui.PointEditScreen
+            ||screen instanceof com.farmmacro.gui.MacroSettingsScreen||screen instanceof com.farmmacro.hud.HudEditorScreen
+            ||screen instanceof com.farmmacro.gui.KeybindCaptureScreen;
+        if(armed()&&ModConfig.INSTANCE.detectGuiOpen&&!own)
+            fire(mc,"gui","Открылось окно: "+screen.getTitle().getString()+" ("+screen.getClass().getSimpleName()+")");
+        // Even LOG/OFF policies must not keep pressing into an open GUI. No automatic resume on closing.
+        if(MacroManager.INSTANCE.isActive())MacroManager.INSTANCE.stopPlayback(mc,"§eОстановлено: открыто окно");
+        com.farmmacro.pest.PestHunter.INSTANCE.abort(mc,"открыто окно — ручной перезапуск",false);
     }
 
     public void beforeServerMove() { beforeServerMove("телепорта"); }
@@ -274,7 +299,7 @@ public class PanicDetector {
     public void beforeServerMove(String kind) {
         LocalPlayer p = Minecraft.getInstance().player;
         // v1.16.3: Squeaky Mousemat ждёт поворот от сервера и вне макроса (K в покое)
-        if (p == null || (!armed() && !com.farmmacro.camera.Mousemat.busy())) { moveCaptured = false; return; }
+        if (p == null || (!armed() && !AutomationSafety.watching() && !com.farmmacro.camera.Mousemat.busy() && !com.farmmacro.pest.PestTravel.INSTANCE.busy() && !com.farmmacro.market.StashSales.INSTANCE.active())) { moveCaptured = false; return; }
         mvKind = kind;
         mvX = p.getX(); mvY = p.getY(); mvZ = p.getZ();
         mvYaw = p.getYRot(); mvPitch = p.getXRot();
@@ -289,11 +314,21 @@ public class PanicDetector {
         if (p == null) return;
         double dx = p.getX() - mvX, dy = p.getY() - mvY, dz = p.getZ() - mvZ;
         double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if(dist>.001)com.farmmacro.loadout.GlobalLoadouts.INSTANCE.cancel(Minecraft.getInstance(),"серверное перемещение");
         // v1.16.3: свой Snap предметом Squeaky Mousemat (окно ожидания, без сдвига, угол = пресет ± допуск)
         if (com.farmmacro.camera.Mousemat.acceptServerRotation(p.getYRot(), p.getXRot(), dist)) {
             if (armed()) { markServerPush(); updatePrev(p); }
             return;
         }
+        if(com.farmmacro.pest.PestTravel.INSTANCE.acceptServerMove(Minecraft.getInstance(),mvKind,dist)){
+            markServerPush();updatePrev(p);return;
+        }
+        if(com.farmmacro.market.MarketTrip.INSTANCE.move(Minecraft.getInstance(),mvKind,dist)){markServerPush();updatePrev(p);return;}
+        // The sale controller also fails closed when legacy panic toggles are OFF.
+        if(com.farmmacro.market.StashSales.INSTANCE.active()&&(dist>.001||angleDiff(p.getYRot(),mvYaw)>.1||Math.abs(p.getXRot()-mvPitch)>.1))
+            com.farmmacro.market.StashSales.INSTANCE.cancel(Minecraft.getInstance(),"неожиданная серверная позиция/камера");
+        // Only exact module-owned expected moves bypass the focused guard.
+        if(AutomationSafety.INSTANCE.serverMove(Minecraft.getInstance(),mvKind,dx,dy,dz,Math.max(angleDiff(p.getYRot(),mvYaw),Math.abs(p.getXRot()-mvPitch))))return;
         if (!armed()) return;
         if(com.farmmacro.route.RouteEndRuntime.INSTANCE.serverMove(mvKind,dist)){markServerPush();updatePrev(p);return;}
         markServerPush();                                     // позицию задал сервер — не «аномалия скорости»
@@ -349,7 +384,7 @@ public class PanicDetector {
         if (!c.detectBlockInFace && !c.detectObstacle) return;
 
         // Свои постановки блоков клиент уже предсказал — там старое состояние уже твёрдое.
-        if (!old.getCollisionShape(level, pos).isEmpty()) return;
+        if (!old.getCollisionShape(level, pos).isEmpty()||grownOrMoved(newState)) return;
         VoxelShape shape = newState.getCollisionShape(level, pos);
         if (shape.isEmpty()) return;
 
@@ -357,7 +392,7 @@ public class PanicDetector {
             AABB zone = p.getBoundingBox().inflate(c.blockDetectRadius);
             for (AABB box : shape.toAabbs()) {
                 if (box.move(pos).intersects(zone)) {
-                    flag("blockNear", "Рядом появился блок: " + newState.getBlock().getName().getString()
+                    fire(mc,"blockNear", "Рядом появился блок: " + newState.getBlock().getName().getString()
                             + " " + pos.toShortString());
                     return;
                 }
@@ -472,32 +507,25 @@ public class PanicDetector {
 
     /** Чат: system — сообщение сервера/плагина; sender — автор сообщения игрока (null — неизвестен). */
     public void onChat(String text, UUID sender, String senderName, boolean overlay) {
+        if(overlay)return; // Actionbar is never player chat and never contributes suspicion.
         LocalPlayer p = player();
         ModConfig c = ModConfig.INSTANCE;
-        if (p == null || text == null || !armed()) return;
-        if (sender != null && sender.equals(p.getUUID())) return;           // своё сообщение
-        if (c.friendsIgnoreChat && !overlay) {                               // v1.14: друг пишет — не считаем
-            String who = senderName != null ? senderName : PlayerRules.chatSender(text);
-            if (players.isFriend(who)) { EventLog.log("FRIEND", "чат от друга " + who); return; }
-        }
+        if (p == null || text == null) return;
+        String nearby=NearbyChatGuard.INSTANCE.match(Minecraft.getInstance(),text,sender,senderName,overlay);
+        if(nearby!=null&&CombatPanic.fire(Minecraft.getInstance(),"nearbyChat",nearby))return;
+        if(!armed())return;
+        var social=PlayerChatMessage.resolve(Minecraft.getInstance(),text,sender,senderName);
+        if(social==null)return; // No confirmed player header/identity: not social evidence.
+        senderName=social.author();text=social.body();
+        if(c.friendsIgnoreChat&&players.isFriend(senderName))return;
         String hit = c.detectChat ? ChatMatch.hit(text, p.getGameProfile().name(), c.chatMentionName, c.chatKeywords) : null;
-        if (hit == null) {
-            // новая надпись над хотбаром без ника/слова — немного подозрительности (цифры не различаем: таймеры)
-            if (overlay && !text.isBlank()) {
-                String key = clip(text, 80).replaceAll("\\d", "#");
-                if (actionSeen.add(key)) {
-                    if (actionSeen.size() > 64) actionSeen.remove(actionSeen.iterator().next());
-                    suspect("title", "надпись над хотбаром", "«" + clip(text, 30) + "»", c.suspWeightActionBar);
-                }
-            }
-            return;
-        }
+        if(hit==null)return;
         EventLog.log("CHAT", hit + (senderName != null ? " от " + senderName : "") + ": «" + clip(text, 120) + "»");
         if (c.chatWordsSoft && !"ник".equals(hit)) {
             suspect("chat", "слово в чате", hit, c.suspWeightChatWord);
             return;
         }
-        flag("chat", (overlay ? "Надпись над хотбаром" : "Чат") + " (" + hit + ")" + (senderName != null ? " от " + senderName : "")
+        flag("chat", "Чат" + " (" + hit + ")" + (senderName != null ? " от " + senderName : "")
                 + ": «" + clip(text, 60) + "»");
     }
 
@@ -568,6 +596,7 @@ public class PanicDetector {
     }
 
     public void onRespawn() {
+        if(AutomationSafety.INSTANCE.respawn(Minecraft.getInstance()))return;
         if (armed() && ModConfig.INSTANCE.detectGameMode) flag("gameMode", "Респавн / смена мира");
     }
 
@@ -651,6 +680,12 @@ public class PanicDetector {
         if (p == null) return;
         ModConfig c = ModConfig.INSTANCE;
 
+        if(com.farmmacro.market.MarketTrip.INSTANCE.waiting()){
+            String reason=pendingReason,id=pendingId;pendingReason=null;pendingId=null;
+            if(reason!=null)triggerPanic(mc,id,reason);
+            return;
+        }
+        if(!armed()){updatePrev(p);pendingReason=null;pendingId=null;return;}
         tickReason = pendingReason; tickId = pendingId;
         pendingReason = null; pendingId = null;
 
@@ -671,7 +706,7 @@ public class PanicDetector {
             if (tickReason == null) offer(hit("obstacle", o));
         } else obstacles.clear();
 
-        if (tickReason == null && c.detectRotation) {
+        if (tickReason == null && !com.farmmacro.pest.PestHunter.INSTANCE.manualControl() && c.detectRotation) {
             float dy = angleDiff(p.getYRot(), prevYaw);
             float dp = Math.abs(p.getXRot() - prevPitch);
             if (dy > c.yawThreshold)
@@ -680,6 +715,7 @@ public class PanicDetector {
                 offer(hit("rotation", String.format(Locale.ROOT, "Камера повернулась (pitch %.3f° > %.3f°)", dp, c.pitchThreshold)));
         }
 
+        if(com.farmmacro.pest.PestHunter.INSTANCE.manualControl())expectedSlot=p.getInventory().getSelectedSlot();
         if (tickReason == null && c.detectSlotChange) {
             int real = p.getInventory().getSelectedSlot();
             if (real != expectedSlot) offer(hit("slot", "Слот сменился: " + (expectedSlot + 1) + " → " + (real + 1)));
@@ -688,7 +724,7 @@ public class PanicDetector {
         // предмет в руке сменился/пропал сам — слот тот же (смену слота макросом не считаем)
         var stack = p.getMainHandItem();
         int sel = p.getInventory().getSelectedSlot();
-        if (tickReason == null && c.detectHeldItem && sel == heldSlot && heldItem != null) {
+        if (tickReason == null && !com.farmmacro.pest.PestHunter.INSTANCE.manualControl() && c.detectHeldItem && sel == heldSlot && heldItem != null) {
             if (stack.isEmpty()) {
                 if (!heldStackable) offer(hit("heldItem", "Предмет в руке пропал: " + heldItem.getName(heldItem.getDefaultInstance()).getString()));
             } else if (stack.getItem() != heldItem) {
@@ -755,7 +791,7 @@ public class PanicDetector {
 
         offer(world.tick(mc, p, c));                     // v1.13: мир и сервер (состояние обновляется всегда)
         offer(players.tick(mc, p, c));                   // v1.14: staff, двойник, массовый телепорт, без имени
-        if (!MacroManager.INSTANCE.isPlaying()) return;    // Jacob's Contest: обычный стоп по лимиту
+        if (!MacroManager.INSTANCE.isPlaying() && !com.farmmacro.pest.PestHunter.INSTANCE.active() && !com.farmmacro.visitor.Visitors.INSTANCE.active() && !com.farmmacro.market.StashSales.INSTANCE.active() && !com.farmmacro.macro.Scheduler.isBreak()) return;    // Jacob's Contest: обычный стоп по лимиту
 
         if (c.suspicionEnabled) {
             String s = suspicion.reasonIfOver(System.currentTimeMillis(), c.suspicionHalfLifeSec, c.suspicionLimit);
@@ -778,8 +814,8 @@ public class PanicDetector {
             if (soundRepeatDelay > 0) soundRepeatDelay--;
             else {
                 soundRepeatsLeft--;
-                Guard.run("panic/repeat-sound", () -> PanicSound.playPanic(soundId));
-                soundRepeatDelay = ModConfig.INSTANCE.panicSoundRepeatDelayTicks;
+                Guard.run("panic/repeat-sound", this::playCurrentSignal);
+                soundRepeatDelay = soundRepeatTicks;
             }
         }
     }
@@ -793,8 +829,24 @@ public class PanicDetector {
 
     /** v1.14.2-pre: id — детектор из реестра (свой звук); null — общий звук. */
     public void triggerPanic(Minecraft mc, String id, String reason) {
+        com.farmmacro.macro.Reconnect.panic(); // Any panic permanently revokes this automatic-run permit.
+        com.farmmacro.market.StashSales.INSTANCE.cancel(mc,"паника");
+        com.farmmacro.visitor.Visitors.INSTANCE.cancel(mc,"паника");
+        com.farmmacro.loadout.GlobalLoadouts.INSTANCE.cancel(mc,"паника");
+        combatEffect=CombatPanic.isCombatId(id);
+        Guard.run("panic/handoff-notice", () -> PanicHandoff.show(id,reason));
+        if(combatEffect)Guard.run("combat/aim-pause",() -> com.farmmacro.combat.AimAssist.INSTANCE.pauseLocal("боевая паника"));
+        else Guard.run("combat/aim-stop",() -> com.farmmacro.combat.AimAssist.INSTANCE.handoff("паника фермы/общая остановка"));
+        Guard.run("pest/panic-stop", () -> com.farmmacro.pest.PestHunter.INSTANCE.abort(mc,"паника",false));
         ModConfig c = ModConfig.INSTANCE;
-        soundId = Detectors.sound(id);
+        if(AutomationSafety.manualHandoff(id)||PanicHandoff.pending()){
+            com.farmmacro.macro.Scheduler.cancel();
+            com.farmmacro.macro.Reconnect.cancel();
+            Guard.run("panic/manual-hold-stop",() -> com.farmmacro.macro.MouseHold.INSTANCE.stopAll(mc));
+            Guard.run("panic/search-turn-stop",com.farmmacro.camera.SmoothTurn::stop);
+        }
+        soundId = combatEffect?CombatPanic.settings().soundId:Detectors.sound(id);
+        soundRepeatTicks=combatEffect?CombatPanic.settings().soundDelayTicks:c.panicSoundRepeatDelayTicks;
         Guard.run("panic/event-log", () -> EventLog.log("PANIC", reason));
         Guard.run("panic/log", () -> {
             LocalPlayer p = mc.player;
@@ -814,6 +866,7 @@ public class PanicDetector {
         // 0. Мышь — сразу свободна (блокировка мыши), чтобы игрок мог реагировать сам.
         Guard.run("panic/unlock-mouse", () -> com.farmmacro.camera.MouseLock.unlock(mc, "паника"));
         // v1.13.1: курсор — обратно в игру, графика — как была (чтобы видеть и реагировать)
+        Guard.run("panic/freecam-off",()->com.farmmacro.camera.Freecam.off(mc));
         Guard.run("panic/ungrab-off", () -> com.farmmacro.camera.Ungrab.off(mc, "паника"));
         Guard.run("panic/perf-off", () -> com.farmmacro.visual.PerformanceMode.off(mc, "паника"));
         // v1.12: freelook — обратно в свой вид, чтобы видеть то же, что и сервер (по настройке)
@@ -821,25 +874,35 @@ public class PanicDetector {
 
         Guard.run("panic/mousemat", com.farmmacro.camera.Mousemat::cancel);
         // v1.16.3: в основное окно (из «картинки в картинке», свёрнутого, из-под других программ)
-        Guard.run("panic/window", () -> com.farmmacro.window.Pip.toFront(mc, "паника"));
+        Guard.run("panic/window", () -> {
+            if(combatEffect){var p=CombatPanic.settings();com.farmmacro.window.Pip.toFront(mc,"Combat: паника",p.exitPip,p.focusWindow);}
+            else com.farmmacro.window.Pip.toFront(mc,"паника");
+        });
 
         // 1. Остановка — главное. Если обычная остановка упала, отпускаем клавиши аварийно.
         if (!Guard.run("panic/stop", () -> MacroManager.INSTANCE.stopPlayback(mc, "§c⚠ Паника: " + reason)))
             Guard.run("panic/force-stop", () -> MacroManager.INSTANCE.forceStop(mc));
+        // Legacy macro releaseAll can clear Shift even for a combat-only panic; restore ONLY owned valid crouch.
+        if(combatEffect)Guard.run("combat/panic-crouch",() -> com.farmmacro.combat.CombatSway.INSTANCE.maintainInput(mc));
+        AutomationSafety.INSTANCE.clear();
 
         // 2. Звук: только постановка в очередь, без декодирования и файлов.
-        if (c.panicSoundEnabled) {
-            soundRepeatsLeft = Math.max(0, c.panicSoundRepeats - 1);
-            soundRepeatDelay = c.panicSoundRepeatDelayTicks;
-            Guard.run("panic/sound", () -> PanicSound.playPanic(soundId));
+        soundRepeatsLeft=0;
+        if (combatEffect?CombatPanic.settings().sound:c.panicSoundEnabled) {
+            soundRepeatsLeft = Math.max(0, (combatEffect?CombatPanic.settings().soundRepeats:c.panicSoundRepeats) - 1);
+            soundRepeatDelay = soundRepeatTicks;
+            Guard.run("panic/sound", this::playCurrentSignal);
         }
         // 3. Красный экран.
-        if (c.panicRedScreenEnabled) redScreenTicksLeft = c.panicRedScreenTicks;
+        redScreenMaxTicks=combatEffect?CombatPanic.settings().redScreenTicks:c.panicRedScreenTicks;
+        redScreenTicksLeft=(combatEffect?CombatPanic.settings().redScreen:c.panicRedScreenEnabled)?redScreenMaxTicks:0;
         // 4. v1.14: скриншот последнего кадра (до красного экрана) и сообщение в Discord — файлы/сеть в фоне
-        Guard.run("panic/screenshot", () -> PanicShot.onPanic(mc, reason));
+        Guard.run("panic/screenshot", () -> PanicShot.onPanic(mc, id, reason));
         // 5. v1.16.3 «Человеческая реакция» (выкл по умолчанию): оглядеться и, может быть, одна фраза в чат;
         // любой ввод игрока сразу её прекращает
-        Guard.run("panic/react", () -> HumanReaction.onPanic(mc, id, reason));
+        // Nearby-chat handoff never rotates or speaks for the user, even if reaction was enabled.
+        if(AutomationSafety.manualHandoff(id)||PanicHandoff.pending())Guard.run("panic/react-cancel",() -> HumanReaction.stop("аварийная передача управления человеку"));
+        else Guard.run("panic/react", () -> HumanReaction.onPanic(mc, id, reason));
     }
 
     /** Проверка из меню: те же звук и красный экран, но без остановки и без записи в «последнюю панику». */
@@ -849,6 +912,7 @@ public class PanicDetector {
     public void preview(Minecraft mc, String text, String sound) {
         ModConfig c = ModConfig.INSTANCE;
         overlayText = text;
+        combatEffect=false;redScreenMaxTicks=c.panicRedScreenTicks;soundRepeatTicks=c.panicSoundRepeatDelayTicks;
         soundId = sound;
         EventLog.log("TEST", text);
         if (c.panicSoundEnabled) {
@@ -861,7 +925,11 @@ public class PanicDetector {
 
     /** Заглушить повторы сирены (кнопка в GUI / новый старт макроса). */
     public void silence() { soundRepeatsLeft = 0; }
+    /** Keep the history, dismiss the transient flash and queued repeats after explicit handoff. */
+    public void acknowledgeHandoff(){redScreenTicksLeft=0;soundRepeatsLeft=0;soundRepeatDelay=0;}
 
+    private void playCurrentSignal(){if(combatEffect)CombatPanic.playSound();else PanicSound.playPanic(soundId);}
+    public int getRedScreenMaxTicks(){return redScreenMaxTicks;}
     public int     getRedScreenTicks() { return redScreenTicksLeft; }
     public String  getLastReason()     { return lastReason; }
     public String  getLastPanicId()    { return lastPanicId; }

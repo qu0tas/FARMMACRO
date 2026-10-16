@@ -18,7 +18,8 @@ public class FreelookMouseMixin {
     private void farmmacro$freelook(LocalPlayer player, double dx, double dy) {
         boolean fl;
         try { fl = Freelook.active(); } catch (Throwable t) { fl = false; }
-        if (fl) Freelook.turn(dx, dy);
+        if (com.farmmacro.camera.Freecam.active()) com.farmmacro.camera.Freecam.turn(dx,dy);
+        else if (fl) Freelook.turn(dx, dy);
         else player.turn(dx, dy);
     }
 }

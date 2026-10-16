@@ -33,6 +33,7 @@ public final class WalkCore {
     }
 
     private List<RoutePoint> pts;
+    private FarmSchemeSettings farm;
     private int target, seg = -1, pauseLeft, jumpTicks;
     private boolean finishPause;
     private int actionPoint=-1,actionHandled=-1;
@@ -80,6 +81,7 @@ public final class WalkCore {
 
     public void start(PointRoute route, int index, int stuckTicks) {
         pts = route.points; actionPoint=actionHandled=-1;
+        farm=route.settings!=null&&route.settings.farm!=null&&route.settings.farm.enabled?route.settings.farm.copy():null;
         target = Math.max(0, Math.min(pts.size() - 1, index));
         seg = target - 1;
         pauseLeft = 0; jumpTicks = 0; done = false; finishPause=false;
@@ -122,6 +124,7 @@ public final class WalkCore {
             return out;
         }
         boolean knowY = !Double.isNaN(y);
+        currentGrounded=onGround;
 
         RoutePoint t = pts.get(target);
         double rr = reach != null && target < reach.length ? reach[target] : reachRadius;
@@ -130,7 +133,8 @@ public final class WalkCore {
         if (pauseLeft == 0 && dropPhase == D_NONE && reached(x, y, z, t, rr, floor && knowY)) {
             RoutePoint q = pts.get(target);
             seg = target;
-            pauseLeft = q.pauseTicks + (q.drop ? q.beforeDropTicks : 0);
+            pauseLeft = q.pauseTicks + (q.drop ? q.beforeDropTicks : 0)
+                + (farm!=null&&q.farmTurn&&!farm.fastSwitch?farm.switchPauseTicks:0);
             jumpTicks = q.jump ? 2 : 0;
             resetStuck(stuckTicks);
             floorTicks = 0;
@@ -162,7 +166,7 @@ public final class WalkCore {
         boolean dropping = !pausing && dropPhase != D_NONE;
         pausingNow = pausing || (dropping && dropPhase == D_LAND);
         if (dropping) {
-            String p = tickDrop(x, y, z, onGround, curYaw, s, floor && knowY, out);
+            String p = tickDrop(x, y, z, onGround, curYaw, s, (floor || requireHeight) && knowY, out);
             if (p != null) { out.panic = p; return out; }
         } else if (!pausing) {
             steer(x, z, t, curYaw, out);
@@ -237,7 +241,7 @@ public final class WalkCore {
                     double fell = knowY ? dropFromY - y : Double.NaN;
                     lastFall = fell;
                     if (floor && !Double.isNaN(fell)) {
-                        if (fell < FLOOR_GAP_MIN)
+                        if (fell < (requireHeight && q != null && q.dropDepth > 0 ? Math.min(FLOOR_GAP_MIN, Math.max(.1, q.dropDepth - FLOOR_TOL)) : FLOOR_GAP_MIN))
                             return String.format(Locale.ROOT, "Не тот этаж: после спуска у точки %d упал всего на %.1f бл", n, fell);
                         if (q != null && q.dropDepth > 0 && Math.abs(fell - q.dropDepth) > FLOOR_TOL)
                             return String.format(Locale.ROOT, "Не тот этаж: упал на %.1f бл, ждали %.1f (точка %d)", fell, q.dropDepth, n);
@@ -271,12 +275,19 @@ public final class WalkCore {
 
     /** Последний reached(): по XZ дошли, но точка на другом этаже. */
     private boolean otherFloor;
+    /** Navigation-only height completion; precision playback keeps its existing policy. */
+    public boolean requireHeight;
+    public boolean navigationFlying;
+    public static final double NAV_GROUND_HEIGHT_TOL=.2;
+    private boolean currentGrounded;
 
     /** В радиусе по XZ или уже проскочили точку по ходу отрезка (не дальше 0.6 бл вбок); с floor — и на том же этаже. */
     private boolean reached(double x, double y, double z, RoutePoint t, double r, boolean floor) {
         otherFloor = false;
         boolean xz = reachedXZ(x, z, t, r);
-        if (xz && floor && Math.abs(y - t.y) > OTHER_FLOOR_DY) { otherFloor = true; return false; }
+        if(requireHeight && !t.fly && !t.climb && !currentGrounded && !navigationFlying)return false;
+        double heightTolerance=requireHeight?(!t.fly&&!t.climb?NAV_GROUND_HEIGHT_TOL:.6):OTHER_FLOOR_DY;
+        if (xz && (floor || requireHeight) && Double.isFinite(y) && Math.abs(y - t.y) > heightTolerance) { otherFloor = true; return false; }
         return xz;
     }
 

@@ -20,5 +20,15 @@
   "key.farmmacro.ungrab": "Kaelix: Release cursor (macro keeps farming)",
   "key.farmmacro.hudedit": "Kaelix: HUD editor",
   "key.farmmacro.perf": "Kaelix: Performance mode",
-  "key.farmmacro.pip": "Kaelix: Picture-in-picture (small always-on-top window)"
+  "key.farmmacro.pip": "Kaelix: Picture-in-picture (small always-on-top window)",
+  "key.farmmacro.pest": "Kaelix: hunt loaded pests (experimental)",
+  "key.farmmacro.aim": "Kaelix: aim assist — hold / toggle",
+  "key.farmmacro.take_control": "Kaelix: Take control after panic (not resume)",
+  "key.farmmacro.pest_pause": "Kaelix: Pests manual pause",
+  "key.farmmacro.pest_finish": "Kaelix: Pests finish / return",
+  "key.farmmacro.pest_traps": "Kaelix: maintain pest traps",
+  "key.farmmacro.loadout": "Apply selected loadout",
+  "key.farmmacro.visitors": "Visitors: start / cancel (Alpha)",
+  "key.farmmacro.stash_sale": "Stash → Bazaar: start / cancel",
+  "key.farmmacro.freecam": "Freecam"
 }

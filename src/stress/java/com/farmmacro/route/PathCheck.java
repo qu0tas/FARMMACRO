@@ -19,6 +19,13 @@ public final class PathCheck {
         final Map<Long, Integer> hz = new HashMap<>();
         final Map<Long, Integer> ed = new HashMap<>();
         public int edges(int x, int y, int z) { Integer e = ed.get(k(x, y, z)); return e == null ? 0 : e; }
+        @Override public Climb climb(int x,int y,int z) {
+            if(hazard(x,y,z)!=PathFinder.H_CLIMB)return null;
+            int sides=edges(x,y,z);
+            double px=(sides&PathFinder.E_PX)!=0?1:(sides&PathFinder.E_NX)!=0?-1:0;
+            double pz=(sides&PathFinder.E_PZ)!=0?1:(sides&PathFinder.E_NZ)!=0?-1:0;
+            return new Climb(x+.5+px*.18,z+.5+pz*.18,px,pz,top(x,y,z)>=0);
+        }
         /** v1.16.2: лестница в клетке, прибита к грани side (E_PX…). */
         Grid ladder(int x, int z, int y0, int y1, int side) {
             for (int y = y0; y <= y1; y++) { top.remove(k(x, y, z)); hz.put(k(x, y, z), PathFinder.H_CLIMB); ed.put(k(x, y, z), side); }
@@ -63,6 +70,7 @@ public final class PathCheck {
         PathFinder.Result r = find(g, x, y, z, goals, 64);
         if (!r.ok) return new Sim(false, 0, x, y, z, yaw, pitch, 0, r.reason, false, 0);
         ReturnCore rc = new ReturnCore();
+        rc.steeringWorld = g; // Match ReturnWalker: transitions require an observed collision world.
         rc.start(r.points, x, z, endYaw, endPitch);
         WalkCore.Out out = new WalkCore.Out();
         double vx = 0, vz = 0, vy = 0;
@@ -70,7 +78,9 @@ public final class PathCheck {
         int replans = 0;
         double maxTurn = 0;
         for (int t = 0; t < maxTicks; t++) {
+            rc.climbAttached=g.hazard((int)Math.floor(x),(int)Math.floor(y+1e-4),(int)Math.floor(z))==PathFinder.H_CLIMB;
             ReturnCore.Phase ph = rc.tick(x, y, z, onGround, yaw, pitch, hc, out);
+            if(Boolean.getBoolean("kaelix.pathTrace")&&g.hz.containsValue(PathFinder.H_CLIMB)&&(t%5==0||ph==ReturnCore.Phase.REPLAN))System.out.println("LADDER STEP "+t+" "+ph+" target="+rc.target()+" xyz="+x+"/"+y+"/"+z+" attached="+rc.climbAttached+" jump="+out.jump+" reason="+rc.reason);
             if (ph == ReturnCore.Phase.DONE) return new Sim(true, t, x, y, z, yaw, pitch, replans, null, hazard, maxTurn);
             if (ph == ReturnCore.Phase.REPLAN) {
                 if (++replans > 5) return new Sim(false, t, x, y, z, yaw, pitch, replans, "replans: " + rc.reason, hazard, maxTurn);
@@ -203,10 +213,17 @@ public final class PathCheck {
         PathFinder.Result far = find(open, 0.5, 64, 0.5, at(80.5, 64, 0.5), 64);
         check(!far.ok && far.reason.contains("предела"), "предел: " + far);
         PathFinder.Result near = find(open, 0.5, 64, 0.5, at(60.5, 64, 0.5), 64);
-        check(near.ok && near.points.size() == 1, "предел 60 бл: " + near + " (прямая — одна точка)");
+        check(near.ok && near.points.size() == 4, "предел 60 бл: " + near + " (bounded smoothing: segments ≤16 blocks)");
+        double previousX=.5;
+        for (RoutePoint point:near.points) {
+            check(Math.abs(point.z-.5)<1e-6 && Math.abs(point.y-64)<1e-6 && point.x>previousX && point.x-previousX<=16.00001,
+                    "bounded straight, safe waypoint: "+point.x);
+            previousX=point.x;
+        }
+        check(Math.abs(previousX-60.5)<1e-6,"straight reaches exact goal");
         PathFinder.Result small = find(open, 0.5, 64, 0.5, at(20.5, 64, 0.5), 16);
         check(!small.ok, "предел 16: " + small);
-        rep.append("предел 64: 80 бл — нет, 60 — одна прямая; ");
+        rep.append("предел 64: 80 бл — нет, 60 — прямая с ограниченными сегментами; ");
 
         // 6. Спуск: 3 блока — можно, 4 — нет (ищет лестницу сбоку)
         Grid cliff = new Grid().floor(-2, -6, 3, 6, 66).floor(4, -6, 12, 6, 63);
@@ -273,7 +290,7 @@ public final class PathCheck {
         // 9. Сглаживание: открытое поле по диагонали — одна прямая; поле со столбом — 2–3 точки, все прямые проходимы
         Grid field = new Grid().floor(-20, -20, 40, 40, 63);
         PathFinder.Result fd = find(field, 0.5, 64, 0.5, at(25.5, 64, 18.5), 64);
-        check(fd.ok && fd.points.size() == 1, "сглаживание: в поле " + fd.points.size() + " точек (ждали 1), узлов " + fd.nodes.size());
+        check(fd.ok && fd.points.size() == 2, "сглаживание: в поле " + fd.points.size() + " точек (ждали 2 bounded-сегмента), узлов " + fd.nodes.size());
         field.wall(8, 3, 14, 9, 64, 65, 1.0);
         PathFinder.Result fd2 = find(field, 0.5, 64, 0.5, at(25.5, 64, 18.5), 64);
         PathFinder pf = new PathFinder(field, new PathFinder.Params());
@@ -283,7 +300,7 @@ public final class PathCheck {
         check(fd2.ok && fd2.points.size() <= 4 && allClear, "сглаживание со стеной: " + fd2.points.size() + " точек, прямые " + allClear);
         Sim fds = walk(field, 0.5, 64, 0.5, 0, 0, at(25.5, 64, 18.5), 12.5f, 3.2f, -1, 0, 1500);
         check(fds.done, "сглаживание: симуляция " + s(fds));
-        rep.append(String.format(Locale.ROOT, "сглаживание: поле — 1 точка из %d узлов, со стеной — %d; ", fd.nodes.size(), fd2.points.size()));
+        rep.append(String.format(Locale.ROOT, "сглаживание: поле — 2 bounded-точки из %d узлов, со стеной — %d; ", fd.nodes.size(), fd2.points.size()));
 
         // 10. Сбили с пути: толчок на 3 бл вбок посреди пути — новый путь с текущего места, дошёл
         Grid lane = new Grid().floor(-2, -8, 40, 8, 63);
@@ -310,6 +327,7 @@ public final class PathCheck {
         PathFinder.Result lu = find(lad, 0.5, 64, 0.5, at(8.5, 69, 0.5), 64);
         long climbs = lu.nodes.stream().filter(n -> n[3] == PathFinder.Move.CLIMB.ordinal()).count();
         check(lu.ok && climbs >= 4 && lu.points.stream().anyMatch(p -> p.climb), "лестница вверх: " + lu + " climb-узлов " + climbs);
+        if(Boolean.getBoolean("kaelix.pathTrace"))System.out.println("LADDER PATH "+lu.points.stream().map(p->p.x+"/"+p.y+"/"+p.z+" climb="+p.climb+" jump="+p.jump).toList());
         Sim lus = walk(lad, 0.5, 64, 0.5, -90, 0, at(8.5, 69, 0.5), -90f, 0f, -1, 0, 1500);
         check(lus.done && Math.abs(lus.y - 69) < 0.01, "лестница вверх: симуляция " + s(lus));
         Grid noLad = new Grid().floor(-4, -10, 14, 10, 63).wall(5, -10, 12, 10, 64, 68, 1.0);
@@ -317,6 +335,7 @@ public final class PathCheck {
         // вниз: со стены на лестницу (с края на блок ниже) и сползти
         PathFinder.Result ld = find(lad, 8.5, 69, 0.5, at(0.5, 64, 0.5), 64);
         check(ld.ok && ld.nodes.stream().anyMatch(n -> n[3] == PathFinder.Move.CLIMB.ordinal()), "лестница вниз: " + ld);
+        if(Boolean.getBoolean("kaelix.pathTrace"))System.out.println("LADDER DOWN PATH "+ld.points.stream().map(p->p.x+"/"+p.y+"/"+p.z+" climb="+p.climb+" drop="+p.drop).toList());
         Sim lds = walk(lad, 8.5, 69, 0.5, 90, 0, at(0.5, 64, 0.5), 90f, 0f, -1, 0, 1500);
         check(lds.done && Math.abs(lds.y - 64) < 0.01, "лестница вниз: симуляция " + s(lds));
         // пластина лестницы — со стороны стены: сквозь стену у лестницы не ходим, с лестницы на стену — только сверху
@@ -369,6 +388,7 @@ public final class PathCheck {
         List<PathFinder.Goal> goals = at(35.5, 64, 0.5);
         PathFinder.Result r = find(g, 0.5, 64, 0.5, goals, 64);
         ReturnCore rc = new ReturnCore();
+        rc.steeringWorld = g; // Match ReturnWalker: transitions require an observed collision world.
         rc.start(r.points, 0.5, 0.5, -90f, 0f);
         WalkCore.Out out = new WalkCore.Out();
         double x = 0.5, y = 64, z = 0.5, vx = 0, vz = 0;

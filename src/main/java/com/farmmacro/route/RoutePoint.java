@@ -23,6 +23,9 @@ public class RoutePoint {
     public int     pauseTicks;
     /** «Зажим мыши: по точкам» в настройках маршрута — держать выбранную кнопку на отрезке от этой точки. */
     public boolean hold;
+    /** Preferred logical input on this segment; empty = ordinary automatic steering. */
+    public String farmKeys = "";
+    public boolean farmTurn;
 
     // ── «Спуск» (v5): из этой точки упасть на этаж ниже ──
     public static final String DIR_AUTO = "auto";
@@ -56,6 +59,7 @@ public class RoutePoint {
     public RoutePoint copy() {
         RoutePoint p = new RoutePoint(x, y, z);
         p.action = action; p.sneak = sneak; p.sprint = sprint; p.jump = jump;
+        p.farmKeys = farmKeys;p.farmTurn=farmTurn;
         p.slot = slot; p.pauseTicks = pauseTicks; p.hold = hold;
         p.ox = ox; p.oz = oz;
         p.drop = drop; p.dropDir = dropDir; p.landPauseTicks = landPauseTicks; p.airHold = airHold; p.dropDepth = dropDepth;
@@ -132,6 +136,7 @@ public class RoutePoint {
 
     /** Приводит значения к допустимым (ручная правка файла). */
     public void sanitize() {
+        if(farmKeys==null||!FarmSchemeSettings.KEYS.contains(farmKeys))farmKeys="";
         if(pointAction==null)pointAction=new PointAction();pointAction.sanitize();
         if (!NONE.equals(action) && !ATTACK.equals(action) && !USE.equals(action)) action = NONE;
         slot = Math.max(0, Math.min(9, slot));

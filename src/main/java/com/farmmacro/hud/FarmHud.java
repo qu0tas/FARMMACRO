@@ -26,11 +26,14 @@ import java.util.Locale;
 public final class FarmHud {
     private FarmHud() {}
 
+    private static final java.util.Set<String> DASHBOARD=java.util.Set.of("activity","profit","skill","pet","combat");
     static final int MARGIN = HudLayout.MARGIN;
     static final int PANEL_W = 132, WIDE = PANEL_W + 20, GAP = 4;
 
     /** v1.14 «Одна общая плашка»: блоки рисуются без своей подложки внутри общей панели. */
     private static boolean merged;
+    private static boolean editing;
+    static boolean editing() { return editing; }
     private static HudSlot paintingSlot;private static String paintingId;
     /** Цель навигатора на этот кадр. */
     private static Target target;
@@ -42,7 +45,7 @@ public final class FarmHud {
 
     /** Порядок — как в стопке справа (до v1.14 — единственный вариант). */
     public static final List<Block> BLOCKS = List.of(
-            new Block("status", "Статус", PANEL_W, FarmHud::drawStatus),
+            new Block("status", "Farms / Источник", PANEL_W, FarmHud::drawStatus),
             new Block("editor", "Редактор маршрута", WIDE, FarmHud::drawEditor),
             new Block("hold", "Зажим мыши", WIDE, FarmHud::drawHold),
             new Block("mouselock", "Блокировка мыши", WIDE, FarmHud::drawMouseLock),
@@ -53,8 +56,13 @@ public final class FarmHud {
             new Block("susp", "Подозрительность", WIDE, FarmHud::drawSuspicion),
             new Block("panic", "Последняя паника", WIDE, FarmHud::drawPanic),
             new Block("server", "TPS · BPS · баны", WIDE, FarmHud::drawServer),
-            new Block("schedule", "Расписание и выход", WIDE, FarmHud::drawSchedule),
-            new Block("nav", "Навигатор", PANEL_W, FarmHud::drawNavigator));
+            new Block("nav", "Navigation / Навигатор", PANEL_W, FarmHud::drawNavigator),
+            new Block("activity","General / Активная задача",WIDE,StatsHud::activity),
+            new Block("profit","Экономика / Квитанции",WIDE,StatsHud::profit),
+            new Block("skill","Навыки / XP",WIDE,StatsHud::farming),
+            new Block("pet","Питомец / XP",WIDE,StatsHud::pet),
+            new Block("combat","Combat",WIDE,StatsHud::combat),
+            new Block("inventory","Инвентарь",244,InventoryHud::draw));
 
     /** Место плашки на экране (для редактора HUD). id "all" — общая панель; sub — строка внутри общей панели. */
     public record Rect(String id, String label, int x, int y, int w, int h, boolean hidden, boolean sub) {
@@ -71,7 +79,7 @@ public final class FarmHud {
                 float pt = delta.getGameTimeDeltaPartialTick(true);
                 target = target(mc, pt);
                 layout(g, mc, false);
-                drawCrosshairArrow(g, mc, target);
+                if(!ModConfig.INSTANCE.hudContextOnly||HudVisibility.show("nav"))drawCrosshairArrow(g, mc, target);
             }
             drawCountdown(g, mc);
         }));
@@ -80,6 +88,8 @@ public final class FarmHud {
     /** Для редактора HUD: цель навигатора по текущему кадру. */
     static void prepare(Minecraft mc) { target = mc.player != null ? target(mc, 1f) : null; }
 
+    public static boolean pinned(String id){var s=slot(id);return s!=null&&s.always;}
+    private static boolean groupVisible(String id){if(pinned(id))return true;var c=ModConfig.INSTANCE.telemetry;return switch(id){case "status","human"->c.farms;case "nav","return"->c.navigation;default->true;};}
     private static HudSlot slot(String id) { return ModConfig.INSTANCE.hudSlots.get(id); }
 
     /**
@@ -87,6 +97,13 @@ public final class FarmHud {
      * edit — режим редактора: пустые блоки показываются заглушкой, скрытые — затемнёнными.
      */
     public static List<Rect> layout(GuiGraphicsExtractor g, Minecraft mc, boolean edit) {
+        boolean previous=editing;editing=edit;
+        try { return layoutInternal(g,mc,edit); } finally { editing=previous; }
+    }
+
+    private static List<Rect> layoutInternal(GuiGraphicsExtractor g, Minecraft mc, boolean edit) {
+        HudVisibility.capture(mc);
+        StatsHud.beginLayout();
         paintingSlot=null;paintingId=null;
         ModConfig c = ModConfig.INSTANCE;
         int sw = mc.getWindow().getGuiScaledWidth(), sh = mc.getWindow().getGuiScaledHeight();
@@ -99,10 +116,11 @@ public final class FarmHud {
             merged = true;
             try {
                 for (Block b : BLOCKS) {
+            if(!edit&&(!groupVisible(b.id())||!HudVisibility.show(b.id())))continue;
                     HudSlot sl = slot(b.id());
                     boolean hid = sl != null && sl.hidden;
                     if (hid && !edit) continue;
-                    int h = b.drawer().draw(null, mc, 0, 0, w);
+                    int h = safeDraw(b,null, mc, 0, 0, w);
                     if (h <= 0 && !edit) continue;
                     list.add(b);
                     hs.add(h <= 0 ? -12 : h);                         // минус — заглушка в редакторе
@@ -121,7 +139,7 @@ public final class FarmHud {
             Matrix3x2fStack pose = g != null ? g.pose() : null;
             if (pose != null) { pose.pushMatrix(); pose.translate(pos[0], pos[1]); pose.scale((float) sc, (float) sc); }
             try {
-                paintingSlot=all;paintingId="all";if(g!=null){Ui.round(g,0,0,w,total,5,bg());com.farmmacro.gui.CustomUiAssets.draw(g,"hud",0,0,w,total,opacity());}
+                paintingSlot=all;paintingId="all";if(g!=null){chrome(g,0,0,w,total,accent());}
                 if (list.isEmpty() && g != null) Ui.text(g, f, "Общая плашка (пусто)", 8, 4, Ui.DIM);
                 merged = true;
                 for (int i = 0; i < list.size(); i++) {
@@ -133,7 +151,7 @@ public final class FarmHud {
                     boolean hid = sl != null && sl.hidden;
                     if (g != null) {
                         if (empty) Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", w - 14), 8, yy + 2, Ui.DIM);
-                        else {paintingSlot=sl;paintingId=b.id();b.drawer().draw(g,mc,0,yy,w);}
+                        else {paintingSlot=sl;paintingId=b.id();safeDraw(b,g,mc,0,yy,w);}
                         if (edit && hid) dimHidden(g, f, 0, yy, w, h);
                     }
                     out.add(new Rect(b.id(), b.label(), pos[0], pos[1] + (int) Math.round(yy * sc), pw, (int) Math.round(h * sc), hid, true));
@@ -145,13 +163,14 @@ public final class FarmHud {
             }
             return out;
         }
-        int stack = MARGIN;
+        int stack = MARGIN, dashboardStack=MARGIN;
         for (Block b : BLOCKS) {
+            if(!edit&&(!groupVisible(b.id())||!HudVisibility.show(b.id())))continue;
             HudSlot sl = slot(b.id());
             boolean hid = sl != null && sl.hidden;
             if (hid && !edit) continue;
             int bw = width(b);
-            int h = b.drawer().draw(null, mc, 0, 0, bw);
+            int h = safeDraw(b,null, mc, 0, 0, bw);
             boolean empty = h <= 0;
             if (empty && !edit) continue;
             if (empty) h = 15;
@@ -159,6 +178,8 @@ public final class FarmHud {
             int pw = (int) Math.round(bw * sc), ph = (int) Math.round(h * sc);
             int x, y;
             if (sl != null && sl.placed) { int[] p = HudLayout.place(sl, pw, ph, sw, sh); x = p[0]; y = p[1]; }
+            else if(b.id().equals("inventory")){x=MARGIN;y=Math.max(MARGIN,sh-ph-MARGIN);}
+            else if(DASHBOARD.contains(b.id())){x=MARGIN;y=dashboardStack;dashboardStack+=ph+GAP;}
             else { x = sw - pw - MARGIN; y = stack; stack += ph + GAP; }
             out.add(new Rect(b.id(), b.label(), x, y, pw, ph, hid, false));
             if (g == null) continue;
@@ -170,7 +191,7 @@ public final class FarmHud {
                 if (empty) {
                     Ui.round(g, 0, 0, bw, h, 5, Ui.alpha(Ui.HUD_BG, 0.72f));
                     Ui.text(g, f, Ui.ellipsize(f, b.label() + " — сейчас пусто", bw - 14), 8, 4, Ui.DIM);
-                } else {paintingSlot=sl;paintingId=b.id();b.drawer().draw(g,mc,0,0,bw);}
+                } else {paintingSlot=sl;paintingId=b.id();safeDraw(b,g,mc,0,0,bw);}
                 if (edit && hid) dimHidden(g, f, 0, 0, bw, h);
             } finally {
                 pose.popMatrix();
@@ -184,21 +205,53 @@ public final class FarmHud {
         Ui.text(g, f, "скрыто · ПКМ — показать", x + w - f.width("скрыто · ПКМ — показать") - 4, y + Math.max(0, h / 2 - 4), Ui.WARN);
     }
 
-    /** Подложка и цветная полоска слева (в общей плашке — только полоска). */
-    private static void panel(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
-        if (!merged){Ui.round(g,x,y,w,h,5,bg());com.farmmacro.gui.CustomUiAssets.draw(g,"hud",x,y,w,h,opacity());}
-        col=com.farmmacro.gui.UiStyle.color(paintingSlot==null?null:paintingSlot.accentColor,col);
+    /** A failing visual block cannot disable all remaining HUD elements. */
+    private static int safeDraw(Block b,GuiGraphicsExtractor g,Minecraft mc,int x,int y,int w) {
+        String key="hud/block_"+b.id();int h=0;boolean failed=Guard.isDisabled(key);
+        if(!failed)try {h=b.drawer().draw(g,mc,x,y,w);}
+        catch(RuntimeException|LinkageError failure){Guard.runOrDisable(key,()->{throw failure;});failed=true;}
+        if(h>0||!pinned(b.id()))return h;
+        // Always-visible is presentation, not permission to run a disabled module.
+        if(g!=null){panel(g,x,y,w,36,Ui.ACCENT);Ui.text(g,mc.font,Ui.ellipsize(mc.font,b.label(),w-16),x+8,y+6,StatsHud.fg());
+            Ui.text(g,mc.font,Ui.ellipsize(mc.font,failed?"Ошибка отображения · см. журнал":"Неактивно / нет данных",w-16),x+8,y+21,StatsHud.sub());}
+        return 36;
+    }
+    static void panel(GuiGraphicsExtractor g,int x,int y,int w,int h,int col) {
+        if(!merged)chrome(g,x,y,w,h,col);
+    }
+    private static void chrome(GuiGraphicsExtractor g,int x,int y,int w,int h,int col) {
+        var c=ModConfig.INSTANCE;
+        boolean modern="KAELIX".equals(c.hudStyle);
+        if(modern)Ui.round(g,x,y,w,h,6,bg());else Ui.round(g,x,y,w,h,c.hudGlassBands?2:5,bg());
+        com.farmmacro.gui.CustomUiAssets.draw(g,"hud",x,y,w,h,opacity());
         if(paintingId!=null)com.farmmacro.gui.CustomUiAssets.draw(g,"icon_"+paintingId,x+w-17,y+h-16,12,12,100);
-        g.fill(x, y + 3, x + 2, y + h - 3, col);
+        boolean alarm="panic".equals(paintingId)||(col>>>16&255)>190&&(col>>>8&255)<145;
+        int fallback=!modern&&c.hudGlassBands&&!alarm?com.farmmacro.gui.UiStyle.color(c.hudBandColor,col):col;
+        col=com.farmmacro.gui.UiStyle.color(paintingSlot==null?null:paintingSlot.accentColor,fallback);
+        if(alarm)col=0xffff7278;
+        if(modern){
+            Ui.outline(g,x,y,w,h,6,Ui.alpha(StatsHud.sub(),.3f));
+            // Quiet local mark, not the old full-width paired bands. No content-space change.
+            int marker=Math.max(1,Math.min(12,h-8));Ui.round(g,x+1,y+4,2,marker,1,col);
+        }else if(c.hudGlassBands) {
+            int edge=Math.max(1,Math.min(2,h/8)),fade=Math.max(edge,Math.min(7,h/3));
+            g.fill(x,y,x+w,y+edge,col);g.fillGradient(x,y+edge,x+w,y+fade,Ui.alpha(col,.22f),Ui.alpha(col,0f));
+            g.fillGradient(x,y+h-fade,x+w,y+h-edge,Ui.alpha(col,0f),Ui.alpha(col,.18f));
+            g.fill(x,y+h-edge,x+w,y+h,Ui.alpha(col,.8f));
+        } else {
+            g.fill(x,y+6,x+2,y+h-6,col);
+            g.fill(x+5,y,x+w-5,y+1,0x405f738c);g.fill(x+5,y+h-1,x+w-5,y+h,0x305f738c);
+        }
+    }
+    private static int opacity() {
+        if(paintingSlot!=null&&paintingSlot.opacity>=0)return paintingSlot.opacity;
+        var c=ModConfig.INSTANCE;return "LEGACY".equals(c.hudStyle)&&c.hudGlassBands?c.hudGlassOpacity:c.hudBackgroundOpacity;
     }
 
-    // ── Цвета HUD (Визуал → HUD): «по умолчанию» — как раньше ─────────────────
-
-    /** Фон панелей: по умолчанию тёмно-синий 78 %, иначе выбранный цвет с той же прозрачностью. */
-    private static int opacity(){return paintingSlot!=null&&paintingSlot.opacity>=0?paintingSlot.opacity:ModConfig.INSTANCE.hudBackgroundOpacity;}
     private static int bg() {
         int rgb = com.farmmacro.visual.HatColors.rgbOr(ModConfig.INSTANCE.hudBgColor, -1);
-        int color=rgb<0?Ui.HUD_BG:0xFF000000|rgb;
+        int themed=switch(ModConfig.INSTANCE.telemetry.theme){case "PAPER"->0xfff2f5f8;case "GLASS"->0xff101f30;default->"KAELIX".equals(ModConfig.INSTANCE.hudStyle)?0xff151b24:0xff151d28;};
+        int color=rgb<0?themed:0xFF000000|rgb;
         color=com.farmmacro.gui.UiStyle.color(paintingSlot==null?null:paintingSlot.backgroundColor,color);
         return com.farmmacro.gui.UiStyle.opacity(color,opacity());
     }
@@ -219,6 +272,12 @@ public final class FarmHud {
         MacroManager m = MacroManager.INSTANCE;
         ModConfig c = ModConfig.INSTANCE;
         Font f = mc.font;
+        var sale=com.farmmacro.market.StashSales.INSTANCE;
+        if(sale.active()){
+            var lines=wrap(f,sale.status(),w0-14);int height=18+lines.size()*10;if(g==null)return height;
+            panel(g,x0,y,w0,height,Ui.WARN);Ui.text(g,f,"STASH / BAZAAR · ALPHA",x0+7,y+4,StatsHud.fg());
+            for(int i=0;i<lines.size();i++)Ui.text(g,f,lines.get(i),x0+7,y+16+i*10,StatsHud.sub());return height;
+        }
         MacroManager.State st = m.getState();
 
         boolean blink = (System.currentTimeMillis() / 500) % 2 == 0;
@@ -227,7 +286,7 @@ public final class FarmHud {
             case RECORDING -> { head = "ЗАПИСЬ · " + MacroManager.formatTicks(m.getFrameCount()); col = Ui.DANGER; }
             case COUNTDOWN -> { head = m.getCountdownTicks() > 0 ? "СТАРТ ЧЕРЕЗ " + (m.getCountdownTicks() + 19) / 20 : "ПОВОРОТ КАМЕРЫ"; col = Ui.WARN; }
             case PLAYING -> { head = "ИГРАЕТ"; col = Ui.ON; }
-            default -> { head = "СТОП"; col = Ui.SUB; }
+            default -> { head = "СТОП"; col = StatsHud.sub(); }
         }
 
         if (!c.statsHudEnabled) {
@@ -239,7 +298,7 @@ public final class FarmHud {
             int x = x0 + w0 - w;
             if (!merged) Ui.pill(g, x, y, w, 14, Ui.alpha(Ui.HUD_BG, 0.96f));
             Ui.circle(g, x + 7, y + 7, 2, blink || st != MacroManager.State.RECORDING ? col : Ui.alpha(col, 0.3f));
-            Ui.text(g, f, Ui.ellipsize(f, s, w - 14), x + 12, y + 3, Ui.TEXT);
+            Ui.text(g, f, Ui.ellipsize(f, s, w - 14), x + 12, y + 3, StatsHud.fg());
             return 14;
         }
         if (st == MacroManager.State.IDLE && m.getSessionRuns() == 0) return 0;
@@ -262,7 +321,7 @@ public final class FarmHud {
             name = m.getLoadedName() != null ? m.getLoadedName()
                     : m.getFrameCount() > 0 ? "несохранённая запись" : "нет макроса";
         }
-        Ui.text(g, f, Ui.ellipsize(f, name, W - 14), x + 8, y + 15, Ui.TEXT);
+        Ui.text(g, f, Ui.ellipsize(f, name, W - 14), x + 8, y + 15, StatsHud.fg());
 
         String line;
         if (playing) {
@@ -274,13 +333,13 @@ public final class FarmHud {
             String loops = c.loopEnabled ? "круг " + (m.getLoopsDone() + 1) + (c.loopLimit > 0 ? "/" + c.loopLimit : "") + " · " : "";
             String prog = m.isRoutePlaying() ? "точка " + (m.getProgress() + 1) + "/" + m.getProgressTotal() : pct + "%";
             line = loops + prog + " · " + clock(sec);
-            Ui.text(g, f, Ui.ellipsize(f, line, W - 14), x + 8, y + 35, Ui.SUB);
+            Ui.text(g, f, Ui.ellipsize(f, line, W - 14), x + 8, y + 35, StatsHud.sub());
         } else {
             long sec = m.getSessionStartMs() > 0 ? (System.currentTimeMillis() - m.getSessionStartMs()) / 1000 : 0;
             line = st == MacroManager.State.RECORDING
-                    ? MacroManager.keyName(FarmMacroMod.keyRecord) + " — остановить"
+                    ? "Меню → Запись действий → остановить"
                     : "сессия " + clock(sec) + " · кругов " + m.getSessionRuns();
-            Ui.text(g, f, Ui.ellipsize(f, line, W - 14), x + 8, y + 25, Ui.SUB);
+            Ui.text(g, f, Ui.ellipsize(f, line, W - 14), x + 8, y + 25, StatsHud.sub());
         }
         return h;
     }
@@ -312,7 +371,7 @@ public final class FarmHud {
         List<String> body = new ArrayList<>();
         List<Integer> bodyCol = new ArrayList<>();
         if (issue != null) for (String l : wrap(f, "⚠ " + issue, w - 14)) { body.add(l); bodyCol.add(0xFFFF5A5A); }
-        for (String hint : EDITOR_HINTS) for (String l : wrap(f, hint, w - 14)) { body.add(l); bodyCol.add(Ui.SUB); }
+        for (String hint : EDITOR_HINTS) for (String l : wrap(f, hint, w - 14)) { body.add(l); bodyCol.add(StatsHud.sub()); }
         int h = 26 + body.size() * 10;
         if (g == null) return h;
         int col = 0xFFD08CFF;
@@ -324,7 +383,7 @@ public final class FarmHud {
         String line = rb.size() + " точек" + (many > 1 ? " · выделено " + many : sel >= 0 ? " · выбрана " + (sel + 1) : "")
                 + (sp != null && (sp.ox != 0 || sp.oz != 0) ? " · смещ. " + com.farmmacro.gui.Rows.num(sp.ox) + "/" + com.farmmacro.gui.Rows.num(sp.oz) : "")
                 + (rb.isDirty() ? " · не сохранён" : "");
-        Ui.text(g, f, Ui.ellipsize(f, line, w - 14), x + 8, y + 15, Ui.TEXT);
+        Ui.text(g, f, Ui.ellipsize(f, line, w - 14), x + 8, y + 15, StatsHud.fg());
         int ly = y + 26;
         for (int i = 0; i < body.size(); i++) { Ui.text(g, f, body.get(i), x + 8, ly, bodyCol.get(i)); ly += 10; }
         return h;
@@ -336,6 +395,7 @@ public final class FarmHud {
      * v1.15.1: ширина блока — из «Визуал → HUD → Ширина» (узкие — статус и навигатор, остальные на 20 шире).
      */
     static int width(Block b) {
+        if(b.id().equals("inventory"))return Math.max(244,ModConfig.INSTANCE.hudWidth+20);
         int base = ModConfig.INSTANCE.hudWidth;
         return b.width() == PANEL_W ? base : b.width() == WIDE ? base + 20 : Math.max(b.width(), base + 60);
     }
@@ -416,7 +476,7 @@ public final class FarmHud {
         int h = 6 + wl.size() * 10;
         if (g == null) return h;
         panel(g, x, y, w, h, 0xFFFF5A5A);
-        for (int i = 0; i < wl.size(); i++) Ui.text(g, mc.font, wl.get(i), x + 8, y + 4 + i * 10, i < head ? 0xFFFF6B6B : Ui.SUB);
+        for (int i = 0; i < wl.size(); i++) Ui.text(g, mc.font, wl.get(i), x + 8, y + 4 + i * 10, i < head ? 0xFFFF6B6B : StatsHud.sub());
         return h;
     }
 
@@ -448,7 +508,7 @@ public final class FarmHud {
         lines.add(String.format(java.util.Locale.ROOT, "ЗАДЕРЖКИ · усталость ×%.2f · отвлечений %d%s",
                 model.fatigue(System.currentTimeMillis(), com.farmmacro.macro.HandDelays.params()), model.distracts(), on ? "" : " · ждут"));
         cols.add(0xFFFFD27F);
-        for (int i = last.size() - 1; i >= 0; i--) { lines.add(last.get(i).line()); cols.add(last.get(i).distractMs() > 0 ? Ui.WARN : Ui.SUB); }
+        for (int i = last.size() - 1; i >= 0; i--) { lines.add(last.get(i).line()); cols.add(last.get(i).distractMs() > 0 ? Ui.WARN : StatsHud.sub()); }
         for (var k : com.farmmacro.macro.DelayModel.Kind.values()) {
             var st = model.stats(k);
             if (st.n() == 0) continue;
@@ -494,12 +554,16 @@ public final class FarmHud {
     private static int drawSchedule(GuiGraphicsExtractor g, Minecraft mc, int x, int y, int w) {
         var ph = com.farmmacro.macro.Scheduler.phase();
         long leave = com.farmmacro.macro.Scheduler.leaveLeftMs();
-        if (ph == com.farmmacro.macro.Scheduler.Phase.OFF && leave < 0) return 0;
+        long activeLeft=com.farmmacro.macro.Scheduler.activeLeftMs();
+        if (!com.farmmacro.macro.Scheduler.running()) return 0;
         if (g == null) return 15;
         StringBuilder t = new StringBuilder();
-        if (ph == com.farmmacro.macro.Scheduler.Phase.FARM) t.append("ПЕРЕРЫВ ЧЕРЕЗ ").append(clock(com.farmmacro.macro.Scheduler.farmLeftTicks() / 20));
+        if(com.farmmacro.macro.Scheduler.servicePaused())t.append("СЕРВИС");
+        else if (ph == com.farmmacro.macro.Scheduler.Phase.FARM) t.append("ПЕРЕРЫВ ЧЕРЕЗ ").append(clock(com.farmmacro.macro.Scheduler.farmLeftTicks() / 20));
         else if (ph == com.farmmacro.macro.Scheduler.Phase.BREAK) t.append("ПЕРЕРЫВ ").append(clock(com.farmmacro.macro.Scheduler.breakLeftTicks() / 20));
         if (leave >= 0) t.append(t.length() > 0 ? " · " : "").append("ВЫХОД ЧЕРЕЗ ").append(clock(leave / 1000));
+        if(activeLeft>=0)t.append(t.length()>0?" · ":"").append("РАБОТЫ ОСТАЛО ").append(clock(activeLeft/1000));
+        if(t.length()==0)t.append("СЕССИЯ ").append(clock(com.farmmacro.macro.Scheduler.elapsedMs()/1000));
         int col = ph == com.farmmacro.macro.Scheduler.Phase.BREAK ? Ui.WARN : 0xFFC8A8FF;
         return line(g, mc, x, y, w, t.toString(), col);
     }
@@ -580,8 +644,8 @@ public final class FarmHud {
         panel(g, x, y, w, h, Ui.alpha(accent, 0.5f + 0.5f * pulse));
         Ui.text(g, f, Ui.ellipsize(f, t.arrived() ? "✔ На месте" : t.title(), w - 44), x + 8, y + 4,
                 t.arrived() ? Ui.ON : accentHi());
-        Ui.text(g, f, distText(t), x + 8, y + 15, Ui.TEXT);
-        Ui.text(g, f, Ui.ellipsize(f, t.hint(), w - 40), x + 8, y + 25, Ui.SUB);
+        Ui.text(g, f, distText(t), x + 8, y + 15, StatsHud.fg());
+        Ui.text(g, f, Ui.ellipsize(f, t.hint(), w - 40), x + 8, y + 25, StatsHud.sub());
 
         int ax = x + w - 18, ay = y + h / 2;
         Ui.circle(g, ax, ay, 12, 0xFF1C2230);
@@ -656,6 +720,6 @@ public final class FarmHud {
             pose.popMatrix();
         }
         Ui.textCentered(g, mc.font, "макрос стартует · " + MacroManager.keyName(FarmMacroMod.keyPlay) + " — отмена",
-                sw / 2, sh / 2 - 4, Ui.SUB);
+                sw / 2, sh / 2 - 4, StatsHud.sub());
     }
 }

@@ -13,6 +13,12 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  */
 @Mixin(Minecraft.class)
 public class UngrabAttackMixin {
+    // javap 26.1.2: one local hotbar setSelectedSlot invocation in handleKeybinds.
+    @Redirect(method="handleKeybinds",at=@At(value="INVOKE",target="Lnet/minecraft/world/entity/player/Inventory;setSelectedSlot(I)V"))
+    private void farmmacro$manualHotbarSlot(net.minecraft.world.entity.player.Inventory inventory,int slot){
+        com.farmmacro.panic.AutomationSafety.INSTANCE.selectLocalSlot(inventory,slot,false);
+    }
+
     @Redirect(method = "handleKeybinds", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/MouseHandler;isMouseGrabbed()Z"))
     private boolean farmmacro$grabbedForAttack(MouseHandler mouse) {
         return mouse.isMouseGrabbed() || Ungrab.attackWithoutGrab();

@@ -22,6 +22,7 @@ public final class GroundGuide {
 
   public State state = State.WALK;
   public double aimX, aimZ, desiredSpeed;
+  public double speedLimit=.215;
   private int side, sideTicks, blocked;
   public final double[] rayX = new double[25], rayZ = new double[25];
   public final boolean[] rayPass = new boolean[25];
@@ -35,11 +36,11 @@ public final class GroundGuide {
     }
   }
 
-  private boolean strafeLeft, strafeRight, align;
+  private boolean strafeLeft, strafeRight, align, braking;
 
   public void reset() {
     side = sideTicks = blocked = 0;
-    strafeLeft = strafeRight = align = false;
+    strafeLeft = strafeRight = align = braking = false;
     state = State.WALK;
   }
 
@@ -115,7 +116,7 @@ public final class GroundGuide {
         error = Math.abs(WalkCore.wrap((float) heading - yaw));
     if (align ? error < 55 : error > 110) align = !align;
     double speed = Math.hypot(vx, vz);
-    desiredSpeed = Math.min(.215, Math.sqrt(Math.max(0, remaining - .12) * .11));
+    desiredSpeed = Math.min(Math.clamp(speedLimit,.15,.29), Math.sqrt(Math.max(0, remaining - .12) * .11));
     if (corner) desiredSpeed = Math.min(desiredSpeed, .14);
     if (state == State.AVOID) desiredSpeed = Math.min(desiredSpeed, .15);
     out.sprint = false;
@@ -127,8 +128,8 @@ public final class GroundGuide {
     double ry = Math.toRadians(yaw),
         f = ux * -Math.sin(ry) + uz * Math.cos(ry),
         l = ux * Math.cos(ry) + uz * Math.sin(ry);
-    strafeLeft = l > (strafeLeft ? .29 : .47);
-    strafeRight = l < -(strafeRight ? .29 : .47);
+    strafeLeft = l > (strafeLeft ? .43 : .64);
+    strafeRight = l < -(strafeRight ? .43 : .64);
     out.forward = f > .29;
     out.back = f < -.47;
     out.left = strafeLeft;
@@ -136,7 +137,10 @@ public final class GroundGuide {
     // Predict inertia before committing a key. Releasing keys slows naturally; no alternating
     // reverse pulses.
     double forwardVelocity = vx * ux + vz * uz;
-    if (speed > desiredSpeed + .025 && forwardVelocity > 0) {
+    // Keyboard walking has no analog throttle. Coast near the final stop, not pulse on every bend.
+    boolean precision=remaining<1.4;
+    braking=precision && forwardVelocity>0 && (braking ? speed>desiredSpeed-.04 : speed>desiredSpeed+.05);
+    if (braking) {
       out.forward = out.back = out.left = out.right = false;
       state = State.BRAKE;
     }

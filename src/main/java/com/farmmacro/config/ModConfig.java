@@ -29,6 +29,54 @@ public class ModConfig {
     public boolean cropFeverLights=true;
     public int cropFeverLightStrength=55;
     public int cropFeverVolume=70,cropFeverDancers=3,cropFeverScale=18;
+    public boolean returnFlyAuto=true;
+    public com.farmmacro.pest.PestSettings pests=new com.farmmacro.pest.PestSettings();
+    public boolean pestHuntEnabled=false;
+    public com.farmmacro.visitor.VisitorSettings visitors=new com.farmmacro.visitor.VisitorSettings();
+    public com.farmmacro.market.SaleSettings stashSales=new com.farmmacro.market.SaleSettings();
+    public com.farmmacro.loadout.LoadoutSettings loadouts=new com.farmmacro.loadout.LoadoutSettings();
+    public CombatPanicSettings combatPanic=new CombatPanicSettings();
+    public java.util.List<CombatProfile> combatProfiles=new java.util.ArrayList<>();
+    public String combatProfileId="";
+    public boolean aimAssistEnabled=false,aimRequireAttack=false,aimPitch=true,aimLimitLocation=false;
+    public String aimKeyMode="hold";
+    /** Global task mode: deliberately not overwritten by automatic Combat profiles. */
+    public boolean aimManualOnly=false;
+    public boolean aimManualEggSacs=true;
+    public String aimManualTarget="slayers",aimManualName="";
+    public double aimManualRange=32,aimManualFov=120;
+    public String aimTrackingMode="aether";
+    public int aimAetherRevision=0;
+    public int aimHumanStrength=50;
+    public boolean aimZealotsOnly=false;
+    public boolean aimAutoFire=false,aimUnnamedEndermen=false;
+    public boolean aimHumanShotTiming=true;
+    public int aimEarlyShotChance=20;
+    public int aimAutoFireIntervalMs=180;
+    public boolean aimScytheArea=true,aimNextAfterShot=true,aimSpecialHunt=false;
+    public int aimScytheNearChance=80;
+    public boolean aimIdleLook=true;
+    public int aimIdleDelayMs=1200;
+    public double aimIdleYaw=60,aimIdleSpeed=115;
+    public int aimSpeedVariationPct=25,aimReactionMinMs=120,aimReactionMaxMs=220;
+    public int aimAcquireSpeedPct=135,aimTrackSpeedPct=100;
+    public double aimSpecialTurnSpeed=900;
+    public int aimShotObservationMs=900,aimSpecialSearchSeconds=20;
+    public int aimChainRearWaitMs=350;
+    public boolean aimDiagnostics=false;
+    public boolean aimJitterEnabled=false,aimWalkInPlace=false;
+    public double aimJitterDegrees=.12,aimWalkRadius=.45;
+    public boolean aimSelectedOnly=false,aimFrontOnly=false,aimYieldMouse=false;
+    public boolean aimLoadedRange=true,aimZealotPriority=true,aimScytheOnly=true,aimHighlight=true;
+    public int aimControlVersion=0;
+    public double aimRange=6,aimFov=35,aimTurnSpeed=720;
+    public String aimPreset="slayer_zombie",aimExtraNames="";
+    public java.util.List<String> aimMobNames=new java.util.ArrayList<>(java.util.List.of("Zombie","Crypt Ghoul","Golden Ghoul","Revenant","Revenant Horror","Revenant Sycophant","Revenant Champion","Deformed Revenant","Atoned Champion","Atoned Revenant"));
+    public boolean pathHeightLook=false;
+
+    public boolean pestPlotSearch=true;public boolean pathVariation=false;
+    public boolean pathSprint=true;public boolean pathSprintJump=false;
+    public boolean returnPathVisible=true;
     public boolean pathDebug=false;public boolean pathNaturalLook=true;public double pathLookAhead=2.5;
     public boolean chunkCacheEnabled = true;
     public int chunkCacheMb = 64;
@@ -42,6 +90,7 @@ public class ModConfig {
 
     // ── Детекторы паники (работают только пока макрос играет) ────────────────
     public boolean panicEnabled        = true;
+    public boolean detectAutomationTeleport=true,detectAutomationWeapon=true;
 
     /** Камеру повернули мышью (макрос камеру не крутит, если не включён replayCamera). */
     public boolean detectRotation      = true;
@@ -105,7 +154,7 @@ public class ModConfig {
     /** Слово из списка в чате без ника (только если «Слова без ника — в подозрительность»). */
     public double  suspWeightChatWord  = 4;
     /** Новая надпись над хотбаром без ника/слова (цифры не различаются — таймеры не копятся). */
-    public double  suspWeightActionBar = 0.5;
+    public transient double suspWeightActionBar = 0; // Actionbar panic source removed.
     /** Слово из списка без ника — очки подозрительности вместо мгновенной паники. Ник — всегда паника. */
     public boolean chatWordsSoft       = false;
     /** Полоска «ПОДОЗР. N/10» в HUD, пока играет макрос. */
@@ -118,6 +167,10 @@ public class ModConfig {
     public double  knockbackThreshold  = 0.05;
     /** Чат: сообщение с твоим ником или словом из списка (свои сообщения не считаются). */
     public boolean detectChat          = true;
+    /** Nearby/recent chat author addressing the player: manual handoff, not an automatic reply. */
+    public boolean detectNearbyChat    = true;
+    public double nearbyChatRadius     = 10;
+    public int nearbyChatMemorySec     = 15;
     public boolean chatMentionName     = true;
     /** Слова через запятую, без учёта регистра. */
     public String  chatKeywords        = DEFAULT_KEYWORDS;
@@ -175,11 +228,14 @@ public class ModConfig {
     public boolean detectBps           = false;
     public double  bpsMin              = 3;
     public double  bpsWindowSec        = 5;
+    /** Opt-in: only after XP text was observed in the current uninterrupted harvest segment. */
+    public boolean detectFarmingXp = false;
+    public double farmingXpMissingSec = 8;
     /** Рассинхрон: сломанные блоки через 1 с снова на месте (≥ N % из последних 20). */
     public boolean detectDesync        = true;
     public double  desyncPct           = 75;
     /** Полный инвентарь — паника (а не обычный стоп, как stopWhenInventoryFull). */
-    public boolean panicInventoryFull  = false;
+    public transient boolean panicInventoryFull = false; // Removed legacy option, never read/saved.
     /** Отключение от сервера во время макроса — сирена и запись в журнал. */
     public boolean detectDisconnect    = true;
     /** Перезагрузка / лимбо: «Server closing: 0:25» на табло (< 30 с), слова перезагрузки и лимбо в системном чате и титрах. */
@@ -208,6 +264,10 @@ public class ModConfig {
     public int     schedJitterPct      = 20;
     /** Таймер выхода: через N мин после старта (перерывы считаются) — стоп и выход с сервера. 0 — выкл. */
     public int     leaveAfterMin       = 0;
+    public int sessionActiveLimitMin=0,sessionMaxCycles=0;
+    public boolean sessionSave=false;
+    public boolean webhookSessions=false,webhookDetails=false,webhookServer=false,webhookMediaConsent=false;
+    public int webhookCooldownSec=30;
     /** Переподключение после вылета (не после паники ≤ 60 с и не после выхода через меню). */
     public boolean autoReconnect       = false;
     public int     reconnectDelaySec   = 15;
@@ -215,7 +275,7 @@ public class ModConfig {
     /** Команда после входа (например «/warp garden»), пусто — нет. */
     public String  reconnectCommand    = "";
     /** Продолжить макрос с точки остановки, когда игрок снова рядом с ней. */
-    public boolean reconnectResume     = true;
+    public boolean reconnectResume     = false;
     /** Анти-застревание (только маршрут по точкам): столько раз отойти назад с прыжком, потом — паника «Застрял». 0 — сразу паника. */
     public int     antiStuckTries      = 0;
     /** «Отпустить курсор» (клавиша U): курсор свободен, макрос дальше ломает и ходит; при старте — по настройке. */
@@ -223,6 +283,10 @@ public class ModConfig {
     /** Режим производительности (F9): FPS-лимит, без облаков/теней, минимум частиц; при старте — по настройке. */
     public boolean perfOnStart         = false;
     public int     perfFps             = 30;
+    /** K014 optional additions; zero means no extra background/chunk restriction. */
+    public int perfBackgroundFps=0,perfChunks=0,perfWorldVolume=100;
+    public boolean perfBlockParticles=false;
+    public int perfSavedChunks=-1,perfAppliedChunks=-1,perfAppliedFps=-1;
     /** Служебное: настройки графики до режима производительности (−1 / null — не сохранено). Возвращаются при запуске игры. */
     public int     perfSavedFps        = -1;
     public String  perfSavedClouds     = null;
@@ -280,7 +344,7 @@ public class ModConfig {
     public boolean panicScreenshot     = true;
     /** Discord-webhook при панике (адрес — в config/farmmacro/discord-webhook.txt, не в профилях). */
     public boolean webhookEnabled      = false;
-    public boolean webhookScreenshot   = true;
+    public boolean webhookScreenshot   = false;
     /** Диагностика (только журнал): «стоит без дела» — ни одной нажатой клавиши N с. */
     public boolean diagIdle            = true;
     public int     diagIdleSec         = 20;
@@ -289,6 +353,17 @@ public class ModConfig {
     /** Переподключение: каждая следующая попытка ждёт вдвое дольше (до 10 мин). */
     public boolean reconnectBackoff    = false;
     /** HUD: все плашки в одной общей панели. */
+    public boolean hudContextOnly = true;
+    public String hudStyle="KAELIX";
+    public boolean hudGlassBands = true;
+    public int hudGlassOpacity = 48;
+    public String hudBandColor = "#9BDD70";
+    public int hudEditorDockX=-1,hudEditorDockY=-1,hudEditorInfoX=8,hudEditorInfoY=8,hudEditorListX=8,hudEditorListY=64;
+    public boolean hudInventory = false;
+    public int hudInventoryVisibilityRevision=0;
+    public boolean hudInventoryPlayer = true;
+    public boolean hudEditorSnap = true;
+    public boolean hudEditorGrid = false;
     public boolean hudMerged           = false;
     /** v1.15.1: ширина плашек HUD (узких; остальные на 20 шире), масштаб всего HUD, перенос длинного текста. */
     public int     hudWidth            = 190;
@@ -346,11 +421,11 @@ public class ModConfig {
     /** Остановить после N минут (0 = без лимита). */
     public int     timeLimitMinutes      = 0;
     /** Остановить, когда в инвентаре не осталось пустых слотов. */
-    public boolean stopWhenInventoryFull = false;
+    public transient boolean stopWhenInventoryFull = false; // Removed legacy option, never read/saved.
     /** Обратный отсчёт перед стартом, секунд (0 = сразу). */
     public int     startCountdownSeconds = 0;
     /** Предупреждать, если игрок дальше N блоков от точки старта записи. */
-    public double  startPointWarnDistance = 2.0;
+    public double  startPointWarnDistance = 0.4;
     /** Не запускать, если игрок далеко от точки старта. */
     public boolean requireStartPoint     = false;
     /** Повторять повороты камеры из записи (иначе камера остаётся как есть). */
@@ -362,6 +437,7 @@ public class ModConfig {
     /** Общая «Случайность» (вкладка «Конфиги»), сохраняется в профилях. */
     public com.farmmacro.macro.HumanSettings humanGlobal = new com.farmmacro.macro.HumanSettings();
     /** v1.12.1: настройки (⚙), которые сразу получает каждый новый маршрут и каждая новая запись. */
+    public com.farmmacro.route.FarmSchemeSettings farmBuilder = new com.farmmacro.route.FarmSchemeSettings();
     public com.farmmacro.macro.MacroSettings newItemSettings = com.farmmacro.macro.MacroSettings.optimalNew();
     /** Плавный поворот пресета (K): скорость ± N % каждый раз (0 — всегда одинаково). */
     public int     smoothTurnJitterPct   = 0;
@@ -439,11 +515,16 @@ public class ModConfig {
 
     // ── v1.15 «Возврат на маршрут» (свой A* по блокам) ──
     /** Общий выключатель: дойти до маршрута по найденному пути (N издалека, точка старта, переподключение, сбили с пути). */
-    public boolean returnEnabled         = true;
+    public boolean returnEnabled         = false;
+    public boolean attendedDefaultsV2;
+    public boolean motionSharedRevision=false;
+    public boolean backgroundWork=true;
+    public double freecamSpeed=8,freecamRadius=32;
+    public com.farmmacro.motion.MotionSettings motion = new com.farmmacro.motion.MotionSettings();
     /** Предел: маршрут дальше по горизонтали — не идём (обычный стоп с сообщением). */
     public double  returnMaxDist         = 64;
     /** Старт/«Продолжить» (O) дальше допуска точки старта — дойти самому (иначе — как раньше: предупреждение/отказ). */
-    public boolean returnToStart         = true;
+    public boolean returnToStart         = false;
     /** Маршрут по точкам: сбили с линии (толчок, откат) дальше returnOffRoute — вернуться по пути (если это не паника). */
     public boolean returnAfterPush       = true;
     /** Сбили с пути: дальше этого от линии отрезка (или на другом этаже), блоков. */
@@ -481,6 +562,7 @@ public class ModConfig {
     public boolean finishSoundEnabled    = true;
 
     // ── HUD ──────────────────────────────────────────────────────────────────
+    public com.farmmacro.stats.StatsSettings telemetry=new com.farmmacro.stats.StatsSettings();
     public boolean statsHudEnabled       = true;
     public boolean navHudEnabled         = true;
     /** Маленькая стрелка к цели вокруг прицела (когда макрос не играет). */
@@ -627,6 +709,65 @@ public class ModConfig {
 
     /** Приводит значения к допустимым диапазонам (на случай ручной правки json). */
     public void sanitize() {
+        freecamSpeed=Double.isFinite(freecamSpeed)?Math.clamp(freecamSpeed,1,40):8;freecamRadius=Double.isFinite(freecamRadius)?Math.clamp(freecamRadius,4,64):32;
+        if(motion==null)motion=new com.farmmacro.motion.MotionSettings();motion.sanitize();
+        if(!attendedDefaultsV2){returnEnabled=false;startPointWarnDistance=Math.min(startPointWarnDistance,.4);attendedDefaultsV2=true;}
+        returnToStart=false;returnAfterReconnect=false;requireStartPoint=true;
+        schedEnabled=false;autoReconnect=false;reconnectResume=false;reconnectCommand="";
+        leaveAfterMin=0;sessionActiveLimitMin=0;sessionMaxCycles=0;sessionSave=false;webhookSessions=false;
+
+        if(visitors==null)visitors=new com.farmmacro.visitor.VisitorSettings();visitors.sanitize();
+        if(stashSales==null)stashSales=new com.farmmacro.market.SaleSettings();stashSales.sanitize();stashSales.enabled=false;stashSales.auto=false;
+        if(loadouts==null)loadouts=new com.farmmacro.loadout.LoadoutSettings();loadouts.sanitize();loadouts.enabled=false;loadouts.auto=false;for(var entry:loadouts.entries)entry.auto=false;
+        if(pests==null)pests=new com.farmmacro.pest.PestSettings();pests.sanitize();
+        // Retired in alpha25: old/imported configs must never resurrect these modules.
+        pestHuntEnabled=false;pests.autoStart=false;pests.resumeFarm=false;pests.esp=false;
+        pests.assist.traps=false;pests.assist.autoTraps=false;
+        visitors.enabled=false;visitors.auto=false;
+
+        if(farmBuilder==null)farmBuilder=new com.farmmacro.route.FarmSchemeSettings();farmBuilder.sanitize();
+        panicInventoryFull=false;stopWhenInventoryFull=false;suspWeightActionBar=0;
+        if(combatPanic==null)combatPanic=new CombatPanicSettings();
+        combatPanic.sanitize();
+        if(!"hold".equals(aimKeyMode)&&!"toggle".equals(aimKeyMode))aimKeyMode="hold";
+        if(aimManualTarget==null||aimManualTarget.isBlank()||aimManualTarget.length()>80)aimManualTarget="slayers";
+        if(aimManualName==null)aimManualName="";aimManualName=aimManualName.strip();if(aimManualName.length()>80)aimManualName=aimManualName.substring(0,80);
+        aimManualRange=Double.isFinite(aimManualRange)?Math.clamp(aimManualRange,2,64):32;
+        aimManualFov=Double.isFinite(aimManualFov)?Math.clamp(aimManualFov,5,180):120;
+        if(aimAetherRevision<1){
+            aimTrackingMode="aether";
+            if(combatProfiles!=null)for(var profile:combatProfiles)if(profile!=null&&profile.settings!=null)
+                profile.settings.addProperty("aimTrackingMode","aether");
+            aimAetherRevision=1;
+        }
+        if(!"aether".equals(aimTrackingMode)&&!"human".equals(aimTrackingMode)&&!"precise".equals(aimTrackingMode))aimTrackingMode="aether";
+        aimHumanStrength=Math.clamp(aimHumanStrength,0,100);
+        aimScytheNearChance=Math.clamp(aimScytheNearChance,0,100);
+        aimEarlyShotChance=Math.clamp(aimEarlyShotChance,0,40);
+        aimSpeedVariationPct=Math.clamp(aimSpeedVariationPct,0,60);
+        aimAcquireSpeedPct=Math.clamp(aimAcquireSpeedPct,100,250);
+        aimTrackSpeedPct=Math.clamp(aimTrackSpeedPct,25,150);
+        aimSpecialTurnSpeed=Double.isFinite(aimSpecialTurnSpeed)?Math.clamp(aimSpecialTurnSpeed,20,1440):900;
+        aimReactionMinMs=Math.clamp(aimReactionMinMs,0,500);
+        aimReactionMaxMs=Math.clamp(aimReactionMaxMs,aimReactionMinMs,700);
+        aimIdleSpeed=Double.isFinite(aimIdleSpeed)?Math.clamp(aimIdleSpeed,30,300):115;
+        aimIdleDelayMs=Math.clamp(aimIdleDelayMs,400,5000);
+        aimIdleYaw=Double.isFinite(aimIdleYaw)?Math.clamp(aimIdleYaw,20,100):60;
+        aimAutoFireIntervalMs=Math.clamp(aimAutoFireIntervalMs,100,1500);
+        aimShotObservationMs=Math.clamp(aimShotObservationMs,300,3000);
+        aimChainRearWaitMs=Math.clamp(aimChainRearWaitMs,0,1500);
+        aimSpecialSearchSeconds=Math.clamp(aimSpecialSearchSeconds,5,45);
+        aimJitterDegrees=Double.isFinite(aimJitterDegrees)?Math.clamp(aimJitterDegrees,0,.5):.12;
+        aimWalkRadius=Double.isFinite(aimWalkRadius)?Math.clamp(aimWalkRadius,.2,.8):.45;
+        if(aimControlVersion<1){if(aimTurnSpeed==90)aimTurnSpeed=720;aimControlVersion=1;}
+        aimRange=Double.isFinite(aimRange)?Math.clamp(aimRange,1,15):6;
+        aimFov=Double.isFinite(aimFov)?Math.clamp(aimFov,5,75):35;
+        aimTurnSpeed=Double.isFinite(aimTurnSpeed)?Math.clamp(aimTurnSpeed,20,1440):720;
+        if(!motionSharedRevision){motion.camera.importLegacy(this);motionSharedRevision=true;}motion.camera.sanitize();
+        if(aimPreset==null)aimPreset="slayer_zombie";if(aimExtraNames==null)aimExtraNames="";
+        if(aimExtraNames.length()>1024)aimExtraNames=aimExtraNames.substring(0,1024);
+        if(aimMobNames==null)aimMobNames=new java.util.ArrayList<>();
+        aimMobNames=new java.util.ArrayList<>(aimMobNames.stream().filter(n->n!=null&&!n.isBlank()).map(String::strip).filter(n->n.length()<=64).distinct().limit(128).toList());
         if(uiColors==null)uiColors=new java.util.LinkedHashMap<>();uiColors.entrySet().removeIf(e->e.getKey()==null||!com.farmmacro.gui.UiStyle.validColor(e.getValue()));uiBackgroundOpacity=Math.clamp(uiBackgroundOpacity,0,100);hudBackgroundOpacity=Math.clamp(hudBackgroundOpacity,0,100);uiCornerScale=Double.isFinite(uiCornerScale)?Math.clamp(uiCornerScale,0,1):.35;
         cropFeverLightStrength=Math.clamp(cropFeverLightStrength,0,100);cropFeverVolume=Math.clamp(cropFeverVolume,0,100);cropFeverDancers=Math.clamp(cropFeverDancers,1,8);cropFeverScale=Math.clamp(cropFeverScale,5,40);pathLookAhead=Double.isFinite(pathLookAhead)?Math.clamp(pathLookAhead,.5,8):2.5;
         chunkCacheMb=Math.max(1,Math.min(4096,chunkCacheMb));
@@ -704,6 +845,7 @@ public class ModConfig {
         suspWeightFarmBlock   = clamp(suspWeightFarmBlock, 0, 100);
         bpsMin                = clamp(bpsMin, 0.1, 40);
         bpsWindowSec          = clamp(bpsWindowSec, 2, 30);
+        farmingXpMissingSec=Double.isFinite(farmingXpMissingSec)?clamp(farmingXpMissingSec,3,60):8;
         desyncPct             = clamp(desyncPct, 10, 100);
         banwaveThreshold      = clamp(banwaveThreshold, 1, 100_000);
         banwaveWindowMin      = clamp(banwaveWindowMin, 2, 60);
@@ -713,12 +855,16 @@ public class ModConfig {
         schedBreakMin         = clamp(schedBreakMin, 1, 1440);
         schedJitterPct        = clamp(schedJitterPct, 0, 90);
         leaveAfterMin         = clamp(leaveAfterMin, 0, 10080);
+        sessionActiveLimitMin=clamp(sessionActiveLimitMin,0,10080);sessionMaxCycles=clamp(sessionMaxCycles,0,10000);webhookCooldownSec=clamp(webhookCooldownSec,15,3600);
         reconnectDelaySec     = clamp(reconnectDelaySec, 5, 600);
         reconnectTries        = clamp(reconnectTries, 1, 20);
         if (reconnectCommand == null) reconnectCommand = "";
         if (reconnectCommand.length() > 100) reconnectCommand = reconnectCommand.substring(0, 100);
         antiStuckTries        = clamp(antiStuckTries, 0, 5);
         perfFps               = clamp(perfFps, 10, 260);
+        perfBackgroundFps=clamp(perfBackgroundFps,0,120);perfChunks=perfChunks<=0?0:clamp(perfChunks,2,32);perfWorldVolume=clamp(perfWorldVolume,0,100);
+        nearbyChatRadius=Double.isFinite(nearbyChatRadius)?Math.clamp(nearbyChatRadius,1,32):10;
+        nearbyChatMemorySec=Math.clamp(nearbyChatMemorySec,3,60);
         if (chatKeywords == null) chatKeywords = "";
         if (chatKeywordsRev < 1) {                      // v1.14: дописать staff-строки один раз (пустой список — не трогаем)
             if (!chatKeywords.isBlank()) {
@@ -752,17 +898,28 @@ public class ModConfig {
         com.farmmacro.panic.Detectors.sanitize(this);
         if (!"skyblock".equals(welcomeWhere) && !"friends".equals(welcomeWhere) && !"other".equals(welcomeWhere)) welcomeWhere = "skyblock";
         if (!"optimal".equals(welcomePreset) && !"careful".equals(welcomePreset) && !"soft".equals(welcomePreset)) welcomePreset = "optimal";
+        if(telemetry==null)telemetry=new com.farmmacro.stats.StatsSettings();telemetry.sanitize();
         hudWidth = clamp(hudWidth, 120, 480);
         guiOffsetX = clamp(guiOffsetX, -4000, 4000); guiOffsetY = clamp(guiOffsetY, -4000, 4000);
+        hudGlassOpacity=Math.clamp(hudGlassOpacity,15,90);
+        if(!com.farmmacro.gui.UiStyle.validColor(hudBandColor))hudBandColor="#9BDD70";
+        hudEditorDockX=Math.clamp(hudEditorDockX,-1,4000);hudEditorDockY=Math.clamp(hudEditorDockY,-1,4000);
+        hudEditorInfoX=Math.clamp(hudEditorInfoX,0,4000);hudEditorInfoY=Math.clamp(hudEditorInfoY,0,4000);
+        hudEditorListX=Math.clamp(hudEditorListX,0,4000);hudEditorListY=Math.clamp(hudEditorListY,0,4000);
         hudScale = clamp(hudScale, 0.5, 3.0);
         hudPanicMinutes = clamp(hudPanicMinutes, 0, 1440);
         if (lastSeenVersion == null) lastSeenVersion = "";
         if (hudSlots == null) hudSlots = new java.util.LinkedHashMap<>();
         hudSlots.values().removeIf(java.util.Objects::isNull);
         if (hudSlots.size() > 64) hudSlots.clear();
+        if(hudInventoryVisibilityRevision<1){
+            if(hudInventory){var s=hudSlots.computeIfAbsent("inventory",k->new HudSlot());s.always=true;s.hidden=false;}
+            hudInventoryVisibilityRevision=1;
+        }
         for (HudSlot sl : hudSlots.values()) sl.sanitize();
         if (chatKeywords.length() > 1000) chatKeywords = chatKeywords.substring(0, 1000);
         humanGlobal           = com.farmmacro.macro.HumanSettings.sanitize(humanGlobal);
+        CombatProfiles.ensure(this);
         newItemSettings       = com.farmmacro.macro.MacroSettings.fromFile(
                 newItemSettings == null ? com.farmmacro.macro.MacroSettings.optimalNew() : newItemSettings, null);
         panicSoundVolume      = clamp(panicSoundVolume, 0f, 1f);
@@ -774,7 +931,7 @@ public class ModConfig {
         timeLimitMinutes      = clamp(timeLimitMinutes, 0, 7 * 24 * 60);
         startCountdownSeconds = clamp(startCountdownSeconds, 0, 600);
         smoothTurnJitterPct   = clamp(smoothTurnJitterPct, 0, 90);
-        startPointWarnDistance = clamp(startPointWarnDistance, 0.01, 1024);
+        startPointWarnDistance = clamp(startPointWarnDistance, 0.01, 2);
         if (panicSound == null || panicSound.isBlank()) panicSound = "builtin:siren";
         routeWidth            = clamp(routeWidth, 0.005, 1);
         routeRadius           = clamp(routeRadius, 1, 1024);
@@ -787,6 +944,7 @@ public class ModConfig {
         routeStartColor   = colorOrDefault(routeStartColor);
         routeStopColor    = colorOrDefault(routeStopColor);
         routeArrowColor   = colorOrDefault(routeArrowColor);
+        if(!java.util.Set.of("KAELIX","LEGACY").contains(hudStyle==null?"":hudStyle))hudStyle="KAELIX";
         hudAccentColor    = colorOrDefault(hudAccentColor);
         hudBgColor        = colorOrDefault(hudBgColor);
         routeOpacity          = clamp(routeOpacity, 1, 100);
@@ -836,7 +994,8 @@ public class ModConfig {
     }
 
     /** Реальные пороги детекторов одной строкой (пишется в лог при загрузке и при старте макроса). */
-    public String describeThresholds() {
+    public String describeThresholds(){return com.farmmacro.notify.PrivateText.secrets(rawThresholds());}
+    private String rawThresholds() {
         return String.format(java.util.Locale.ROOT,
                 "паника=%s | поворот=%s yaw>%.2f° pitch>%.2f° | сервер=%s сдвиг>=%.2f бл поворот>=%.2f° | "
                         + "блок=%s %.2f бл | слот=%s окно=%s урон=%s эффекты=%s | застрял=%s %d т | сход=%s %.1f бл | "
@@ -948,6 +1107,10 @@ public class ModConfig {
 
     /** Пишет во временный файл и атомарно подменяет — конфиг не побьётся при вылете игры. */
     public static void save() {
+        if(INSTANCE.visitors==null)INSTANCE.visitors=new com.farmmacro.visitor.VisitorSettings();INSTANCE.visitors.sanitize();
+        if(INSTANCE.stashSales==null)INSTANCE.stashSales=new com.farmmacro.market.SaleSettings();INSTANCE.stashSales.sanitize();INSTANCE.stashSales.enabled=false;INSTANCE.stashSales.auto=false;
+        if(INSTANCE.loadouts==null)INSTANCE.loadouts=new com.farmmacro.loadout.LoadoutSettings();INSTANCE.loadouts.sanitize();INSTANCE.loadouts.enabled=false;INSTANCE.loadouts.auto=false;for(var entry:INSTANCE.loadouts.entries)entry.auto=false;
+        CombatProfiles.captureActive(INSTANCE);
         final Path CONFIG_PATH = configPath();
         try {
             Path tmp = CONFIG_PATH.resolveSibling("farmmacro.json.tmp");

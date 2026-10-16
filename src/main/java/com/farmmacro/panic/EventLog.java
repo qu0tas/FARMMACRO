@@ -66,7 +66,7 @@ public final class EventLog {
     }
 
     private static String clean(String s) {
-        return s == null ? "" : s.replace('\n', ' ').replace('\r', ' ').replace('|', '/');
+        return s == null ? "" : com.farmmacro.notify.PrivateText.secrets(s).replace('\n', ' ').replace('\r', ' ').replace('|', '/');
     }
 
     private static void ensureWriter() {

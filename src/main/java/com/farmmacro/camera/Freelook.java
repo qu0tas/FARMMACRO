@@ -37,7 +37,7 @@ public final class Freelook {
     }
 
     public static void on(Minecraft mc) {
-        if (active || mc.player == null) return;
+        if (active || Freecam.active() || mc.player == null) return;
         yaw = mc.player.getYRot(); pitch = mc.player.getXRot();
         prevType = mc.options.getCameraType();
         mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);

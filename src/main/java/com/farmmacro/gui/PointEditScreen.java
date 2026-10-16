@@ -96,6 +96,12 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Section("Отрезок до следующей точки"));
         rows.add(new Rows.Selector("Действие", "Что держать, пока идём к следующей точке", () -> ACTIONS,
                 () -> pt() != null ? pt().action : RoutePoint.NONE, v -> { if (pt() != null) { pt().action = v; changed(); } }));
+        rows.add(new Rows.Selector("Клавиши фермы", "На отрезке ОТ этой точки. Предпочтительные клавиши; вне линии работает коррекция к точке, не слепой зажим.",
+            FarmSchemeRows::keyChoices,()->pt()!=null?pt().farmKeys:"",v->{if(pt()!=null){pt().farmKeys=v;changed();}})
+            .showIf(()->RouteBuffer.INSTANCE.settings().farm.enabled));
+        rows.add(new Rows.Toggle("Смена ряда", "Добавочная пауза из настроек фермы; быстрый режим отменяет только её, не ручную паузу точки.",
+            ()->pt()!=null&&pt().farmTurn,v->{if(pt()!=null){pt().farmTurn=v;changed();}})
+            .showIf(()->RouteBuffer.INSTANCE.settings().farm.enabled));
         rows.add(new Rows.Toggle("Присесть", null, () -> pt() != null && pt().sneak, v -> { if (pt() != null) { pt().sneak = v; changed(); } }));
         rows.add(new Rows.Toggle("Спринт", null, () -> pt() != null && pt().sprint, v -> { if (pt() != null) { pt().sprint = v; changed(); } }));
         rows.add(new Rows.Toggle("Прыжок", "Один прыжок в начале отрезка", () -> pt() != null && pt().jump,
@@ -154,9 +160,10 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
                     for (int i = index + 1; i < RouteBuffer.INSTANCE.size(); i++) {
                         RoutePoint q = RouteBuffer.INSTANCE.get(i);
                         q.action = p.action; q.sneak = p.sneak; q.sprint = p.sprint; q.slot = p.slot; q.hold = p.hold;
+                        if(RouteBuffer.INSTANCE.settings().farm.enabled){q.farmKeys=p.farmKeys;q.farmTurn=p.farmTurn;}
                     }
                     changed();
-                }).tip("Действие, присед, спринт, зажим и слот — всем точкам после этой")));
+                }).tip("Действие, присед, спринт, зажим, слот и (для фермы) клавиши/смена ряда — всем точкам после этой")));
         buildRandom();
         rows.add(new Rows.Spacer(4));
         rows.add(new Rows.Buttons(

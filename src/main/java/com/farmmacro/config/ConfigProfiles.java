@@ -24,6 +24,8 @@ public final class ConfigProfiles {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Config");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final java.util.Set<String> PERF_RUNTIME=java.util.Set.of("perfSavedFps","perfSavedClouds","perfSavedParticles","perfSavedShadows","perfSavedEntityDist","perfSavedChunks","perfAppliedChunks","perfAppliedFps");
+    private static final java.util.Set<String> LOCAL_PRIVACY=java.util.Set.of("webhookEnabled","webhookScreenshot","webhookSessions","webhookDetails","webhookServer","webhookMediaConsent","webhookCooldownSec","sessionSave");
     public static final int NAME_MAX = 40;
 
     public static Path dir() { return ModConfig.modDir().resolve("configs"); }
@@ -59,18 +61,19 @@ public final class ConfigProfiles {
 
     /** @return null — сохранено, иначе текст ошибки */
     public static String save(String name) {
+        CombatProfiles.captureActive(ModConfig.INSTANCE);
         String n = clean(name);
         if (n == null) return "Введи имя профиля";
         try {
             Files.createDirectories(dir());
             Path tmp = dir().resolve(n + ".json.tmp");
-            try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) { GSON.toJson(ModConfig.INSTANCE, w); }
+            try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) { var portable=GSON.toJsonTree(ModConfig.INSTANCE).getAsJsonObject();for(String key:LOCAL_PRIVACY)portable.remove(key);for(String key:PERF_RUNTIME)portable.remove(key);if(portable.has("telemetry")){portable.getAsJsonObject("telemetry").remove("bazaar");portable.getAsJsonObject("telemetry").remove("save");}GSON.toJson(com.farmmacro.notify.PrivateText.portable(portable), w); }
             Files.move(tmp, dir().resolve(n + ".json"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             LOGGER.info("Профиль настроек сохранён: {}", n);
             return null;
         } catch (Exception e) {
-            LOGGER.error("Не удалось сохранить профиль {}", n, e);
-            return "Не удалось сохранить: " + e.getMessage();
+            LOGGER.error("Не удалось сохранить профиль ({})", e.getClass().getSimpleName());
+            return "Не удалось сохранить (" + e.getClass().getSimpleName() + ")";
         }
     }
 
@@ -83,7 +86,7 @@ public final class ConfigProfiles {
         try (Reader r = Files.newBufferedReader(f, StandardCharsets.UTF_8)) {
             loaded = GSON.fromJson(r, ModConfig.class);
         } catch (Exception e) {
-            LOGGER.error("Не удалось прочитать профиль {}", f, e);
+            LOGGER.error("Не удалось прочитать профиль ({})", e.getClass().getSimpleName());
             return "Файл профиля не читается";
         }
         if (loaded == null) return "Пустой файл профиля";
@@ -96,12 +99,14 @@ public final class ConfigProfiles {
     private static final java.util.Set<String> NOT_IN_CODE = java.util.Set.of("camPresets", "camSelected", "camNextId",
             "camDefaultsRev", "lowRenderSavedChunks", "perfSavedFps", "perfSavedClouds", "perfSavedParticles", "perfSavedShadows",
             "perfSavedEntityDist", "uiAdvanced", "uiSections", "keyRecord", "keyPlay", "keyClear", "keyOpenGui",
-            "lastSeenVersion", "welcomeDone");
+            "lastSeenVersion", "welcomeDone", "webhookEnabled", "webhookScreenshot", "webhookSessions", "webhookDetails", "webhookServer", "webhookMediaConsent", "webhookCooldownSec", "sessionSave");
 
     /** v1.16.2: все настройки (как профиль) одной строкой — скопировать и отправить. */
     public static String exportCode() {
+        CombatProfiles.captureActive(ModConfig.INSTANCE);
         com.google.gson.JsonObject o = new Gson().toJsonTree(ModConfig.INSTANCE).getAsJsonObject();
-        for (String k : NOT_IN_CODE) o.remove(k);
+        for (String k : NOT_IN_CODE) o.remove(k);for(String key:PERF_RUNTIME)o.remove(key);
+        if(o.has("telemetry")){o.getAsJsonObject("telemetry").remove("bazaar");o.getAsJsonObject("telemetry").remove("save");}
         return ConfigCode.encode(o.toString());
     }
 
@@ -111,12 +116,12 @@ public final class ConfigProfiles {
         try {
             String json = ConfigCode.decode(code);
             com.google.gson.JsonObject o = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
-            for (String k : NOT_IN_CODE) o.remove(k);
+            for (String k : NOT_IN_CODE) o.remove(k);for(String key:PERF_RUNTIME)o.remove(key);
             loaded = new Gson().fromJson(o, ModConfig.class);
         } catch (IllegalArgumentException e) {
             return e.getMessage();
         } catch (Exception e) {
-            LOGGER.error("Строка настроек не читается", e);
+            LOGGER.error("Строка настроек не читается ({})", e.getClass().getSimpleName());
             return "Строка не читается: " + e.getClass().getSimpleName();
         }
         if (loaded == null) return "Пустая строка настроек";
@@ -128,7 +133,12 @@ public final class ConfigProfiles {
 
     /** Подменить текущие настройки, сохранив пресеты камеры и клавиши. */
     static void apply(ModConfig loaded) {
+        com.farmmacro.macro.Scheduler.cancel("CONFIG_CHANGED");com.farmmacro.macro.Reconnect.cancel();com.farmmacro.notify.DiscordNotify.disabled();
+        com.farmmacro.loadout.GlobalLoadouts.INSTANCE.cancel(net.minecraft.client.Minecraft.getInstance(),"замена полного конфига");
+        com.farmmacro.visual.PerformanceMode.off(net.minecraft.client.Minecraft.getInstance(),"смена профиля");
         ModConfig cur = ModConfig.INSTANCE;
+        loaded.webhookEnabled=cur.webhookEnabled;loaded.webhookScreenshot=cur.webhookScreenshot;loaded.webhookSessions=cur.webhookSessions;loaded.webhookDetails=cur.webhookDetails;loaded.webhookServer=cur.webhookServer;loaded.webhookMediaConsent=cur.webhookMediaConsent;loaded.webhookCooldownSec=cur.webhookCooldownSec;loaded.sessionSave=cur.sessionSave;
+        if(loaded.telemetry==null)loaded.telemetry=new com.farmmacro.stats.StatsSettings();loaded.telemetry.bazaar=cur.telemetry.bazaar;loaded.telemetry.save=cur.telemetry.save;com.farmmacro.stats.StatsPrices.disabled();
         loaded.camPresets = cur.camPresets;
         loaded.camSelected = cur.camSelected;
         loaded.camNextId = cur.camNextId;
@@ -136,12 +146,13 @@ public final class ConfigProfiles {
         loaded.lowRenderSavedChunks = cur.lowRenderSavedChunks;   // служебное, не часть профиля
         loaded.perfSavedFps = cur.perfSavedFps; loaded.perfSavedClouds = cur.perfSavedClouds;
         loaded.perfSavedParticles = cur.perfSavedParticles; loaded.perfSavedShadows = cur.perfSavedShadows;
-        loaded.perfSavedEntityDist = cur.perfSavedEntityDist;
+        loaded.perfSavedEntityDist = cur.perfSavedEntityDist;loaded.perfSavedChunks=cur.perfSavedChunks;loaded.perfAppliedChunks=cur.perfAppliedChunks;loaded.perfAppliedFps=cur.perfAppliedFps;
         loaded.uiAdvanced = cur.uiAdvanced; loaded.uiSections = cur.uiSections;    // вид меню — не часть профиля
         loaded.lastSeenVersion = cur.lastSeenVersion;                              // v1.16.2 «Что нового» — не часть профиля
         loaded.keyRecord = cur.keyRecord; loaded.keyPlay = cur.keyPlay; loaded.keyClear = cur.keyClear; loaded.keyOpenGui = cur.keyOpenGui;
         loaded.sanitize();
         ModConfig.INSTANCE = loaded;
+        com.farmmacro.stats.Telemetry.resetSession();
         ModConfig.save();
     }
 

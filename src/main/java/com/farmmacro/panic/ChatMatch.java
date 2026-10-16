@@ -10,12 +10,11 @@ public final class ChatMatch {
     /**
      * @return «ник» / «слово «x»» / null. Без учёта регистра; ник короче 3 букв не ищем (слишком часто совпадает).
      * v1.14: слово, записанное ЗАГЛАВНЫМИ (ROTATED, BEDROCK CAGED), ищется с учётом регистра и целым словом —
-     * так staff-проверки пишут в чат капсом, а то же слово в обычной речи не считается.
+     * это правило сопоставления регистра, не доказательство происхождения сообщения.
      */
     public static String hit(String text, String ownName, boolean mentionName, String keywords) {
         if (text == null || text.isBlank()) return null;
-        String t = text.toLowerCase(Locale.ROOT);
-        if (mentionName && ownName != null && ownName.length() >= 3 && t.contains(ownName.toLowerCase(Locale.ROOT)))
+        if (mentionName && ownName != null && ownName.length() >= 3 && Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])"+Pattern.quote(ownName)+"(?![\\p{L}\\p{N}_])").matcher(text).find())
             return "ник";
         if (keywords != null)
             for (String w : keywords.split(",")) {
@@ -24,7 +23,8 @@ public final class ChatMatch {
                 if (isCaps(raw)) {
                     if (Pattern.compile("(?<![\\p{L}\\p{N}_])" + Pattern.quote(raw) + "(?![\\p{L}\\p{N}_])").matcher(text).find())
                         return "слово «" + raw + "»";
-                } else if (t.contains(raw.toLowerCase(Locale.ROOT))) return "слово «" + raw.toLowerCase(Locale.ROOT) + "»";
+                } else if (Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])"+Pattern.quote(raw)+"(?![\\p{L}\\p{N}_])").matcher(text).find())
+                    return "слово «" + raw.toLowerCase(Locale.ROOT) + "»";
             }
         return null;
     }

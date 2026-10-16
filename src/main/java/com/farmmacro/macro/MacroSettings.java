@@ -16,6 +16,7 @@ public class MacroSettings {
     public HumanSettings human = new HumanSettings();
     public com.farmmacro.route.RouteRandomSettings routeRandom = new com.farmmacro.route.RouteRandomSettings();
     public com.farmmacro.route.RouteEndSettings routeEnd = new com.farmmacro.route.RouteEndSettings();
+    public com.farmmacro.route.FarmSchemeSettings farm = new com.farmmacro.route.FarmSchemeSettings();
 
     /**
      * v1.12.1: настройки для нового маршрута / новой записи — копия «по умолчанию для новых»
@@ -47,11 +48,13 @@ public class MacroSettings {
         s.human = human == null ? new HumanSettings() : human.copy();
         s.routeRandom = routeRandom == null ? new com.farmmacro.route.RouteRandomSettings() : routeRandom.copy();
         s.routeEnd = routeEnd == null ? new com.farmmacro.route.RouteEndSettings() : routeEnd.copy();
+        s.farm = farm == null ? new com.farmmacro.route.FarmSchemeSettings() : farm.copy();
         return s;
     }
 
     /** Перед записью в файл: порядок и свежие значения пресетов. */
     public void refresh() {
+        if(farm==null)farm=new com.farmmacro.route.FarmSchemeSettings();farm.sanitize();
         if (camera == null) camera = new CameraBinding();
         camera.refresh();
         if (hold == null) hold = new HoldSettings();
@@ -70,6 +73,7 @@ public class MacroSettings {
         if (s == null) s = new MacroSettings();
         if (legacyCamera != null && (s.camera == null || CameraBinding.NONE.equals(s.camera.mode)
                 && (s.camera.changes == null || s.camera.changes.isEmpty()))) s.camera = legacyCamera;
+        if(s.farm==null)s.farm=new com.farmmacro.route.FarmSchemeSettings();s.farm.sanitize();
         s.camera = CameraBinding.sanitize(s.camera);
         s.hold = HoldSettings.sanitize(s.hold);
         s.human = HumanSettings.sanitize(s.human);
@@ -90,6 +94,7 @@ public class MacroSettings {
         else sb.append(hold.buttonName()).append(HoldSettings.WHOLE.equals(hold.mode) ? " весь проход"
                 : route ? " по точкам" : " на " + hold.ranges.size() + " участк.");
         if (human != null && human.enabled) sb.append(" · Случайность: вкл");
+        if(route && farm!=null && farm.enabled)sb.append(" · Ферма: ").append(farm.mode);
         return sb.toString();
     }
 }

@@ -23,7 +23,7 @@ public final class ConfigCode {
     public static String encode(String json) {
         try {
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
-            try (GZIPOutputStream gz = new GZIPOutputStream(bo)) { gz.write(json.getBytes(StandardCharsets.UTF_8)); }
+            try (GZIPOutputStream gz = new GZIPOutputStream(bo)) { gz.write(com.farmmacro.notify.PrivateText.portable(com.google.gson.JsonParser.parseString(json)).toString().getBytes(StandardCharsets.UTF_8)); }
             return PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(bo.toByteArray());
         } catch (IOException e) {
             throw new IllegalStateException(e);
@@ -33,6 +33,7 @@ public final class ConfigCode {
     /** Строка → JSON. Пробелы/переносы внутри (скопировали из чата) — убираются. @throws IllegalArgumentException с понятной причиной */
     public static String decode(String code) {
         if (code == null) throw new IllegalArgumentException("Буфер обмена пуст");
+        if(code.length()>4*MAX_JSON)throw new IllegalArgumentException("Слишком большая строка настроек");
         String s = code.replaceAll("\\s+", "");
         if (s.isEmpty()) throw new IllegalArgumentException("Буфер обмена пуст");
         if (!s.startsWith(PREFIX)) throw new IllegalArgumentException("Это не строка настроек Kaelix (должна начинаться с " + PREFIX + ")");

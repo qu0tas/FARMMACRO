@@ -35,6 +35,7 @@ public final class ChunkCache {
             } catch(Exception ex) { warn(ex); }
         }); } catch(RejectedExecutionException full) { warn(full); }
     }
+    public static String technicalState(){return "active="+IO.getActiveCount()+"; queued="+IO.getQueue().size()+"/32; pending="+pending.size()+"; coalesced="+latest.size();}
     public static Path root() { return ModConfig.modDir().resolve("cache"); }
     public static ChunkCacheStore store(Minecraft mc) {
         if(!ModConfig.INSTANCE.chunkCacheEnabled || mc.level==null || RouteBuffer.worldId(mc)==null) return null;
@@ -54,6 +55,7 @@ public final class ChunkCache {
         ChunkCacheStore store=store(mc); if(store==null) return;
         long k=CachedChunk.key(ch.getPos().x(),ch.getPos().z()), e=epoch.get();
         String id=store.directory()+":"+k;
+        if(IO.getQueue().remainingCapacity()==0&&!pending.contains(id)){com.farmmacro.util.Diagnostics.add(com.farmmacro.util.Diagnostics.Counter.CHUNK_SKIPPED);return;}
         LevelSnapshot snap=LevelSnapshot.chunk(level,ch);
         synchronized(pending) {
             if(!pending.add(id)) { latest.put(id,new Write(snap,k,store,e)); return; }
@@ -73,7 +75,7 @@ public final class ChunkCache {
                 synchronized(pending) { pending.remove(id);latest.remove(id); }
                 warn(ex);
             }
-        }); } catch(RejectedExecutionException full) { pending.remove(id); warn(full); }
+        }); } catch(RejectedExecutionException full) { synchronized(pending){pending.remove(id);latest.remove(id);}com.farmmacro.util.Diagnostics.add(com.farmmacro.util.Diagnostics.Counter.CHUNK_SKIPPED);warn(full); }
     }
     private static void warn(Exception e) {
         long now=System.currentTimeMillis();

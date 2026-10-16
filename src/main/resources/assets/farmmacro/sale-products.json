@@ -1,0 +1,362 @@
+[
+  {
+    "id": "BLAZE_ROD",
+    "name": "Blaze Rod"
+  },
+  {
+    "id": "BONE",
+    "name": "Bone"
+  },
+  {
+    "id": "BREAD",
+    "name": "Bread"
+  },
+  {
+    "id": "BROWN_MUSHROOM",
+    "name": "Brown Mushroom"
+  },
+  {
+    "id": "CACTUS",
+    "name": "Cactus"
+  },
+  {
+    "id": "CARROT_ITEM",
+    "name": "Carrot"
+  },
+  {
+    "id": "COAL",
+    "name": "Coal"
+  },
+  {
+    "id": "COBBLESTONE",
+    "name": "Cobblestone"
+  },
+  {
+    "id": "DIAMOND",
+    "name": "Diamond"
+  },
+  {
+    "id": "EMERALD",
+    "name": "Emerald"
+  },
+  {
+    "id": "ENCHANTED_BAKED_POTATO",
+    "name": "Enchanted Baked Potato"
+  },
+  {
+    "id": "ENCHANTED_BLAZE_POWDER",
+    "name": "Enchanted Blaze Powder"
+  },
+  {
+    "id": "ENCHANTED_BLAZE_ROD",
+    "name": "Enchanted Blaze Rod"
+  },
+  {
+    "id": "ENCHANTED_BONE",
+    "name": "Enchanted Bone"
+  },
+  {
+    "id": "ENCHANTED_BREAD",
+    "name": "Enchanted Bread"
+  },
+  {
+    "id": "ENCHANTED_BROWN_MUSHROOM",
+    "name": "Enchanted Brown Mushroom"
+  },
+  {
+    "id": "ENCHANTED_CACTUS",
+    "name": "Enchanted Cactus"
+  },
+  {
+    "id": "ENCHANTED_CACTUS_GREEN",
+    "name": "Enchanted Cactus Green"
+  },
+  {
+    "id": "ENCHANTED_CARROT",
+    "name": "Enchanted Carrot"
+  },
+  {
+    "id": "ENCHANTED_COAL",
+    "name": "Enchanted Coal"
+  },
+  {
+    "id": "ENCHANTED_COAL_BLOCK",
+    "name": "Enchanted Coal Block"
+  },
+  {
+    "id": "ENCHANTED_COBBLESTONE",
+    "name": "Enchanted Cobblestone"
+  },
+  {
+    "id": "ENCHANTED_COCOA",
+    "name": "Enchanted Cocoa Beans"
+  },
+  {
+    "id": "ENCHANTED_COOKIE",
+    "name": "Enchanted Cookie"
+  },
+  {
+    "id": "ENCHANTED_DIAMOND",
+    "name": "Enchanted Diamond"
+  },
+  {
+    "id": "ENCHANTED_DIAMOND_BLOCK",
+    "name": "Enchanted Diamond Block"
+  },
+  {
+    "id": "ENCHANTED_EMERALD",
+    "name": "Enchanted Emerald"
+  },
+  {
+    "id": "ENCHANTED_EMERALD_BLOCK",
+    "name": "Enchanted Emerald Block"
+  },
+  {
+    "id": "ENCHANTED_ENDER_PEARL",
+    "name": "Enchanted Ender Pearl"
+  },
+  {
+    "id": "ENCHANTED_ENDSTONE",
+    "name": "Enchanted End Stone"
+  },
+  {
+    "id": "ENCHANTED_GOLD",
+    "name": "Enchanted Gold Ingot"
+  },
+  {
+    "id": "ENCHANTED_GOLDEN_CARROT",
+    "name": "Enchanted Golden Carrot"
+  },
+  {
+    "id": "ENCHANTED_GOLD_BLOCK",
+    "name": "Enchanted Gold Block"
+  },
+  {
+    "id": "ENCHANTED_GUNPOWDER",
+    "name": "Enchanted Gunpowder"
+  },
+  {
+    "id": "ENCHANTED_HARD_STONE",
+    "name": "Enchanted Hard Stone"
+  },
+  {
+    "id": "ENCHANTED_HAY_BLOCK",
+    "name": "Enchanted Hay Bale"
+  },
+  {
+    "id": "ENCHANTED_HUGE_MUSHROOM_1",
+    "name": "Enchanted Brown Mushroom Block"
+  },
+  {
+    "id": "ENCHANTED_HUGE_MUSHROOM_2",
+    "name": "Enchanted Red Mushroom Block"
+  },
+  {
+    "id": "ENCHANTED_IRON",
+    "name": "Enchanted Iron Ingot"
+  },
+  {
+    "id": "ENCHANTED_IRON_BLOCK",
+    "name": "Enchanted Iron Block"
+  },
+  {
+    "id": "ENCHANTED_LAPIS_LAZULI",
+    "name": "Enchanted Lapis Lazuli"
+  },
+  {
+    "id": "ENCHANTED_LAPIS_LAZULI_BLOCK",
+    "name": "Enchanted Lapis Lazuli Block"
+  },
+  {
+    "id": "ENCHANTED_MELON",
+    "name": "Enchanted Melon Slice"
+  },
+  {
+    "id": "ENCHANTED_MELON_BLOCK",
+    "name": "Enchanted Melon"
+  },
+  {
+    "id": "ENCHANTED_MITHRIL",
+    "name": "Enchanted Mithril"
+  },
+  {
+    "id": "ENCHANTED_NETHER_STALK",
+    "name": "Enchanted Nether Wart"
+  },
+  {
+    "id": "ENCHANTED_OBSIDIAN",
+    "name": "Enchanted Obsidian"
+  },
+  {
+    "id": "ENCHANTED_POTATO",
+    "name": "Enchanted Potato"
+  },
+  {
+    "id": "ENCHANTED_PUMPKIN",
+    "name": "Enchanted Pumpkin"
+  },
+  {
+    "id": "ENCHANTED_QUARTZ",
+    "name": "Enchanted Nether Quartz"
+  },
+  {
+    "id": "ENCHANTED_QUARTZ_BLOCK",
+    "name": "Enchanted Quartz Block"
+  },
+  {
+    "id": "ENCHANTED_REDSTONE",
+    "name": "Enchanted Redstone Dust"
+  },
+  {
+    "id": "ENCHANTED_REDSTONE_BLOCK",
+    "name": "Enchanted Redstone Block"
+  },
+  {
+    "id": "ENCHANTED_RED_MUSHROOM",
+    "name": "Enchanted Red Mushroom"
+  },
+  {
+    "id": "ENCHANTED_ROTTEN_FLESH",
+    "name": "Enchanted Rotten Flesh"
+  },
+  {
+    "id": "ENCHANTED_SEEDS",
+    "name": "Enchanted Seeds"
+  },
+  {
+    "id": "ENCHANTED_SLIME_BALL",
+    "name": "Enchanted Slimeball"
+  },
+  {
+    "id": "ENCHANTED_SLIME_BLOCK",
+    "name": "Enchanted Slime Block"
+  },
+  {
+    "id": "ENCHANTED_SPIDER_EYE",
+    "name": "Enchanted Spider Eye"
+  },
+  {
+    "id": "ENCHANTED_STRING",
+    "name": "Enchanted String"
+  },
+  {
+    "id": "ENCHANTED_SUGAR",
+    "name": "Enchanted Sugar"
+  },
+  {
+    "id": "ENCHANTED_SUGAR_CANE",
+    "name": "Enchanted Sugar Cane"
+  },
+  {
+    "id": "ENCHANTED_TITANIUM",
+    "name": "Enchanted Titanium"
+  },
+  {
+    "id": "ENCHANTED_WHEAT",
+    "name": "Enchanted Wheat"
+  },
+  {
+    "id": "ENDER_PEARL",
+    "name": "Ender Pearl"
+  },
+  {
+    "id": "GOLD_INGOT",
+    "name": "Gold Ingot"
+  },
+  {
+    "id": "HARD_STONE",
+    "name": "Hard Stone"
+  },
+  {
+    "id": "HAY_BLOCK",
+    "name": "Hay Bale"
+  },
+  {
+    "id": "INK_SACK:3",
+    "name": "Cocoa Beans"
+  },
+  {
+    "id": "INK_SACK:4",
+    "name": "Lapis Lazuli"
+  },
+  {
+    "id": "IRON_INGOT",
+    "name": "Iron Ingot"
+  },
+  {
+    "id": "MELON",
+    "name": "Melon Slice"
+  },
+  {
+    "id": "MUTANT_NETHER_STALK",
+    "name": "Mutant Nether Wart"
+  },
+  {
+    "id": "NETHER_STALK",
+    "name": "Nether Wart"
+  },
+  {
+    "id": "OBSIDIAN",
+    "name": "Obsidian"
+  },
+  {
+    "id": "POLISHED_PUMPKIN",
+    "name": "Polished Pumpkin"
+  },
+  {
+    "id": "POTATO_ITEM",
+    "name": "Potato"
+  },
+  {
+    "id": "PUMPKIN",
+    "name": "Pumpkin"
+  },
+  {
+    "id": "QUARTZ",
+    "name": "Nether Quartz"
+  },
+  {
+    "id": "REDSTONE",
+    "name": "Redstone Dust"
+  },
+  {
+    "id": "RED_MUSHROOM",
+    "name": "Red Mushroom"
+  },
+  {
+    "id": "ROTTEN_FLESH",
+    "name": "Rotten Flesh"
+  },
+  {
+    "id": "SEEDS",
+    "name": "Seeds"
+  },
+  {
+    "id": "SLIME_BALL",
+    "name": "Slimeball"
+  },
+  {
+    "id": "SPIDER_EYE",
+    "name": "Spider Eye"
+  },
+  {
+    "id": "STRING",
+    "name": "String"
+  },
+  {
+    "id": "SUGAR_CANE",
+    "name": "Sugar Cane"
+  },
+  {
+    "id": "SULPHUR",
+    "name": "Gunpowder"
+  },
+  {
+    "id": "TIGHTLY_TIED_HAY_BALE",
+    "name": "Tightly-Tied Hay Bale"
+  },
+  {
+    "id": "WHEAT",
+    "name": "Wheat"
+  }
+]

@@ -27,7 +27,7 @@ import java.util.Set;
 /**
  * v1.13 «THE BIG PANIC UPDATE»: детекторы мира и сервера (идеи — из списка failsafe FarmHelper, код свой).
  * Горение, паутина/вязкие блоки, клетка из бедрока/барьера, блок на ферме, урожай не ломается (BPS), рассинхрон,
- * полный инвентарь, перезагрузка/лимбо (табло, чат, титры), банвейв, Jacob's Contest, гость на ферме, откат назад.
+ * перезагрузка/лимбо (табло, чат, титры), банвейв, Jacob's Contest, гость на ферме, откат назад.
  * Всё в главном потоке. Паника — через {@link PanicDetector} (flag/triggerPanic): только стоп + экран + звук.
  */
 final class WorldGuards {
@@ -38,10 +38,13 @@ final class WorldGuards {
     private final Map<Long, Long> farmBlocks = new HashMap<>();      // pos → до какого времени (мс) помним
     private final Map<Long, Long> recentBroken = new HashMap<>();    // pos → когда сломал игрок (мс)
     final BpsMeter bps = new BpsMeter();
+    private final FarmingSignals farming=new FarmingSignals();
+    private final Map<Long,Integer> farmContacts=new HashMap<>();
+    void onActionbar(String text){farming.actionbar(text);}
     private record Broke(long pos, BlockState state, int due) {}
     private final ArrayDeque<Broke> pendingDesync = new ArrayDeque<>();
     private final ArrayDeque<Boolean> desyncResults = new ArrayDeque<>();
-    private int tickNo, invFullTicks;
+    private int tickNo;
     /** Путь за последние ~3 с (x, y, z) — для «Откат назад». */
     private final ArrayDeque<double[]> path = new ArrayDeque<>();
     private static final int PATH_TICKS = 60, DESYNC_DELAY = 20, DESYNC_KEEP = 20, DESYNC_MIN = 10;
@@ -58,8 +61,8 @@ final class WorldGuards {
         fireAtStart = p != null && p.isOnFire();
         stickyAtStart = p != null && stickyAt(p) != null;
         cageBlocks.clear(); farmBlocks.clear(); recentBroken.clear();
-        bps.reset(); pendingDesync.clear(); desyncResults.clear(); path.clear();
-        invFullTicks = 0; lastBps = Double.NaN;
+        bps.reset(); farming.reset(); farmContacts.clear(); pendingDesync.clear(); desyncResults.clear(); path.clear();
+        lastBps = Double.NaN;
         bedrockBurst.clear(); cageBurst.clear(); boardMissingSince = -1; boardLogged = false;
     }
 
@@ -125,10 +128,10 @@ final class WorldGuards {
                 }
             }
         }
-        if (c.detectFarmBlock && dist <= c.farmBlockRadius && !lag()
+        if (c.detectFarmBlock && MacroManager.INSTANCE.harvestPlayback() && dist <= c.farmBlockRadius && !lag()
                 && old.getCollisionShape(level, pos).isEmpty() && now.isCollisionShapeFullBlock(level, pos)
                 && !PanicDetector.grownOrMoved(now) && !brokenRecently(pos.asLong())) {
-            if (farmBlocks.size() < 512) farmBlocks.put(pos.asLong(), ms + 60_000);
+            if (farmBlocks.size() < 512){farmBlocks.put(pos.asLong(), ms + 60_000);farmContacts.remove(pos.asLong());}
             EventLog.log("FARMBLOCK", name + " " + pos.toShortString() + String.format(Locale.ROOT, " (%.1f бл)", dist));
             d.suspect("farmBlock", "блок на ферме", name + " " + pos.toShortString(), c.suspWeightFarmBlock);
         }
@@ -142,7 +145,9 @@ final class WorldGuards {
     /** Игрок сломал блок (MultiPlayerGameMode.destroyBlock вернул true). */
     void onBroke(BlockPos pos, BlockState state) {
         ModConfig c = ModConfig.INSTANCE;
-        bps.onBroken();
+        if(!MacroManager.INSTANCE.harvestPlayback()||!FarmingSignals.crop(state))return;
+        farming.broke(state);
+        if(MacroManager.INSTANCE.harvestPlayback()&&FarmingSignals.crop(state))bps.onBroken();
         long ms = System.currentTimeMillis();
         if (recentBroken.size() > 2048) recentBroken.values().removeIf(t -> ms - t > 10_000);
         recentBroken.put(pos.asLong(), ms);
@@ -198,27 +203,35 @@ final class WorldGuards {
         if (!farmBlocks.isEmpty()) {
             long ms = System.currentTimeMillis();
             farmBlocks.values().removeIf(t -> t < ms);
-            if (r == null && c.detectFarmBlock && level != null) {
+            farmContacts.keySet().retainAll(farmBlocks.keySet());
+            if (r == null && c.detectFarmBlock && level != null && !lag && MacroManager.INSTANCE.harvestPlayback()
+                    &&!com.farmmacro.pest.PestHunter.INSTANCE.active()&&!com.farmmacro.route.NavigationInput.busy()) {
                 AABB bb = p.getBoundingBox().inflate(0.08);
                 for (long lp : farmBlocks.keySet()) {
                     BlockPos pos = BlockPos.of(lp);
-                    if (bb.intersects(new AABB(pos)) && !level.getBlockState(pos).getCollisionShape(level, pos).isEmpty()) {
+                    if(!level.hasChunkAt(pos)){farmContacts.remove(lp);continue;}
+                    boolean contact=false;
+                    for(AABB box:level.getBlockState(pos).getCollisionShape(level,pos).toAabbs())
+                        if(box.move(pos).intersects(bb)){contact=true;break;}
+                    if(!contact){farmContacts.remove(lp);continue;}
+                    if(farmContacts.merge(lp,1,(a,b)->Math.min(3,a+b))>=3) {
                         r = d.hit("farmBlock", "Упёрся в блок, поставленный сервером: " + level.getBlockState(pos).getBlock().getName().getString()
                                 + " " + pos.toShortString());
                         if (r != null) break;
                     }
                 }
-            }
+            }else farmContacts.clear();
         }
 
         // BPS: только «рабочие» тики (ЛКМ зажата и нажата клавиша движения), лаги не считаем
-        var o = mc.options;
-        boolean working = !lag && o.keyAttack.isDown()
-                && (o.keyUp.isDown() || o.keyDown.isDown() || o.keyLeft.isDown() || o.keyRight.isDown());
-        bps.tick(working, (int) Math.round(c.bpsWindowSec * 20));
-        lastBps = bps.bps();
-        if (r == null && c.detectBps && bps.ready() && bps.bps() < c.bpsMin)
-            r = d.hit("bps", String.format(Locale.ROOT, "Урожай не ломается: %.1f блоков/с < %.1f", bps.bps(), c.bpsMin));
+        boolean working=farming.working(mc,lag);
+        if(!working)bps.reset();
+        bps.tick(working,(int)Math.round(c.bpsWindowSec*20));
+        lastBps=bps.bps();
+        boolean low=c.detectBps&&working&&bps.ready()&&lastBps<c.bpsMin;
+        if(farming.lowBps(low)&&r==null)
+            r=d.hit("bps",String.format(Locale.ROOT,"При сборе урожая низкий BPS: %.1f < %.1f, подтверждено20тиков",lastBps,c.bpsMin));
+        if(working){String xp=farming.missingXp(c);if(r==null&&xp!=null)r=d.hit("farmingXp",xp);}
 
         // рассинхрон: сломанные блоки через 1 с снова на месте (ровно то же состояние — пересадка не считается)
         while (!pendingDesync.isEmpty() && pendingDesync.peekFirst().due() <= tickNo) {
@@ -237,11 +250,6 @@ final class WorldGuards {
                 else if (r == null) r = d.hit("desync", "Рассинхрон: " + detail);
             }
         }
-
-        // полный инвентарь ≈ 0.55 с подряд
-        if (c.panicInventoryFull && p.getInventory().getFreeSlot() == -1) {
-            if (++invFullTicks >= 11 && r == null) r = d.hit("inventoryFull", "Инвентарь полон");
-        } else invFullTicks = 0;
 
         // табло: перезагрузка сервера, Jacob's Contest
         if (level != null && tickNo % 20 == 0 && (c.detectRestart || c.detectJacob)) {

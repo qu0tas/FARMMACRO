@@ -140,11 +140,10 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
     }
 
     private void pageIntro() {
-        rows.add(new Rows.Note("Kaelix записывает твой проход по ферме (или маршрут из точек) и повторяет его. "
+        rows.add(new Rows.Note("Kaelix помогает проходить короткие маршруты по точкам, пока ты у ПК. Запись действий — дополнительная функция в меню. "
                 + "Если что-то не так — сервер повернул камеру, телепортировал, подошёл игрок — срабатывает паника: "
                 + "макрос сразу останавливается, экран краснеет и звучит сигнал. Дальше решаешь ты.", Ui.ACCENT));
         rows.add(new Rows.Section("Главные клавиши"));
-        rows.add(key("Запись прохода", FarmMacroMod.keyRecord));
         rows.add(key("Пуск / стоп", FarmMacroMod.keyPlay));
         rows.add(key("Продолжить с места остановки", FarmMacroMod.keyResume));
         rows.add(key("Стоп и сброс всего", FarmMacroMod.keyResetPos));
@@ -260,7 +259,7 @@ public class WelcomeScreen extends Screen implements Rows.Ctx {
 
     private void pageSummary() {
         rows.add(new Rows.Note(this::summary, Ui.ON));
-        rows.add(new Rows.Note("Дальше: запиши проход (" + MacroManager.keyName(FarmMacroMod.keyRecord) + ") или поставь точки в редакторе ("
+        rows.add(new Rows.Note("Дальше: поставь точки в редакторе ("
                 + MacroManager.keyName(FarmMacroMod.keyEditor) + "), потом " + MacroManager.keyName(FarmMacroMod.keyPlay)
                 + " — пуск. Перед фермой нажми «Паника → Проверить панику».", Ui.SUB));
         rows.add(new Rows.Note("Мастер можно открыть снова: меню (" + MacroManager.keyName(FarmMacroMod.keyOpenGui)

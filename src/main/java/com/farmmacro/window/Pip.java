@@ -69,7 +69,7 @@ public final class Pip {
             active = true;
             unfloatTicks = 0;
             EventLog.log("PIP", "вкл " + r.w() + "×" + r.h() + " в (" + r.x() + ", " + r.y() + ")");
-            if (c.pipUngrab && MacroManager.INSTANCE.isActive()) com.farmmacro.camera.Ungrab.on(mc, "картинка в картинке");
+            if (c.pipUngrab && com.farmmacro.window.BackgroundWork.running()) com.farmmacro.camera.Ungrab.on(mc, "картинка в картинке");
             msg(mc, "§b▣ Картинка в картинке §7(" + MacroManager.keyName(FarmMacroMod.keyPip) + " — обычное окно)");
         } catch (Throwable t) {
             LOGGER.warn("Картинка в картинке не включилась", t);
@@ -101,7 +101,7 @@ public final class Pip {
     public static void tick(Minecraft mc) {
         if (pendingOn && !mc.getWindow().isFullscreen()) on(mc);
         // макрос запустили уже в PiP — один раз отпустить курсор (U вернёт захват, повторно не отпускаем)
-        boolean m = MacroManager.INSTANCE.isActive();
+        boolean m = com.farmmacro.window.BackgroundWork.running();
         if (active && m && !wasMacroActive && ModConfig.INSTANCE.pipUngrab && !com.farmmacro.camera.Ungrab.active())
             com.farmmacro.camera.Ungrab.on(mc, "картинка в картинке");
         wasMacroActive = m;
@@ -114,8 +114,11 @@ public final class Pip {
     /** Паника: в основное окно — что бы игрок ни делал. */
     public static void toFront(Minecraft mc, String why) {
         ModConfig c = ModConfig.INSTANCE;
-        if (c.panicExitPip && (active || pendingOn)) off(mc, why);
-        if (!c.panicFocusWindow) return;
+        toFront(mc,why,c.panicExitPip,c.panicFocusWindow);
+    }
+    public static void toFront(Minecraft mc,String why,boolean exitPip,boolean focus){
+        if (exitPip && (active || pendingOn)) off(mc, why);
+        if (!focus) return;
         Window w = mc.getWindow();
         long h = w.handle();
         if (h == 0) return;

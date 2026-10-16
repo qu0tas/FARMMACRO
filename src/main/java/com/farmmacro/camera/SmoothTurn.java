@@ -6,18 +6,10 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
 
 /**
- * Плавный детерминированный поворот камеры к заданному yaw/pitch. С 1.6.0 — только для применения пресета
- * по клавише/кнопке; автоход и привязки камеры к макросу камеру сами плавно не крутят.
- *
- * Вызывается каждый кадр сразу после того, как игра применила движение мыши
- * ({@code MouseHandler.handleAccumulatedMovement}, миксин {@code CameraTurnMixin}), и поворачивает игрока тем же
- * {@code Entity.turn}, что и мышь — поэтому картинка плавная при любом FPS.
- *
- * Скорость постоянная (градусов в секунду), в последних {@link #EASE_DEG}° линейно замедляется до 20 %.
- * Никакой случайности: один и тот же поворот всегда идёт одинаково.
- *
- * Каждый свой шаг сообщается детектору паники ({@link PanicDetector#expectTurn}) как приращение,
- * поэтому движение мыши поверх поворота макроса по-прежнему ловится.
+ * Shared per-frame turns for presets, farm alignment and navigation.
+ * Kaelix keeps MouseTurn/TrackingTurn; alpha28 optionally selects independent AetherTurn.
+ * Applies only Entity.turn after vanilla mouse input and reports actual deltas to PanicDetector.
+ * Existing navigation lease, panic, screen/focus guards stay authoritative; no movement/packets here.
  */
 public final class SmoothTurn {
     private SmoothTurn() {}
@@ -31,12 +23,61 @@ public final class SmoothTurn {
     /** v1.11.1 «как мышь» (camMouseLike): план поворота по пикселям мыши; null — обычный плавный. */
     private static MouseTurn mouse;
     private static TrackingTurn tracking;
+    private static com.farmmacro.motion.AetherTurn aether;
+    private static boolean following;
+    private static Object cameraOwner;
+    private static final com.farmmacro.motion.CameraTurnLease bindingLease=new com.farmmacro.motion.CameraTurnLease();
+    private static boolean mouseKnown;
+    private static double mouseX,mouseY;
+    public static boolean bindingBusy(){return bindingLease.busy();}
+    public static boolean ownsBinding(com.farmmacro.motion.CameraTurnLease.Ticket t){return bindingLease.owns(t);}
+    /** Do not steal an existing turn/navigation. Ticket remains exclusive until observed-angle acknowledgement. */
+    public static com.farmmacro.motion.CameraTurnLease.Ticket beginBinding(float yaw,float pitch,double speed){
+        var mc=Minecraft.getInstance();
+        if(isActive()||com.farmmacro.route.NavigationInput.busy()||mc.player==null||mc.level==null
+            ||mc.screen!=null||!com.farmmacro.window.BackgroundWork.permitted(mc)||!com.farmmacro.config.ModConfig.INSTANCE.motion.aether()
+            ||com.farmmacro.panic.PanicHandoff.pending()||!Float.isFinite(yaw)||!Float.isFinite(pitch)
+            ||!Double.isFinite(speed)||speed<=0)return null;
+        pitch=Mth.clamp(pitch,-89,89);
+        turnTo(yaw,pitch,speed);
+        if(!active)return null;
+        return bindingLease.acquire(yaw,pitch);
+    }
+    public static boolean acknowledgeBinding(com.farmmacro.motion.CameraTurnLease.Ticket t){return bindingLease.release(t);}
+    public static void cancelBinding(com.farmmacro.motion.CameraTurnLease.Ticket t){if(bindingLease.owns(t))stop();}
+    /** Only while a bound route turn is pending. Preserve the physical event for the player. */
+    public static void bindingUserInput(){
+        if(!bindingBusy())return;
+        var mc=Minecraft.getInstance();if(mc.screen!=null)return;
+        stop();com.farmmacro.macro.MacroManager.INSTANCE.stopPlayback(mc,"§eКамера: ручное управление. Нужен ручной запуск");
+    }
+    public static void bindingMouseMove(double x,double y){
+        boolean moved=mouseKnown&&Double.isFinite(x)&&Double.isFinite(y)&&Math.hypot(x-mouseX,y-mouseY)>.7;
+        mouseX=x;mouseY=y;mouseKnown=Double.isFinite(x)&&Double.isFinite(y);
+        var mc=Minecraft.getInstance();if(moved&&mc.screen==null&&mc.isWindowActive()&&mc.mouseHandler.isMouseGrabbed())bindingUserInput();
+    }
+    private static void completed(){
+        active=false;mouse=null;tracking=null;aether=null;following=false;cameraOwner=null;
+        bindingLease.arrive();
+    }
     /** Retarget without restarting angular velocity. Dedicated to autonomous navigation. */
     public static void followMouse(float yaw,float pitch,double degPerSec) {
-        if(tracking==null){stop();tracking=new TrackingTurn();lastNs=0;}
+        if(bindingBusy())return;
+        if(!Float.isFinite(yaw)||!Float.isFinite(pitch)||!Double.isFinite(degPerSec)){stop();return;}
+        if(!com.farmmacro.route.NavigationInput.cameraAllowed())return;
+        if(com.farmmacro.panic.PanicHandoff.pending()){stop();return;}
+        var settings=com.farmmacro.config.ModConfig.INSTANCE.motion;
+        boolean useAether=settings.aether()&&degPerSec>0;
+        Object owner=com.farmmacro.route.NavigationInput.cameraOwner();
+        if(!following||cameraOwner!=owner||(useAether!=(aether!=null))){
+            stop();following=true;lastNs=0;
+            if(useAether){var p=Minecraft.getInstance().player;if(p==null)return;aether=new com.farmmacro.motion.AetherTurn(p.getYRot(),p.getXRot(),yaw,pitch,true,settings,java.util.concurrent.ThreadLocalRandom.current());}
+            else tracking=new TrackingTurn();
+        }
+        cameraOwner=com.farmmacro.route.NavigationInput.cameraOwner();
         targetYaw=yaw;targetPitch=Mth.clamp(pitch,-89f,89f);speed=degPerSec;mouse=null;active=true;
     }
-    public static void stopFollowing(){if(tracking!=null)stop();}
+    public static void stopFollowing(){if(following)stop();}
 
     /**
      * Начать (или перенацелить) поворот.
@@ -54,7 +95,11 @@ public final class SmoothTurn {
     public static float targetPitch() { return targetPitch; }
 
     private static void turnTo(float yaw, float pitch, double degPerSec, boolean forceMouse) {
-        tracking=null;
+        if(bindingBusy())return;
+        if(!Float.isFinite(yaw)||!Float.isFinite(pitch)||!Double.isFinite(degPerSec)){stop();return;}
+        if(!com.farmmacro.route.NavigationInput.cameraAllowed())return;
+        if(com.farmmacro.panic.PanicHandoff.pending()){stop();return;}
+        aether=null;following=false;tracking=null;cameraOwner=com.farmmacro.route.NavigationInput.cameraOwner();
         if (!active) lastNs = 0;
         targetYaw = yaw;
         targetPitch = Mth.clamp(pitch, -90f, 90f);
@@ -65,7 +110,11 @@ public final class SmoothTurn {
         com.farmmacro.config.ModConfig c = com.farmmacro.config.ModConfig.INSTANCE;
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
-        if ((c.camMouseLike || forceMouse) && degPerSec > 0 && p != null) {
+        if(c.motion.aether()&&degPerSec>0&&p!=null){
+            // Do not mix Kaelix speed jitter/overshoot into the independent Aether backend.
+            speed=degPerSec;lastNs=0;
+            aether=new com.farmmacro.motion.AetherTurn(p.getYRot(),p.getXRot(),targetYaw,targetPitch,false,c.motion,java.util.concurrent.ThreadLocalRandom.current());
+        } else if ((c.camMouseLike || forceMouse) && degPerSec > 0 && p != null) {
             double sens = mc.options.sensitivity().get();
             mouse = new MouseTurn(p.getYRot(), p.getXRot(), Mth.wrapDegrees(targetYaw - p.getYRot()), targetPitch - p.getXRot(),
                     sens, speed, (forceMouse ? Math.max(1, c.camOvershootPct) : c.camOvershootPct) / 100.0, new java.util.SplittableRandom(System.nanoTime()));
@@ -73,8 +122,8 @@ public final class SmoothTurn {
         active = true;
     }
 
-    public static void stop()          { active = false; mouse = null; tracking=null; }
-    public static boolean isActive()   { return active; }
+    public static void stop()          { bindingLease.cancel();active = false; mouse = null; tracking=null; aether=null; following=false; cameraOwner=null; }
+    public static boolean isActive()   { return active || bindingBusy(); }
 
     /** Сколько градусов осталось довернуть (0, если поворота нет). */
     public static float remaining(LocalPlayer p) {
@@ -85,14 +134,23 @@ public final class SmoothTurn {
 
     /** Каждый кадр, после мыши. */
     public static void onFrame() {
+        if(com.farmmacro.panic.PanicHandoff.pending()){stop();return;}
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
         long now = System.nanoTime();
         if (!active || p == null) { lastNs = 0; if (p == null) stop(); return; }
-        if (mc.isPaused()) { lastNs = now; return; }
+        if(!com.farmmacro.route.NavigationInput.cameraValid(cameraOwner)){stop();return;}
+        if (mc.isPaused()||!com.farmmacro.window.BackgroundWork.permitted(mc)||mc.screen!=null) { stop();return; }
         double dt = lastNs == 0 ? 1 / 60.0 : Math.min(0.1, (now - lastNs) / 1e9);
         lastNs = now;
 
+        if(aether!=null){
+            if(!com.farmmacro.config.ModConfig.INSTANCE.motion.aether()){stop();return;}
+            var d=aether.frame(p.getYRot(),p.getXRot(),targetYaw,targetPitch,mc.options.sensitivity().get(),speed,dt);
+            if(d.yaw()!=0||d.pitch()!=0)apply(p,(float)d.yaw(),(float)d.pitch());
+            if(!following&&aether.finished())completed();
+            return;
+        }
         if(tracking!=null){
             var d=tracking.frame(p.getYRot(),p.getXRot(),targetYaw,targetPitch,
                 mc.options.sensitivity().get(),speed,dt);
@@ -102,13 +160,13 @@ public final class SmoothTurn {
         if (mouse != null) {
             long[] d = mouse.frame(dt);
             if (d[0] != 0 || d[1] != 0) apply(p, (float) (d[0] * mouse.step), (float) (d[1] * mouse.step));
-            if (mouse.finished()) { active = false; mouse = null; }
+            if (mouse.finished()) completed();
             return;
         }
         float ey = Mth.wrapDegrees(targetYaw - p.getYRot());
         float ep = targetPitch - p.getXRot();
         double err = Math.hypot(ey, ep);
-        if (err < 0.01) { active = false; return; }
+        if (err < 0.01) { completed(); return; }
         double step;
         if (speed <= 0) step = err;
         else {
@@ -118,7 +176,7 @@ public final class SmoothTurn {
         }
         float k = (float) (step / err);
         apply(p, ey * k, ep * k);
-        if (step >= err) active = false;
+        if (step >= err) completed();
     }
 
     /**
@@ -126,7 +184,7 @@ public final class SmoothTurn {
      * yaw и pitch) как движение мыши, детектору — как свой поворот. stopLeft — сколько ещё стоять (0 — идём).
      */
     public static void look(com.farmmacro.macro.Humanizer h, LocalPlayer p, int stopLeft) {
-        if (h == null || p == null) return;
+        if (h == null || p == null || bindingBusy() || com.farmmacro.route.NavigationInput.busy()) return;
         if (h != lookOwner) { lookOwner = h; lookBase = false; }
         // v1.11.2: смещение ставится от «своего» угла абсолютно, а не суммой мелких поворотов — float-ошибки
         // не копятся, и когда смещение вернулось в 0, камера ровно там, где была (до 0.000°)
@@ -139,9 +197,7 @@ public final class SmoothTurn {
         else { ty = baseYaw + (float) h.look.yawOff(); tp = Math.max(-90f, Math.min(90f, basePitch + (float) h.look.pitchOff())); }
         float y0 = p.getYRot(), x0 = p.getXRot();
         if (ty != y0 || tp != x0) {
-            p.setYRot(ty); p.setXRot(tp);
-            p.yRotO += ty - y0; p.xRotO += tp - x0;       // как Entity.turn — без рывка интерполяции
-            PanicDetector.INSTANCE.expectTurn(ty - y0, tp - x0);
+            if(!com.farmmacro.motion.MotionController.absolute(com.farmmacro.motion.MotionPolicy.Owner.FARM,ty,tp,false))return;
         }
         lookBase = !h.look.atZero();
         expYaw = ty; expPitch = tp;
@@ -154,7 +210,8 @@ public final class SmoothTurn {
     /** Повернуть как мышь (Entity.turn принимает «сырые» единицы, ×0.15 внутри). */
     private static void apply(LocalPlayer p, float dYaw, float dPitch) {
         float y0 = p.getYRot(), x0 = p.getXRot();
-        p.turn(dYaw / 0.15, dPitch / 0.15);
-        PanicDetector.INSTANCE.expectTurn(p.getYRot() - y0, p.getXRot() - x0);
+        var owner=com.farmmacro.route.NavigationInput.busy()?com.farmmacro.motion.MotionPolicy.Owner.NAVIGATION:
+            com.farmmacro.macro.MacroManager.INSTANCE.isActive()?com.farmmacro.motion.MotionPolicy.Owner.FARM:com.farmmacro.motion.MotionPolicy.Owner.PRESET;
+        com.farmmacro.motion.MotionController.turn(owner,dYaw,dPitch);
     }
 }

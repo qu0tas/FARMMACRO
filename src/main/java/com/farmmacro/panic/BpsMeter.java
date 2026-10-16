@@ -11,18 +11,18 @@ public final class BpsMeter {
     private int pos, filled, workTotal, pendingBroken;
 
     /** Сломан блок (засчитается в текущий тик). */
-    public void onBroken() { pendingBroken++; }
+    public void onBroken() { if(pendingBroken<4096)pendingBroken++; }
 
     /** Конец тика. windowTicks — длина окна (меняется из настроек — кольцо пересоздаётся). */
     public void tick(boolean isWorking, int windowTicks) {
         windowTicks = Math.max(20, Math.min(1200, windowTicks));
-        if (broken.length != windowTicks) { broken = new int[windowTicks]; working = new boolean[windowTicks]; pos = 0; filled = 0; }
+        if (broken.length != windowTicks) { broken = new int[windowTicks]; working = new boolean[windowTicks]; pos = 0; filled = 0; workTotal = 0; }
         broken[pos] = pendingBroken;
         working[pos] = isWorking;
         pendingBroken = 0;
         pos = (pos + 1) % broken.length;
         if (filled < broken.length) filled++;
-        if (isWorking) workTotal++;
+        if (isWorking&&workTotal<2400) workTotal++;
     }
 
     private int workTicks() {

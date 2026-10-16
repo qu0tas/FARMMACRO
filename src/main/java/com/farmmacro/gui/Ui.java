@@ -58,10 +58,10 @@ public final class Ui {
             }
             default -> {
                 id = "quiet";
-                set(0xFF0E0E10, 0xFF0B0B0D, 0xFF0B0B0D, 0xFF151518, 0xFF1B1B1F, 0xFF09090B, 0xFF26262B,
-                    0xFFE6E6E6, 0xFF9696A0, 0xFF5E5E66, 0xFF6F8FFF, 0xFF9AB0FF, 0xFF4ADE80, 0xFFFF5470, 0xFFFFB547, 0xFF34343A);
-                TOGGLE_ON = 0xFF6F8FFF; KNOB_ON = 0xFFFFFFFF; KNOB_OFF = 0xFF7A7A82; ON_ACCENT = 0xFFFFFFFF;
-                TOOLTIP = 0xF0070708; HUD_BG = 0xC80E0E10; RADIUS = 0.35f; SHADOWS = false;
+                set(0xFF15181E, 0xFF101319, 0xFF15181E, 0xFF1C2028, 0xFF252C36, 0xFF10141B, 0xFF343D4B,
+                    0xFFF0F3F8, 0xFFAFBACB, 0xFF8896AA, 0xFF6DA9F7, 0xFFA4CBFF, 0xFF4ADE80, 0xFFFF5470, 0xFFFFB547, 0xFF34343A);
+                TOGGLE_ON = 0xFF6DA9F7; KNOB_ON = 0xFFFFFFFF; KNOB_OFF = 0xFF7A7A82; ON_ACCENT = 0xFF101820;
+                TOOLTIP = 0xF0070708; HUD_BG = 0xC8151B24; RADIUS = 0.35f; SHADOWS = false;
             }
         }
         theme = id;
@@ -126,6 +126,19 @@ public final class Ui {
         roundExact(g, x + 1, y + 1, w - 2, h - 2, Math.max(0, rr - 1), fill);
     }
 
+    /** Border only: unlike layering two translucent filled boxes, never tints the interior. */
+    public static void outline(GuiGraphicsExtractor g,int x,int y,int w,int h,int radius,int color){
+        if(w<=0||h<=0)return;if(w<2||h<2){g.fill(x,y,x+w,y+h,color);return;}
+        int r=Math.max(0,Math.min(Math.round(radius*RADIUS),Math.min(w,h)/2));
+        if(r==0){g.fill(x,y,x+w,y+1,color);g.fill(x,y+h-1,x+w,y+h,color);g.fill(x,y+1,x+1,y+h-1,color);g.fill(x+w-1,y+1,x+w,y+h-1,color);return;}
+        for(int row=0;row<r;row++){double dy=r-row-.5;int outer=(int)Math.round(r-Math.sqrt(r*r-dy*dy));
+            if(row==0){g.fill(x+outer,y,x+w-outer,y+1,color);g.fill(x+outer,y+h-1,x+w-outer,y+h,color);}
+            else{int inner=1+(int)Math.round(r-1-Math.sqrt(Math.max(0,(r-1)*(r-1)-dy*dy)));
+                g.fill(x+outer,y+row,x+inner,y+row+1,color);g.fill(x+w-inner,y+row,x+w-outer,y+row+1,color);
+                g.fill(x+outer,y+h-1-row,x+inner,y+h-row,color);g.fill(x+w-inner,y+h-1-row,x+w-outer,y+h-row,color);}}
+        g.fill(x,y+r,x+1,y+h-r,color);g.fill(x+w-1,y+r,x+w,y+h-r,color);
+    }
+
     public static void pill(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
         roundExact(g, x, y, w, h, h / 2, color);
     }
@@ -143,6 +156,9 @@ public final class Ui {
     }
 
     // ── Текст ────────────────────────────────────────────────────────────────
+
+    /** Modest heading scale, same Minecraft font and bounded width. */
+    public static void heading(GuiGraphicsExtractor g,Font f,String text,int x,int y,int maxW){var pose=g.pose();pose.pushMatrix();try{pose.translate(x,y);pose.scale(1.25f,1.25f);Ui.text(g,f,Ui.ellipsize(f,text,(int)(maxW/1.25f)),0,0,TEXT);}finally{pose.popMatrix();}}
 
     public static void text(GuiGraphicsExtractor g, Font f, String s, int x, int y, int color) {
         g.text(f, s, x, y, color, false);

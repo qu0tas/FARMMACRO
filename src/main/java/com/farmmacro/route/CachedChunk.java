@@ -14,6 +14,7 @@ public final class CachedChunk {
             sections.put(e.getKey(),e.getValue().clone());
         }
     }
+    public long cellBytes(){return sections.size()*8192L;}
     public Map<Integer,short[]> sections() {
         Map<Integer,short[]> copy=new TreeMap<>();
         sections.forEach((y,a) -> copy.put(y,a.clone())); return copy;

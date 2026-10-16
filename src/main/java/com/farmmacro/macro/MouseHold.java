@@ -36,6 +36,7 @@ public final class MouseHold {
 
     /** Клавиша «Зажим ЛКМ». */
     public void toggleManual(Minecraft mc) {
+        if(!manual&&!com.farmmacro.panic.PanicHandoff.allowStart(mc))return;
         if (!manual && com.farmmacro.route.RouteEditor.isActive()) {
             msg(mc, "§cЗажим ЛКМ: сначала закрой редактор маршрута");
             return;
@@ -77,6 +78,7 @@ public final class MouseHold {
 
     /** Нужно ли держать эту клавишу (keyAttack / keyUse) сейчас. */
     public boolean wants(Minecraft mc, KeyMapping key) {
+        if(com.farmmacro.panic.PanicHandoff.pending()||com.farmmacro.route.NavigationInput.busy())return false;
         if (suspended || mc == null || mc.options == null || mc.screen != null || mc.player == null) return false;
         Options o = mc.options;
         if (key == o.keyAttack) return manual || runWants(true);

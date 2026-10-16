@@ -30,6 +30,7 @@ public final class RouteWalker implements PlaybackSource {
     private final WalkCore core = new WalkCore();
     private final WalkCore.Out out = new WalkCore.Out();
     private final com.farmmacro.camera.CameraBinding.Tracker camTracker = new com.farmmacro.camera.CameraBinding.Tracker();
+    private int pendingBindingSlot=-1;
     private com.farmmacro.camera.CameraBinding camera;
     private boolean started;
     /** Тики этого прохода и «хвост» на последней точке, чтобы длина круга не совпала с прошлым (−1 — ещё не решали). */
@@ -42,6 +43,7 @@ public final class RouteWalker implements PlaybackSource {
     /** Куда автоход вёл в последний тик (единичный вектор x, z) или null — стоит / не играет. */
     private double[] moveDir;
 
+    private final FarmRuntime farm = new FarmRuntime();
     private RouteVariants.Session variants;
     private PointRoute activeRoute;
     private int variantNumber, pathRevision;
@@ -55,6 +57,7 @@ public final class RouteWalker implements PlaybackSource {
     public long variantSeed() { return variants == null ? 0 : variants.variantSeed; }
     public java.util.List<RoutePoint> activePoints() { return activeRoute == null ? RouteBuffer.INSTANCE.points() : activeRoute.points; }
     public void beginRun(boolean resume) {
+        farm.beginRun(resume);
         if (!resume) { variants = null; activeRoute = null; variantNumber = 0; }
         resumePass=resume;
     }
@@ -63,6 +66,7 @@ public final class RouteWalker implements PlaybackSource {
     }
     private void prepareVariants(Minecraft mc) {
         PointRoute ideal = RouteBuffer.INSTANCE.route();
+        if(ideal.settings.farm.enabled){variants=new RouteVariants.Session(ideal,java.util.List.of(),java.util.List.of());return;}
         java.util.List<PointRoute> alternatives = new java.util.ArrayList<>();
         java.util.List<Double> weights = new java.util.ArrayList<>();
         for (var a : ideal.settings.routeRandom.alternatives) {
@@ -94,7 +98,7 @@ public final class RouteWalker implements PlaybackSource {
 
     private final PointActionRuntime pointActions = new PointActionRuntime();
     public void startPass(Minecraft mc, int index) {
-        pointActions.cancel();
+        pointActions.cancel();pendingBindingSlot=-1;
         boolean newLap = activeRoute == null || !resumePass && index == 0 && (!started || core.done());
         resumePass=false;
         if (variants == null) prepareVariants(mc);
@@ -116,12 +120,14 @@ public final class RouteWalker implements PlaybackSource {
                 }
         }
         var human = com.farmmacro.macro.Humanizer.lap();       // null — выкл или идеальный круг (точно как маршрут)
-        if (human != null && newLap && RouteRandomSettings.OFF.equals(RouteBuffer.INSTANCE.settings().routeRandom.mode)) human.shapeRoute(r);
+        if (!r.settings.farm.enabled && human != null && newLap && RouteRandomSettings.OFF.equals(RouteBuffer.INSTANCE.settings().routeRandom.mode)) human.shapeRoute(r);
         if(!ModConfig.INSTANCE.uiAdvanced)for(var p:r.points)p.pointAction=new PointAction();
+        if(newLap)r=com.farmmacro.motion.FarmBoundaryPauses.prepare(r,ModConfig.INSTANCE.motion,java.util.concurrent.ThreadLocalRandom.current());
+        farm.start(r,index);
         activeRoute = r.copy(); pathRevision++;
         core.start(r, index, ModConfig.INSTANCE.stuckThresholdTicks);
-        if (human != null) core.setReach(human.reachRadii(r.points.size(), ModConfig.INSTANCE.routeReachRadius));
-        shaper = human != null ? human.routeShaper(r.points.size()).route(r.points) : null;
+        if (!r.settings.farm.enabled && human != null) core.setReach(human.reachRadii(r.points.size(), ModConfig.INSTANCE.routeReachRadius));
+        shaper = !r.settings.farm.enabled && human != null ? human.routeShaper(r.points.size()).route(r.points) : null;
         camera = r.settings.camera;
         camTracker.reset();
         velocity.reset();
@@ -129,20 +135,27 @@ public final class RouteWalker implements PlaybackSource {
         lastJump = false; lastOnGround = mc.player != null && mc.player.onGround(); moveDir = null;
         offTicks = 0; goodYaw = Float.NaN;
         int from = Math.max(0, core.segment());
-        camTracker.update(mc, camera, from, "старт, точка " + (from + 1));
+        camTracker.update(mc, camera, from, "старт, точка " + (from + 1),true);
+        if(camTracker.waiting()||camTracker.failed())releaseBindingInputs(mc);
         started = true;
         passTicks = 0; tail = -1;
         int seg = core.segment();
-        if (seg >= 0 && mc.player != null) applySlot(mc.player, core.points().get(seg).slot - 1);
+        if (seg >= 0 && mc.player != null) {
+            int slot=core.points().get(seg).slot-1;
+            if(camTracker.waiting())pendingBindingSlot=slot;
+            else if(!camTracker.failed())applySlot(mc.player,slot);
+        }
     }
 
-    @Override public boolean passDone() { return started && core.done() && (shaper == null || tail == 0); }
+    @Override public boolean passDone() { return started && core.done() && !camTracker.waiting() && !camTracker.failed() && (shaper == null || tail == 0); }
     @Override public int progress()      { return started ? core.target() : 0; }
     @Override public int resumeIndex()   { return started ? core.target() : 0; }
-    @Override public boolean controlsCamera(ModConfig c) { return false; }
+    @Override public boolean controlsCamera(ModConfig c) { return started && (farm.camera() || camera!=null&&camera.active()); }
 
     @Override
     public void stop(Minecraft mc) {
+        camTracker.reset();pendingBindingSlot=-1;
+        farm.cancel();
         pointActions.cancel();
         started = false;
         offTicks = 0;
@@ -184,10 +197,12 @@ public final class RouteWalker implements PlaybackSource {
         Options o = mc.options;
         boolean on = c.panicEnabled;
         var human = com.farmmacro.macro.Humanizer.ACTIVE;
+        if(bindingWait(mc))return false;
+        if(!farm.before(mc,core)){velocity.reset();moveDir=null;return false;}
         if(core.actionPoint()>=0){runPointAction(mc,c);return false;}
         // «Случайность»: встать посреди пути / заминка — до решения WalkCore (он сам не жмёт клавиши и не ждёт «Застрял»)
         if (shaper != null) core.pauseExternal(shaper.stopNow(core.target(), core.dropPhase(), p.onGround(), core.pausing()));
-        com.farmmacro.camera.SmoothTurn.look(human, p, core.externalPause() > 0 ? core.externalPause() + 1 : 0);
+        if(!farm.enabled())com.farmmacro.camera.SmoothTurn.look(human, p, core.externalPause() > 0 ? core.externalPause() + 1 : 0);
         if (unstuckLeft > 0) { unstuckTick(mc, p, o); return false; }
         
         boolean velOn = on && c.detectVelocity;
@@ -196,13 +211,13 @@ public final class RouteWalker implements PlaybackSource {
             if (PanicDetector.INSTANCE.fire(mc, "velocity", vel)) return true;
         }
         if (on && c.lagGuard && com.farmmacro.panic.LagGuard.INSTANCE.lagging()) core.resetStuckWindow();   // v1.13: лаг — не «Застрял»
-        core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), c.routeReachRadius,
+        core.tick(p.getX(), p.getY(), p.getZ(), p.onGround(), p.getYRot(), farm.enabled()?farm.radius():c.routeReachRadius,
                 on && c.detectStuck, c.stuckThresholdTicks, on && c.detectDrift, c.driftThreshold, on && c.detectFloor, out);
         if(core.actionPoint()>=0){runPointAction(mc,c);return false;}
         if (core.dropPhase() != WalkCore.D_NONE) PanicDetector.INSTANCE.allowFall(10);  // урон от спуска — не паника
         // v1.15 «Возврат на маршрут»: толкнули/откатили далеко от линии (или на другой этаж) — дойти обратно своим путём
         if (rejoinCheck(mc, p, c)) return true;
-        if (out.panic != null && out.panic.startsWith("Застрял") && c.antiStuckTries > 0) {
+        if (out.panic != null && out.panic.startsWith("Застрял") && c.antiStuckTries > 0 && !farm.enabled()) {
             long now = System.currentTimeMillis();
             if (now - lastUnstuckMs > 30_000) unstuckTries = 0;           // давно не застревал — попытки заново
             if (unstuckTries < c.antiStuckTries && (lf || lb || ll || lr)) {
@@ -227,7 +242,14 @@ public final class RouteWalker implements PlaybackSource {
             if (PanicDetector.INSTANCE.fire(mc, id, out.panic)) return true;
         }
         passTicks++;
+        // Reached-point camera binding, including final point; never advance/finish the pass during its wait.
+        int seg = Math.max(0, core.segment());
+        if ((!core.done() || c.motion.aether()&&c.motion.smoothBindings) && camTracker.update(mc, camera, seg, "точка " + (seg + 1),true)) {
+            if(bindingWait(mc))return false;
+            core.resteer(p.getX(), p.getZ(), p.getYRot(), out);
+        }
         if (core.done()) {
+            if(farm.enabled()){com.farmmacro.macro.MouseHold.INSTANCE.suspend(true);com.farmmacro.macro.HandDelays.releaseButtons();}
             release(o);
             // «без повторов подряд»: круг ровно как прошлый — постоять на последней точке ещё 1…3 тика
             if (shaper != null && human != null) {
@@ -236,16 +258,14 @@ public final class RouteWalker implements PlaybackSource {
             } else tail = 0;
             return false;
         }
-        // точка смены камеры: «с точки N» — когда дошли до N (отрезок от неё), мгновенно, затем те же оси
-        int seg = Math.max(0, core.segment());
-        if (camTracker.update(mc, camera, seg, "точка " + (seg + 1))) core.resteer(p.getX(), p.getZ(), p.getYRot(), out);
         if (shaper != null) {
             int ss = core.segment();
             boolean airHold = ss >= 0 && ss < core.points().size() && core.points().get(ss).airHold;
             shaper.tick(out, p.getX(), p.getZ(), core.target(), core.dropPhase(), airHold);
             if (shaper.idleNow) core.resetStuckWindow();      // зазор/пауза на старте — не «Застрял»
         }
-        boolean stopped = core.stoppedNow();
+        if(!farm.apply(mc,core,out))return true;
+        boolean stopped = core.stoppedNow() || farm.enabled() && core.pausing();
         if (stopped) { out.attack = false; out.use = false; }    // остановился — руки тоже отпустил
         if (human != null) human.stopLeftTicks = stopped ? core.externalPause() + 1 : 0;
         com.farmmacro.macro.MouseHold.INSTANCE.suspend(stopped);
@@ -272,6 +292,29 @@ public final class RouteWalker implements PlaybackSource {
         MacroManager.press(o.keyUse, out.use);
         MacroManager.press(o.keyJump, out.jump);
         return false;
+    }
+
+    private boolean bindingWait(Minecraft mc){
+        var state=camTracker.poll(mc);
+        if(state==com.farmmacro.motion.BindingTurnGate.Result.READY){
+            int deferred=pendingBindingSlot;pendingBindingSlot=-1;
+            if(deferred>=0&&mc.player!=null)applySlot(mc.player,deferred);
+            return false;
+        }
+        releaseBindingInputs(mc);
+        if(state==com.farmmacro.motion.BindingTurnGate.Result.FAILED){
+            String why=camTracker.failure();MacroManager.INSTANCE.stopPlayback(mc,"§eКамера: "+why+". Нужен ручной запуск");
+        }
+        return true;
+    }
+    private void releaseBindingInputs(Minecraft mc){
+        core.resetStuckWindow();velocity.reset();moveDir=null;lf=lb=ll=lr=false;lastJump=false;
+        com.farmmacro.macro.MouseHold.INSTANCE.suspend(true);com.farmmacro.macro.HandDelays.reset();
+        var o=mc.options;if(o==null||NavigationInput.busy())return;
+        for(var k:new KeyMapping[]{o.keyUp,o.keyDown,o.keyLeft,o.keyRight,o.keyJump,o.keyShift,o.keySprint,o.keyAttack,o.keyUse}){
+            boolean toggle=k==o.keyShift&&o.toggleCrouch().get()||k==o.keySprint&&o.toggleSprint().get();
+            if(toggle){if(k.isDown())k.setDown(true);}else KeyMapping.set(net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.getBoundKeyOf(k),false);
+        }
     }
 
     /** Тик манёвра: 8 т назад (прыжок на 3-м), 4 т стоять; конец — окна «Застрял» и скорости заново. */

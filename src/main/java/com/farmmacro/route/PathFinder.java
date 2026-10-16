@@ -33,6 +33,21 @@ public final class PathFinder {
         default int edges(int x, int y, int z) { return 0; }
         /** Exact shape veto when available; coarse/cache worlds remain conservative through top/edges. */
         default boolean bodyClear(double x,double y,double z,double radius,double height) { return true; }
+        /** Live shape queries can distinguish stair treads from a full-column maximum. */
+        default boolean exactShapes(){return false;}
+        default boolean exactAt(double x,double z,double radius){return exactShapes();}
+        default boolean openablePlanning(){return false;}
+        record Climb(double x,double z,double pushX,double pushZ,boolean scaffold){}
+        default Climb climb(int x,int y,int z){return hazard(x,y,z)==H_CLIMB?new Climb(x+.5,z+.5,0,0,false):null;}
+        default boolean climbClear(double x,double y,double z,double radius,double height){return bodyClear(x,y,z,radius,height);}
+        default double supportY(double x,double z,double min,double max){
+            int cx=(int)Math.floor(x),cz=(int)Math.floor(z);
+            for(int cy=(int)Math.floor(max);cy>=(int)Math.floor(min)-2;cy--){
+                double top=top(cx,cy,cz),feet=cy+top;
+                if(top>=0&&feet>=min-1e-6&&feet<=max+1e-6)return feet;
+            }
+            return Double.NaN;
+        }
     }
 
     /** Опасность клетки; H_CLIMB — по ней лезут (лестница, лиана, леса), H_DOOR — закрытая дверь/калитка, открыть ПКМ. */
@@ -77,6 +92,8 @@ public final class PathFinder {
         public java.util.function.BooleanSupplier cancelled=()->false;
         /** v1.15.1: можно лететь (полёт от предмета/способности): ходы в воздухе на 26 соседей. */
         public boolean fly;
+        public java.util.Map<Long,Integer> recovery=java.util.Map.of();
+        public boolean anticipateFlight;
         /** Полёт: не выше этого над самой высокой из (старт, цели), блоков. */
         public int flyCeil = 12;
         /** Игрок уже летит (старт — в воздухе, без поиска опоры). */
@@ -168,6 +185,11 @@ public final class PathFinder {
 
     /** Верх опоры в колонке не выше fromY и не ниже minY; NaN — нет. floorCell[0] — клетка опоры. */
     private double floor(int x, int z, double fromY, double minY, int[] floorCell) {
+        if(w.exactAt(x+.5,z+.5,.30)){
+            double f=w.supportY(x+.5,z+.5,minY,fromY+.01);
+            if(Double.isFinite(f)&&floorCell!=null)floorCell[0]=fl(f-.001);
+            return f;
+        }
         int cy = fl(fromY + 0.01);
         for (int i = 0; cy - i >= fl(minY) - 2 && i < 12; i++) {
             int y = cy - i;
@@ -183,6 +205,7 @@ public final class PathFinder {
 
     /** Нет коллизии в колонке на высотах (lo, hi). */
     private boolean clear(int x, int z, double lo, double hi) {
+        if(w.exactAt(x+.5,z+.5,.30))return w.climbClear(x+.5,lo+.001,z+.5,.30,hi-lo-.002);
         for (int cy = fl(lo) - 1; cy <= fl(hi - 1e-6); cy++) {
             double t = top(x, cy, z);
             if (t >= 0 && cy + t > lo + 0.01 && cy < hi - 0.01 && !climbable(x, cy, z)) return false;   // сквозь леса — можно
@@ -202,6 +225,7 @@ public final class PathFinder {
     /** Ход (x, z) → (x2, z2) (сосед, в т. ч. по диагонали) упирается в пластину. */
     private boolean crossBlocked(int x, int z, int x2, int z2, double lo, double hi) {
         int dx = x2 - x, dz = z2 - z;
+        if(w.exactAt(x+.5,z+.5,.31)&&w.exactAt(x2+.5,z2+.5,.31))return false; // swept shapes checked by transition below
         if (dx == 0 && dz == 0) return false;
         if (dx == 0 || dz == 0) return edgeBlocked(x, z, dx, dz, lo, hi);
         // по диагонали тело задевает все четыре грани у общего угла — любая пластина мешает
@@ -390,6 +414,9 @@ public final class PathFinder {
                 if (par[id] >= 0) { ax = x - nx[par[id]]; az = z - nz[par[id]]; double l = Math.hypot(ax, az); if (l > 0) { ax /= l; az /= l; } }
                 for (Goal gl : here) {
                     if (Math.abs(gl.y - y) > LEVEL_TOL) continue;
+                    if(mv[id]!=Move.FLY.ordinal()&&mv[id]!=Move.CLIMB.ordinal()
+                        &&!new GroundProbe(w).clear(x+.5,y,z+.5,gl.x,gl.z,.30))continue;
+                    if(mv[id]==Move.FLY.ordinal()&&!NavigationMotion.airClear(w,x+.5,y,z+.5,gl.x,gl.y,gl.z,.32))continue;
                     double cos = ax * gl.dirX + az * gl.dirZ;          // 1 — по ходу, −1 — навстречу
                     double pen = gl.pen + (gl.dirX == 0 && gl.dirZ == 0 || par[id] < 0 ? 0 : PEN_DIR * (1 - cos) / 2);
                     sinkGoal.add(gl); sinkNode.add(id);
@@ -441,11 +468,21 @@ public final class PathFinder {
                 }
                 m = Move.WALK; cost = diag ? C_DIAG : C_WALK;
             }
-            if (m == Move.WALK && !door && !w.bodyClear(x2+.5,f+.001,z2+.5,.30,BODY-.002)) continue;
+            boolean shapes=w.exactAt(x+.5,z+.5,.31)&&w.exactAt(x2+.5,z2+.5,.31);
+            if(shapes){
+                boolean pass=m==Move.WALK?(mv[id]==Move.CLIMB.ordinal()?climbSweep(x+.5,y,z+.5,x2+.5,f,z2+.5):new GroundProbe(w).clear(x+.5,y,z+.5,x2+.5,z2+.5,.30))
+                    :m==Move.JUMP?GroundTransition.jumpClear(w,x+.5,y,z+.5,x2+.5,f,z2+.5)
+                    :NavigationDrop.clear(w,x+.5,y,z+.5,x2+.5,f,z2+.5);
+                if(!pass)continue;
+            }else if(m==Move.WALK&&!door&&!w.bodyClear(x2+.5,f+.001,z2+.5,.30,BODY-.002))continue;
             if (m == Move.WALK) for(int[] side: new int[][]{{1,0},{-1,0},{0,1},{0,-1}})
                 if(!clear(x2+side[0],z2+side[1],f,f+BODY)) cost+=.12;
             if (lavaNear(x2, z2, f)) cost += C_LAVA_NEAR;
             if (door) cost += C_DOOR;
+            // Prefer stable continuation and open corridors over a mathematically shortest zigzag.
+            if(par[id]>=0){double ax=x-nx[par[id]],az=z-nz[par[id]],an=Math.hypot(ax,az),bn=Math.hypot(d[0],d[1]);
+                if(an>0)cost+=.18*(1-(ax*d[0]+az*d[1])/(an*bn));}
+            cost+=Math.min(12,prm.recovery.getOrDefault(col(x2,z2),0)*3.0);
             double ng = g[id] + cost;
             int c = node(x2, z2, f, id, ng, m);
             if (c >= 0) push(ng + h(x2, z2), c);
@@ -457,6 +494,13 @@ public final class PathFinder {
      * вниз — в клетку «лезть» без коллизии под ногами (с верха лесов не спускаемся — там нужен присед);
      * сбоку — шагнуть в колонку лестницы на высоте ног или на блок ниже (с края стены на лестницу).
      */
+    private boolean climbSweep(double x,double y,double z,double tx,double ty,double tz){
+        int n=12;
+        for(int i=0;i<=n;i++){double t=i/(double)n,cx=x+(tx-x)*t,cy=y+(ty-y)*t,cz=z+(tz-z)*t;
+            if(!w.climbClear(cx,cy+.001,cz,.30,BODY-.002)||!safe(fl(cx),fl(cz),cy,cy+BODY))return false;}
+        return true;
+    }
+
     private void expandClimb(int id, int x, int z, double y) {
         int cy = fl(y + 0.01);
         if (climbable(x, cy, z)) {
@@ -464,15 +508,15 @@ public final class PathFinder {
             double up = floor(x, z, y2 + 0.01, y2 - 0.01, null);
             if ((climbable(x, y2, z) || (!Double.isNaN(up) && Math.abs(up - y2) < 1e-6))
                     && clear(x, z, y2, y2 + BODY) && safe(x, z, y2, y2 + BODY)) {
-                double ng = g[id] + C_CLIMB_UP * (y2 - y);
+                double ng = g[id] + C_CLIMB_UP * (y2 - y) + Math.min(12,prm.recovery.getOrDefault(col(x,z),0)*3.0);
                 int c = node(x, z, y2, id, ng, Move.CLIMB);
                 if (c >= 0) push(ng + h(x, z), c);
             }
         }
         if (Math.abs(y - Math.rint(y)) < 1e-6) {
             int yd = (int) Math.rint(y) - 1;
-            if (climbable(x, yd, z) && top(x, yd, z) < 0 && safe(x, z, yd, yd + 1)) {
-                double ng = g[id] + C_CLIMB_DOWN;
+            if (climbable(x, yd, z) && (top(x, yd, z) < 0||w.climb(x,yd,z)!=null&&w.climb(x,yd,z).scaffold()) && safe(x, z, yd, yd + 1)) {
+                double ng = g[id] + C_CLIMB_DOWN + Math.min(12,prm.recovery.getOrDefault(col(x,z),0)*3.0);
                 int c = node(x, z, yd, id, ng, Move.CLIMB);
                 if (c >= 0) push(ng + h(x, z), c);
             }
@@ -482,10 +526,11 @@ public final class PathFinder {
             if (Math.abs(x2 - sx) > R || Math.abs(z2 - sz) > R) continue;
             for (int ye = cy; ye >= cy - 1; ye--) {
                 if (ye > y + 0.01 || ye < y - 1.01) continue;
-                if (!climbable(x2, ye, z2) || top(x2, ye, z2) >= 0) continue;
+                if (!climbable(x2, ye, z2) || top(x2, ye, z2)>=0&&(w.climb(x2,ye,z2)==null||!w.climb(x2,ye,z2).scaffold())) continue;
                 if (!clear(x2, z2, ye, y + BODY) || !safe(x2, z2, ye, ye + BODY)) continue;
                 if (crossBlocked(x, z, x2, z2, y, y + BODY)) continue;
-                double ng = g[id] + C_WALK + 0.5 + (y - ye) * C_DROP_BLOCK;
+                if(!climbSweep(x+.5,y,z+.5,x2+.5,ye,z2+.5))continue;
+                double ng = g[id] + C_WALK + 0.5 + (y - ye) * C_DROP_BLOCK + Math.min(12,prm.recovery.getOrDefault(col(x2,z2),0)*3.0);
                 int c = node(x2, z2, ye, id, ng, Move.CLIMB);
                 if (c >= 0) push(ng + h(x2, z2), c);
                 break;
@@ -503,7 +548,7 @@ public final class PathFinder {
 
     /** Тело (ноги fy, целая высота) свободно и без опасностей в колонке. */
     private boolean air(int x, int z, int fy) {
-        return clear(x, z, fy, fy + BODY) && safe(x, z, fy, fy + BODY);
+        return w.bodyClear(x+.5,fy+.001,z+.5,.31,BODY-.002) && clear(x, z, fy, fy + BODY) && safe(x, z, fy, fy + BODY);
     }
 
     /**
@@ -523,14 +568,16 @@ public final class PathFinder {
             if (diag && (!air(x2, z, y2) || !air(x, z2, y2))) continue;
             if (crossBlocked(x, z, x2, z2, y2, y2 + BODY)) continue;
             if (d[1] > 0 && !air(x, z, y2)) continue;
+            if(w.exactAt(x+.5,z+.5,.33)&&w.exactAt(x2+.5,z2+.5,.33)
+                &&!NavigationMotion.airClear(w,x+.5,y,z+.5,x2+.5,y2,z2+.5,.33))continue;
             double cost = d[1] > 0 ? C_FLY_UP : d[1] < 0 ? C_FLY_DOWN : diag ? C_FLY * Math.sqrt(2) : C_FLY;
             if (!fromAir) cost += C_TAKEOFF;
             // на опору ровно на этой высоте — это уже «стоя» (садимся)
             double f = floor(x2, z2, y2 + 0.01, y2 - 0.01, null);
             Move m = !Double.isNaN(f) && Math.abs(f - y2) < 1e-6 ? Move.WALK : Move.FLY;
             if (m == Move.WALK && !fromAir && d[1] == 0) continue;     // по земле — обычные ходы
-            double ng = g[id] + cost;
-            int c = node(x2, z2, y2, id, ng, Move.FLY);              // и посадка — «летим» (ReturnCore снижается сам)
+            double ng = g[id] + cost + Math.min(12,prm.recovery.getOrDefault(col(x2,z2),0)*3.0);
+            int c = node(x2, z2, y2, id, ng, m);              // и посадка — «летим» (ReturnCore снижается сам)
             if (c >= 0) push(ng + h(x2, z2), c);
         }
     }
@@ -572,6 +619,7 @@ public final class PathFinder {
         r.goal = goal;
         r.cost = g[last];
         smooth(r, px, pz);
+        if(prm.anticipateFlight)NavigationMotion.earlyTakeoff(r.points,w,px,r.nodes.getFirst()[1],pz,flyHi);
     }
 
     /**
@@ -607,7 +655,10 @@ public final class PathFinder {
                 }
             } else if (nd.get(j)[3] == Move.WALK.ordinal()) {
                 double[] a = i == 0 ? from : nd.get(i);
-                while (j + 1 <= k && nd.get(j + 1)[3] == Move.WALK.ordinal() && lineClear(a, j + 1 == k ? goalPos(r) : nd.get(j + 1))) j++;
+                // Keep the immediate platform exit after CLIMB; merging it into a distant
+                // ground leg removes the neighbour required by NavigationClimb.exit.
+                if(nd.get(i)[3]!=Move.CLIMB.ordinal())
+                    while (j + 1 <= k && nd.get(j + 1)[3] == Move.WALK.ordinal() && lineClear(a, j + 1 == k ? goalPos(r) : nd.get(j + 1))) j++;
             }
             keep.add(j == k ? goalPos(r) : nd.get(j));
             i = j;
@@ -618,22 +669,59 @@ public final class PathFinder {
             RoutePoint rp = new RoutePoint(p[0], p[1], p[2]);
             rp.fly = p[3] == Move.FLY.ordinal();
             rp.climb = p[3] == Move.CLIMB.ordinal();
+            if(rp.climb&&q+1<keep.size()){
+                double[] exit=keep.get(q+1);
+                double rise=exit[1]-rp.y;
+                // A top-rung node is feet-inside the last ladder block. First finish
+                // ascending alongside it to platform height, then step onto its neighbour.
+                if((exit[3]==Move.WALK.ordinal()||exit[3]==Move.JUMP.ordinal())&&rise>Terrain.STEP&&rise<=1.01
+                    &&Math.hypot(exit[0]-rp.x,exit[2]-rp.z)<=1.5)rp.y=exit[1];
+                // A* may price a DROP from a rung cheaper than finishing descent.
+                // If a continuous observed ladder reaches the adjacent landing, stay
+                // attached and descend instead of asking the exit controller to fall.
+                if(rise<-.6&&-rise<=DROP_MAX+1e-6&&Math.hypot(exit[0]-rp.x,exit[2]-rp.z)<=1.5){
+                    boolean rungs=true;
+                    for(int yy=(int)Math.floor(exit[1]);yy<=(int)Math.floor(rp.y);yy++)
+                        rungs &= w.climb((int)Math.floor(rp.x),yy,(int)Math.floor(rp.z))!=null
+                            &&w.climbClear(rp.x,yy+.001,rp.z,.30,BODY-.002);
+                    if(rungs)rp.y=exit[1];
+                }
+            }
             if (q + 1 < keep.size()) {
                 double[] nxt = keep.get(q + 1);
-                if (nxt[1] - p[1] > Terrain.STEP + 1e-9 && nxt[3] != Move.FLY.ordinal() && nxt[3] != Move.CLIMB.ordinal()) rp.jump = true;   // следующий ход — вверх с прыжком
+                if (!rp.climb && nxt[1] - p[1] > Terrain.STEP + 1e-9 && nxt[3] != Move.FLY.ordinal() && nxt[3] != Move.CLIMB.ordinal()) rp.jump = true;   // следующий ход — вверх с прыжком
             }
             r.points.add(rp);
+        }
+        for(int q=0;q<r.points.size();q++) {
+            RoutePoint landing=r.points.get(q);
+            RoutePoint edge=q>0?r.points.get(q-1):null;
+            double fromY=edge==null?nd.getFirst()[1]:edge.y;
+            if(!landing.fly&&!landing.climb&&(edge==null||(!edge.fly&&!edge.climb))&&fromY-landing.y>Terrain.STEP+1e-9) {
+                if(edge==null) {edge=new RoutePoint(px,fromY,pz);r.points.add(0,edge);q++;}
+                edge.drop=true;edge.dropDepth=fromY-landing.y;edge.landPauseTicks=2;
+                double dx=landing.x-edge.x,dz=landing.z-edge.z;
+                edge.dropDir=Math.abs(dx)>=Math.abs(dz)?(dx>=0?"+x":"-x"):(dz>=0?"+z":"-z");
+            }
         }
     }
 
     private static double[] goalPos(Result r) {
         double[] last = r.nodes.get(r.nodes.size() - 1);
-        return new double[]{r.goal.x, last[1], r.goal.z, last[3]};
+        return new double[]{r.goal.x, last[3]==Move.FLY.ordinal()?r.goal.y:last[1], r.goal.z, last[3]};
     }
 
     /** Прямая a → b проходима телом шириной 0.6 по одному уровню (±STEP), без опасностей и обрывов. */
     boolean lineClear(double[] a, double[] b) {
         double dx = b[0] - a[0], dz = b[2] - a[2], len = Math.hypot(dx, dz);
+        if(Math.abs(a[1]-b[1])>.05)return false;
+        int doorSamples=Math.max(1,(int)Math.ceil(len/.2));
+        if(doorSamples>80)return false;
+        for(int q=0;q<=doorSamples;q++){double t=(double)q/doorSamples;
+            if(doorAt(fl(a[0]+dx*t),fl(a[2]+dz*t),a[1],a[1]+BODY))return false;}
+        if(w.exactAt(a[0],a[2],.31)&&w.exactAt(b[0],b[2],.31))
+            return !doorAt(fl(a[0]),fl(a[2]),a[1],a[1]+BODY)&&!doorAt(fl(b[0]),fl(b[2]),b[1],b[1]+BODY)
+                &&new GroundProbe(w).clear(a[0],a[1],a[2],b[0],b[2],.31);
         if (len < 1e-6) return true;
         double ux = dx / len, uz = dz / len;
         int steps = (int) Math.ceil(len / 0.2);

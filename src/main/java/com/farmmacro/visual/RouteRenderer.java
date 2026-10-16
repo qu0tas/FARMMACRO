@@ -165,7 +165,7 @@ public final class RouteRenderer {
         LocalPlayer player = mc.player;
         if (player == null || mc.level == null) return;
         MacroManager m = MacroManager.INSTANCE;
-        if(c.pathDebug && m.isReturning())collectNavigation(ctx,mc,m.returnWalker());
+        if((c.returnPathVisible||c.pathDebug)&&m.isReturning())collectNavigation(ctx,mc,m.returnWalker());
         boolean playing = m.isPlaying() || m.isCountingDown();
         boolean points = editorActive || (m.getSourceKind() == MacroManager.SourceKind.ROUTE && !RouteBuffer.INSTANCE.isEmpty());
         if (!editorActive) {
@@ -248,7 +248,8 @@ public final class RouteRenderer {
     /** Bounded, opt-in live navigation diagnostics. No text or render-state shared with the farm route. */
     public static void collectNavigation(LevelRenderContext ctx,Minecraft mc,com.farmmacro.route.ReturnWalker rw){
         var pts=List.copyOf(rw.path());int index=Math.min(rw.pathIndex(),pts.size());
-        var rays=rw.debugRays();var aim=rw.steeringPoint();
+        var rays=ModConfig.INSTANCE.pathDebug?rw.debugRays():List.<double[]>of();
+        var aim=ModConfig.INSTANCE.pathDebug?rw.steeringPoint():null;
         Vec3 cam=ctx.levelState().cameraRenderState.pos;
         double x=mc.player.getX(),y=mc.player.getY()+.09,z=mc.player.getZ();
         PoseStack ps=ctx.poseStack();ps.pushPose();
@@ -264,6 +265,24 @@ public final class RouteRenderer {
                 for(var ray:rays)ribbon(b,(float)x,(float)y,(float)z,(float)ray[0],(float)y,(float)ray[1],(float)cam.x,(float)cam.y,(float)cam.z,.012f,ray[2]>0?0x70BAAA:0xCF956B,.45f);
                 if(aim!=null)ribbon(b,(float)x,(float)y+.03f,(float)z,(float)aim[0],(float)y+.03f,(float)aim[1],(float)cam.x,(float)cam.y,(float)cam.z,.04f,0x83E6A4,.9f);
             }));
+        }finally{ps.popPose();}
+    }
+
+    /** Actual finite service path, same depth-tested ribbon as shared return navigation. No predicted path. */
+    public static void collectServicePath(LevelRenderContext ctx,Minecraft mc,List<Vec3> path){
+        if(mc.player==null||mc.level==null||path.isEmpty())return;
+        var checked=new java.util.ArrayList<Vec3>();
+        for(var v:path){if(checked.size()>=64||!mc.level.hasChunk(((int)Math.floor(v.x))>>4,((int)Math.floor(v.z))>>4))break;checked.add(v);}
+        var copy=List.copyOf(checked);Vec3 camera=ctx.levelState().cameraRenderState.pos,feet=mc.player.position();
+        PoseStack ps=ctx.poseStack();ps.pushPose();
+        try{ps.translate(-camera.x,-camera.y,-camera.z);
+            ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc)->{
+                Builder b=new Builder(false,1f).with(pose,vc);Vec3 last=feet.add(0,.15,0);
+                for(Vec3 v:copy){
+                    ribbon(b,(float)last.x,(float)last.y,(float)last.z,(float)v.x,(float)v.y+.15f,(float)v.z,
+                        (float)camera.x,(float)camera.y,(float)camera.z,.045f,0x7AD899,.9f);last=v.add(0,.15,0);
+                }
+            });
         }finally{ps.popPose();}
     }
 
