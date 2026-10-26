@@ -13,6 +13,7 @@ public final class Freecam {
  public static void toggle(Minecraft mc){if(active)off(mc);else on(mc);}
  public static void on(Minecraft mc){
   if(mc.player==null||mc.level==null||mc.screen!=null||!mc.isWindowActive()||mc.isPaused()||com.farmmacro.panic.PanicHandoff.pending())return;
+  com.farmmacro.fishing.AutoFish.INSTANCE.stop("Freecam");
   MacroManager.INSTANCE.stopPlayback(mc,"Остановлено для Freecam");com.farmmacro.combat.AimAssist.INSTANCE.handoff("freecam");
   com.farmmacro.combat.CombatSway.INSTANCE.userTakeover(mc);com.farmmacro.macro.MouseHold.INSTANCE.stopAll(mc);
   SmoothTurn.stop();Freelook.off(mc,null);MouseLock.unlock(mc,null);Ungrab.off(mc,null);

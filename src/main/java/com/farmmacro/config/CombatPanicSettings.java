@@ -4,6 +4,8 @@ public final class CombatPanicSettings {
     public boolean enabled=true,teleport=true,weapon=true,nearbyChat=true;
     public boolean smallCorrections=true;
     public boolean playerOverlap=true;
+    public boolean playerGaze=true;
+    public int gazeSeconds=7;public double gazeRadius=12;
     public boolean serverRotation=true;
     public double serverRotationDegrees=20;
     public double correctionHorizontal=.8,correctionVertical=.5;
@@ -16,6 +18,8 @@ public final class CombatPanicSettings {
     public String soundId="builtin:siren";public double volume=1;
     public int soundRepeats=2,soundDelayTicks=30,redScreenTicks=60;
     public void sanitize(){
+        gazeSeconds=Math.clamp(gazeSeconds,5,10);
+        gazeRadius=Double.isFinite(gazeRadius)?Math.clamp(gazeRadius,4,24):12;
         serverRotationDegrees=Double.isFinite(serverRotationDegrees)?Math.clamp(serverRotationDegrees,1,180):20;
         correctionHorizontal=Double.isFinite(correctionHorizontal)?Math.clamp(correctionHorizontal,0,1.5):.8;
         correctionVertical=Double.isFinite(correctionVertical)?Math.clamp(correctionVertical,0,1):.5;

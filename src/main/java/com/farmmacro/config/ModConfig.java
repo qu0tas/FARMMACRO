@@ -36,6 +36,7 @@ public class ModConfig {
     public com.farmmacro.market.SaleSettings stashSales=new com.farmmacro.market.SaleSettings();
     public com.farmmacro.loadout.LoadoutSettings loadouts=new com.farmmacro.loadout.LoadoutSettings();
     public CombatPanicSettings combatPanic=new CombatPanicSettings();
+    public com.farmmacro.fishing.FishingSettings fishing=new com.farmmacro.fishing.FishingSettings();
     public java.util.List<CombatProfile> combatProfiles=new java.util.ArrayList<>();
     public String combatProfileId="";
     public boolean aimAssistEnabled=false,aimRequireAttack=false,aimPitch=true,aimLimitLocation=false;
@@ -43,6 +44,13 @@ public class ModConfig {
     /** Global task mode: deliberately not overwritten by automatic Combat profiles. */
     public boolean aimManualOnly=false;
     public boolean aimManualEggSacs=true;
+    public boolean huntingAimLead=true,huntingAimLeadOtherItems=false;
+    public double huntingAimProjectileSpeed=40,huntingAimMaxLead=.65;
+    public int huntingAimLeadDelayMs=50;
+    public boolean aimManualScytheLead=true,aimManualScytheFeet=true;
+    /** Tunable local estimate, not a published server projectile speed. */
+    public double aimManualScytheSpeed=40,aimManualScytheMaxLead=.65;
+    public int aimManualScytheDelayMs=50;
     public String aimManualTarget="slayers",aimManualName="";
     public double aimManualRange=32,aimManualFov=120;
     public String aimTrackingMode="aether";
@@ -396,6 +404,9 @@ public class ModConfig {
     public java.util.Map<String, HudSlot> hudSlots = new java.util.LinkedHashMap<>();
 
     // ── Реакция на панику ────────────────────────────────────────────────────
+    /** Only soft farming alarms; combat/emergencies/manual stop are never delayed. */
+    public boolean farmPanicDelay = true;
+    public int farmPanicMinMs = 350, farmPanicMaxMs = 750;
     public boolean panicSoundEnabled          = true;
     /** builtin:siren|klaxon|alarm|alert, mc:<id> или file:<имя файла в config/farmmacro/sounds> */
     public String  panicSound                 = "builtin:siren";
@@ -709,6 +720,7 @@ public class ModConfig {
 
     /** Приводит значения к допустимым диапазонам (на случай ручной правки json). */
     public void sanitize() {
+        if(fishing==null)fishing=new com.farmmacro.fishing.FishingSettings();fishing.sanitize();
         freecamSpeed=Double.isFinite(freecamSpeed)?Math.clamp(freecamSpeed,1,40):8;freecamRadius=Double.isFinite(freecamRadius)?Math.clamp(freecamRadius,4,64):32;
         if(motion==null)motion=new com.farmmacro.motion.MotionSettings();motion.sanitize();
         if(!attendedDefaultsV2){returnEnabled=false;startPointWarnDistance=Math.min(startPointWarnDistance,.4);attendedDefaultsV2=true;}
@@ -731,9 +743,16 @@ public class ModConfig {
         combatPanic.sanitize();
         if(!"hold".equals(aimKeyMode)&&!"toggle".equals(aimKeyMode))aimKeyMode="hold";
         if(aimManualTarget==null||aimManualTarget.isBlank()||aimManualTarget.length()>80)aimManualTarget="slayers";
+        if(aimManualTarget.startsWith("foraging:"))aimManualTarget="hunting:nearby"; // Retired feature; no automatic activation.
         if(aimManualName==null)aimManualName="";aimManualName=aimManualName.strip();if(aimManualName.length()>80)aimManualName=aimManualName.substring(0,80);
         aimManualRange=Double.isFinite(aimManualRange)?Math.clamp(aimManualRange,2,64):32;
         aimManualFov=Double.isFinite(aimManualFov)?Math.clamp(aimManualFov,5,180):120;
+        huntingAimProjectileSpeed=Double.isFinite(huntingAimProjectileSpeed)?Math.clamp(huntingAimProjectileSpeed,10,150):40;
+        huntingAimMaxLead=Double.isFinite(huntingAimMaxLead)?Math.clamp(huntingAimMaxLead,.05,1):.65;
+        huntingAimLeadDelayMs=Math.clamp(huntingAimLeadDelayMs,0,200);
+        aimManualScytheSpeed=Double.isFinite(aimManualScytheSpeed)?Math.clamp(aimManualScytheSpeed,10,100):40;
+        aimManualScytheMaxLead=Double.isFinite(aimManualScytheMaxLead)?Math.clamp(aimManualScytheMaxLead,.05,1):.65;
+        aimManualScytheDelayMs=Math.clamp(aimManualScytheDelayMs,0,200);
         if(aimAetherRevision<1){
             aimTrackingMode="aether";
             if(combatProfiles!=null)for(var profile:combatProfiles)if(profile!=null&&profile.settings!=null)
@@ -926,6 +945,8 @@ public class ModConfig {
         panicSoundPitch       = clamp(panicSoundPitch, 0.5f, 2f);
         panicSoundRepeats     = clamp(panicSoundRepeats, 1, 100);
         panicSoundRepeatDelayTicks = clamp(panicSoundRepeatDelayTicks, 1, 1200);
+        farmPanicMinMs = clamp(farmPanicMinMs, 0, 1200);
+        farmPanicMaxMs = clamp(farmPanicMaxMs, farmPanicMinMs, 1200);
         panicRedScreenTicks   = clamp(panicRedScreenTicks, 1, 1200);
         loopLimit             = clamp(loopLimit, 0, 1000000);
         timeLimitMinutes      = clamp(timeLimitMinutes, 0, 7 * 24 * 60);

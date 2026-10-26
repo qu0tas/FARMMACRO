@@ -30,5 +30,6 @@
   "key.farmmacro.loadout": "Применить выбранный лоадаут",
   "key.farmmacro.visitors": "Визиторы: запуск / отмена (Alpha)",
   "key.farmmacro.stash_sale": "Стеш → Bazaar: запуск / отмена",
-  "key.farmmacro.freecam": "Freecam (свободная камера)"
+  "key.farmmacro.freecam": "Freecam (свободная камера)",
+  "key.farmmacro.fishing": "Рыбалка: старт/стоп"
 }

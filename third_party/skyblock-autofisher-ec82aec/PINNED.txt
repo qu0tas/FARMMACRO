@@ -1,0 +1,3 @@
+https://github.com/lyn1dev/skyblock-autofisher
+ec82aec357406d1137189936917775030d6ef56b
+CC0-1.0. Reference only; never compiled. See Kaelix fishing/* for adaptation.

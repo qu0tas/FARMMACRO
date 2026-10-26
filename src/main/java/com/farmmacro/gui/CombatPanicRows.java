@@ -6,10 +6,13 @@ public final class CombatPanicRows {
     public static void build(List<Rows.Row> rows,Runnable save){
         var p=ModConfig.INSTANCE.combatPanic;
         rows.add(new Rows.Section("Паника Combat / Hunting — отдельно").key("combat.panic"));
-        rows.add(new Rows.Toggle("Боевая паника включена", "Не зависит от общей вкладки Паника. Только активный aim/автовыстрел/осмотр/A-D/special; ферма и Garden используют свой профиль",
+        rows.add(new Rows.Toggle("Боевая паника включена", "Не зависит от общей вкладки Паника. Только автоматический Combat/автовыстрел/осмотр/A-D/special; ручной Aim без паники; ферма и Garden используют свой профиль",
             ()->p.enabled,v->{p.enabled=v;save.run();}));
-        rows.add(new Rows.Toggle("Combat: игрок встал в персонажа", "Включено по умолчанию. Только активный режим зиалотов: пересечение реальных хитбоксов с живым не-spectator игроком немедленно останавливает камеру, выстрелы и A/D. Не радиус рядом, не определение staff; B и новый запуск вручную",
+        rows.add(new Rows.Toggle("Combat: игрок встал в персонажа", "Включено по умолчанию. Только активный режим зиалотов: пересечение реальных хитбоксов с живым не-spectator игроком немедленно останавливает камеру, выстрелы и A/D. Не радиус рядом, не определение staff; новый запуск вручную, без подтверждения B",
             ()->p.playerOverlap,v->{p.playerOverlap=v;save.run();}).under(()->p.enabled));
+        rows.add(new Rows.Toggle("Zealots: на меня долго смотрят", "Приблизительный луч взгляда другого игрока, открытая видимость и непрерывный интервал. Не распознаёт staff; взгляд в сторону сбрасывает таймер. Только автоматический Zealots, не ручной aim",()->p.playerGaze,v->{p.playerGaze=v;save.run();}).under(()->p.enabled));
+        rows.add(new Rows.Number("Zealots: время взгляда", "Непрерывно одним игроком, по умолчанию 7 с",()->p.gazeSeconds,v->{p.gazeSeconds=(int)v;save.run();},5,10,1,5,v->Rows.num(v)+" с").under(()->p.enabled&&p.playerGaze));
+        rows.add(new Rows.Number("Zealots: радиус взгляда", "За стеной и вне радиуса таймер сбрасывается. Список друзей Combat учитывается",()->p.gazeRadius,v->{p.gazeRadius=v;save.run();},4,24,1,4,v->Rows.num(v)+" бл").under(()->p.enabled&&p.playerGaze));
         rows.add(new Rows.Toggle("Combat: стоп при телепорте", "Смещение выше допуска, смена мира и респавн. Локальный стоп: разрешение Aim сохраняется; камера — отдельный переключатель ниже",
             ()->p.teleport,v->{p.teleport=v;save.run();}).under(()->p.enabled));
         rows.add(new Rows.Toggle("Combat: допуск малых коррекций", "Небольшой пакет допустим только в пределах размера, числа и суммы за скользящее окно. Нулевой пакет не смещение. Это НЕ доказательство лага и не определение администратора",
@@ -19,7 +22,7 @@ public final class CombatPanicRows {
         rows.add(new Rows.Number("Combat: окно коррекций", "Скользящее окно; высокий пинг не расширяет лимит",()->p.correctionWindowSec,v->{p.correctionWindowSec=(int)v;save.run();},1,10,1,3,v->Rows.num(v)+" с").under(()->p.enabled&&p.teleport&&p.smallCorrections));
         rows.add(new Rows.Number("Combat: максимум коррекций", "Пятый пакет при лимите4 уже остановит. Только реальные сдвиги больше0.001бл",()->p.correctionMaxPackets,v->{p.correctionMaxPackets=(int)v;save.run();},1,12,1,4,v->Rows.num(v)).under(()->p.enabled&&p.teleport&&p.smallCorrections));
         rows.add(new Rows.Number("Combat: суммарный допуск", "Сумма расстояний в окне, не итоговое смещение; A/B откаты не взаимоуничтожаются",()->p.correctionBudget,v->{p.correctionBudget=v;save.run();},.05,6,.05,2,v->Rows.num(v)+" бл").under(()->p.enabled&&p.teleport&&p.smallCorrections));
-        rows.add(new Rows.Toggle("Combat: стоп при потере оружия", "Исчезновение/подмена известного Item/ID/UUID или чужая смена слота; расход стака не считается. В режиме Только наведение ручной хотбар/колесо разрешены только с подтверждённым вводом; автоматический Combat без изменений",
+        rows.add(new Rows.Toggle("Combat: стоп при потере оружия", "Исчезновение/подмена известного Item/ID/UUID или чужая смена слота; расход стака не считается. Только автоматический Combat. В режиме ручного Aim эта проверка выключена",
             ()->p.weapon,v->{p.weapon=v;save.run();}).under(()->p.enabled));
         rows.add(new Rows.Toggle("Combat: сервер повернул камеру", "Пакеты поворота/look-at и угол в пакете позиции; не движение своей мыши. Не определяет администратора. Ожидаемый Mousemat учитывается отдельно",
             ()->p.serverRotation,v->{p.serverRotation=v;save.run();}).under(()->p.enabled));
@@ -41,7 +44,7 @@ public final class CombatPanicRows {
         rows.add(new Rows.Number("Combat: длительность экрана", "Номинально20тиков в секунду",()->p.redScreenTicks,v->{p.redScreenTicks=(int)v;save.run();},1,1200,10,20,v->Rows.num(v)+" т").under(()->p.enabled&&p.redScreen));
         rows.add(new Rows.Toggle("Combat: окно игры вперёд", "Отдельно от общего фокуса паники",()->p.focusWindow,v->{p.focusWindow=v;save.run();}).under(()->p.enabled));
         rows.add(new Rows.Toggle("Combat: выйти из картинки в картинке", "Только при боевой панике",()->p.exitPip,v->{p.exitPip=v;save.run();}).under(()->p.enabled));
-        rows.add(new Rows.Note("В бою свои телепорт/мир, оружие, чат, серверная камера и пересечение с игроком в режиме зиалотов. После паники — причина и клавиша передачи управления; затем новый старт вручную. Меню/потеря фокуса/другой владелец камеры дают локальный стоп без тревоги и отпускают Shift. Общие урон/игрок рядом/действия таблицы не наследуются. End и ручной ввод остаются. Автоответа/автопродолжения нет. Полный инвентарь не останавливает мод.",Ui.SUB));
+        rows.add(new Rows.Note("В бою свои телепорт/мир, оружие, чат, серверная камера и пересечение с игроком в режиме зиалотов. После паники — немедленный локальный стоп, без подтверждения B; новый старт вручную клавишей Aim. Меню/потеря фокуса/другой владелец камеры дают локальный стоп без тревоги и отпускают Shift. Общие урон/игрок рядом/действия таблицы не наследуются. End и ручной ввод остаются. Автоответа/автопродолжения нет. Полный инвентарь не останавливает мод.",Ui.SUB));
     }
     private CombatPanicRows(){}
 }

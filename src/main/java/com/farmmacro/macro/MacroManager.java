@@ -68,6 +68,9 @@ public class MacroManager {
     private int    turnWaitTicks;
     private int    pendingStartIndex;
     private double[] pendingManualStart;
+    private boolean pendingStartHere;
+    private int pendingRouteRevision;
+    private String pendingHereWorld, pendingHereDimension;
     private PlaybackSource pendingSource;
     // запись по кадрам
     private int    playbackIndex;
@@ -203,9 +206,15 @@ public class MacroManager {
         }
     }
 
-    /** Removed entrypoint retained for binary/source compatibility; never starts movement. */
+    /** Explicit manual join of the loaded route; never an automatic return/approach. */
     public void startRouteHere(Minecraft mc) {
-        msg(mc,"§eЗапуск с произвольного места удалён. Встань у стартовой точки и запусти маршрут.");
+        if (state != State.IDLE) { msg(mc,"§cСначала останови запись/воспроизведение"); return; }
+        if (mc.player == null || mc.level == null) return;
+        var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+        var hit = com.farmmacro.route.RouteStartHere.find(rb.points(), mc.player.getX(), mc.player.getY(), mc.player.getZ(), ModConfig.INSTANCE.resumeAnywhereMaxDist);
+        if (hit == null) { msg(mc,"§cПодойди к отрезку загруженного маршрута на нужном этаже (допуск " + ModConfig.INSTANCE.resumeAnywhereMaxDist + " бл)"); return; }
+        useRouteSource();
+        startPlayback(mc, hit.target(), false, hit.dist());
     }
 
     /** Источник для клавиши запуска: запись или маршрут по точкам. null — играть нечего. */
@@ -234,6 +243,7 @@ public class MacroManager {
 
     /** onRoad ≥ 0 — старт «с места»: расстояние до дороги уже проверено, до точки index не меряем. */
     private void startPlayback(Minecraft mc, int index, boolean resume, double onRoad) {
+        com.farmmacro.fishing.AutoFish.INSTANCE.stop("запуск макроса");
         if(com.farmmacro.camera.Freecam.active())return;
         if(!com.farmmacro.panic.PanicHandoff.allowStart(mc))return;
         if (state == State.RECORDING) { msg(mc, "§cСначала останови запись"); return; }
@@ -262,7 +272,7 @@ public class MacroManager {
         List<com.farmmacro.route.PathFinder.Goal> goals = null;
         int join = index;
         boolean farmRoute=src==com.farmmacro.route.RouteWalker.INSTANCE && com.farmmacro.route.RouteWalker.INSTANCE.activeSettings().farm.enabled;
-        if(farmRoute){
+        if(farmRoute || onRoad >= 0){
             String world=com.farmmacro.route.RouteBuffer.INSTANCE.route().world;
             if(world!=null&&!world.equals(com.farmmacro.route.RouteBuffer.worldId(mc))){msg(mc,"§cФерма создана в другом мире/на другом сервере");return;}
         }
@@ -271,11 +281,11 @@ public class MacroManager {
             msg(mc,String.format(Locale.ROOT,"§cДо %s %.1f бл — подойди вручную (допуск %.2f бл)",where,dist,startRadius));
             return;
         }
-        launch(mc, index, resume, goals, join, resume ? "к точке остановки" : "к точке старта");
+        launch(mc, index, resume, goals, join, resume ? "к точке остановки" : "к точке старта", onRoad >= 0);
     }
 
     /** Общий запуск: поворот к культуре, отсчёт; goals != null — сначала дойти (approach). */
-    private void launch(Minecraft mc, int index, boolean resume, List<com.farmmacro.route.PathFinder.Goal> goals, int join, String what) {
+    private void launch(Minecraft mc, int index, boolean resume, List<com.farmmacro.route.PathFinder.Goal> goals, int join, String what, boolean fromHere) {
         ModConfig c = ModConfig.INSTANCE;
         PlaybackSource src = selectSource();
         if (src == null) return;
@@ -286,7 +296,12 @@ public class MacroManager {
         pendingGoals = goals;
         pendingJoin = join;
         pendingWhat = what;
-        pendingManualStart=resume?new double[]{savedX,savedY,savedZ}:src.position(index).clone();
+        pendingStartHere = fromHere;
+        pendingRouteRevision = com.farmmacro.route.RouteBuffer.INSTANCE.revision();
+        pendingHereWorld = com.farmmacro.route.RouteBuffer.worldId(mc);
+        pendingHereDimension = com.farmmacro.route.RouteBuffer.dimensionId(mc);
+        pendingManualStart = fromHere ? new double[]{mc.player.getX(),mc.player.getY(),mc.player.getZ()}
+                : resume ? new double[]{savedX,savedY,savedZ} : src.position(index).clone();
         pendingResume = resume && goals != null;
         if (resume && goals == null) clearSavedPosition();
         pendingStartIndex = index;
@@ -347,6 +362,16 @@ public class MacroManager {
         double radius=farm?com.farmmacro.route.RouteWalker.INSTANCE.activeSettings().farm.reachRadius:conf.startPointWarnDistance;
         double distance=distanceTo(mc.player,start[0],start[1],start[2]);
         if(!com.farmmacro.motion.ManualStartPolicy.allowed(distance,radius)){finish(mc,"§cСтарт отменён: за время подготовки ты отошёл от точки",true);return;}
+        if (pendingStartHere) {
+            var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
+            var hit = com.farmmacro.route.RouteStartHere.find(rb.points(),mc.player.getX(),mc.player.getY(),mc.player.getZ(),conf.resumeAnywhereMaxDist);
+            if (rb.revision() != pendingRouteRevision || hit == null || hit.target() != pendingStartIndex
+                    || !java.util.Objects.equals(pendingHereWorld,com.farmmacro.route.RouteBuffer.worldId(mc))
+                    || !java.util.Objects.equals(pendingHereDimension,com.farmmacro.route.RouteBuffer.dimensionId(mc))) {
+                finish(mc,"§cСтарт с места отменён: изменился маршрут, мир или отрезок",true); return;
+            }
+            com.farmmacro.route.RouteWalker.INSTANCE.pinPartialPass();
+        }
         state = State.PLAYING;
         source = pendingSource;
         loopsDone = 0;
@@ -756,6 +781,7 @@ public class MacroManager {
     private static String stripCodes(String s) { return s == null ? "" : s.replaceAll("§.", ""); }
 
     public void forceStop(Minecraft mc) {
+        PanicDetector.INSTANCE.cancelDelayed();
         com.farmmacro.panic.EventLog.log("STOP", "аварийная остановка");
         cancelLaunchTurn();
         if(source!=null){PlaybackSource owned=source;com.farmmacro.util.Guard.run("stop/source",()->owned.stop(mc));}
@@ -784,6 +810,7 @@ public class MacroManager {
 
     /** End: остановить (без точки возобновления), сбросить точку остановки, зажим мыши, всё временное и навигатор. */
     public void resetAll(Minecraft mc) {
+        com.farmmacro.fishing.AutoFish.INSTANCE.stop("End");
         com.farmmacro.camera.Freecam.off(mc);
         com.farmmacro.market.StashSales.INSTANCE.cancel(mc,"End");
         com.farmmacro.visitor.Visitors.INSTANCE.cancel(mc,"End");
@@ -820,6 +847,7 @@ public class MacroManager {
     }
 
     private void stopInternal(Minecraft mc, boolean keepResume) {
+        PanicDetector.INSTANCE.cancelDelayed();
         cancelLaunchTurn();
         if (keepResume && state == State.PLAYING && source != null && mc.player != null)
             saveStop(mc.player.getX(), mc.player.getY(), mc.player.getZ());

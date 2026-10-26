@@ -22,7 +22,14 @@ public final class AttendedQuickCheck {
   UiLayoutQuickCheck.main();
   OwnershipQuickCheck.main();
   ManualAimQuickCheck.main();
+  DungeonScytheQuickCheck.main();
+  HuntingQuickCheck.main();
   ManualSlotQuickCheck.main();
+  CombatObservationQuickCheck.main();
+  FishingQuickCheck.main();
+  StartHereQuickCheck.main();
+  PanicStopQuickCheck.main();
+  ManualAimPanicQuickCheck.main();
   com.farmmacro.gui.ModuleRetirementCheck.main();
   System.out.println("AttendedQuickCheck: PASS (small start/transform/copy/config/retirement checks; no game or routeStress)");
  }

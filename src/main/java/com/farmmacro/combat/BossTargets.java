@@ -7,12 +7,16 @@ public final class BossTargets {
  private static final List<String> NAMED_FORMS=SlayerCatalog.BRANCHES.stream().flatMap(b->b.bossForms().stream()).toList();
  private static final List<java.util.regex.Pattern> PATTERNS=NAMED_FORMS.stream().map(n->java.util.regex.Pattern.compile("(?i)(?<![a-z])"+java.util.regex.Pattern.quote(n)+"(?![a-z])")).toList();
  public static String canonical(String raw){
+  String dungeon=DungeonTargets.canonical(raw);if(!dungeon.isEmpty())return dungeon;
   String clean=ServerText.clean(raw);
   for(int i=0;i<NAMED_FORMS.size();i++)if(PATTERNS.get(i).matcher(clean).find())return NAMED_FORMS.get(i);
   return "";
  }
  public static String label(String selection,String custom){
   if("slayers".equals(selection))return "Slayer: все боссы";
+  if("dungeon:all".equals(selection))return "Данжи: боссы + мини";
+  if("dungeon:bosses".equals(selection))return "Данжи: боссы";
+  if("dungeon:minis".equals(selection))return "Данжи: мини-боссы";
   if("custom".equals(selection))return custom==null?"Своё имя":custom;
   for(var b:SlayerCatalog.BRANCHES){
    if(("slayer:"+b.id()+":boss").equals(selection))return b.title()+": босс / формы";
@@ -22,11 +26,14 @@ public final class BossTargets {
  }
  public static boolean matches(String selection,String observed,String custom){
   if(selection==null||observed==null)return false;
+  if(HuntingTargets.selection(selection))return HuntingTargets.matches(selection,observed);
+  if(selection.startsWith("dungeon:"))return DungeonTargets.matches(selection,observed);
   if(selection.startsWith("slayer:"))return SlayerCatalog.matches(selection,observed);
   if("slayers".equals(selection))return BOSSES.stream().anyMatch(n->n.equalsIgnoreCase(observed));
   return observed.equalsIgnoreCase("custom".equals(selection)?custom:selection);
  }
  public static boolean compatible(String name,String type){
+  if(DungeonTargets.ALL.contains(name))return DungeonTargets.compatible(name,type);
   if(name.equals("Quazii"))return type.endsWith(".wither_skeleton");
   if(name.equals("Typhoeus"))return type.endsWith(".zombified_piglin");
   if(name.equals("Conjoined Brood"))return type.endsWith(".spider")||type.endsWith(".cave_spider");

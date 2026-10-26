@@ -15,13 +15,14 @@ public class ReactionInputMixin {
 
     @Inject(method = "onMove", at = @At("HEAD"))
     private void farmmacro$reactMove(long window, double x, double y, CallbackInfo ci) {
-        try { com.farmmacro.camera.SmoothTurn.bindingMouseMove(x,y);com.farmmacro.macro.Scheduler.mouseMove(x,y);com.farmmacro.route.FarmRuntime.onMouseMove(x,y);com.farmmacro.route.NavigationInput.onMouseMove(x,y);com.farmmacro.combat.AimAssist.INSTANCE.onMouseMove(x,y);HumanReaction.onMouseMove(x, y);com.farmmacro.pest.PestHunter.INSTANCE.onMouseMove(x,y); } catch (Throwable ignored) {}
+        try { com.farmmacro.panic.PanicDetector.INSTANCE.stopMouseMove(net.minecraft.client.Minecraft.getInstance(),x,y);com.farmmacro.camera.SmoothTurn.bindingMouseMove(x,y);com.farmmacro.macro.Scheduler.mouseMove(x,y);com.farmmacro.route.FarmRuntime.onMouseMove(x,y);com.farmmacro.route.NavigationInput.onMouseMove(x,y);com.farmmacro.combat.AimAssist.INSTANCE.onMouseMove(x,y);HumanReaction.onMouseMove(x, y);com.farmmacro.pest.PestHunter.INSTANCE.onMouseMove(x,y); } catch (Throwable ignored) {}
     }
 
     @Inject(method = "onScroll", at = @At("HEAD"))
     private void farmmacro$loadoutScroll(long window,double horizontal,double vertical,CallbackInfo ci){
+        if(horizontal!=0||vertical!=0)com.farmmacro.panic.PanicDetector.INSTANCE.finishDelayed(net.minecraft.client.Minecraft.getInstance());
         com.farmmacro.panic.AutomationSafety.INSTANCE.manualScrollBegin(net.minecraft.client.Minecraft.getInstance(),window);
-        if(horizontal!=0||vertical!=0){com.farmmacro.camera.SmoothTurn.bindingUserInput();com.farmmacro.macro.Scheduler.manualInput();com.farmmacro.market.StashSales.INSTANCE.userInput();com.farmmacro.visitor.Visitors.INSTANCE.userInput();com.farmmacro.loadout.GlobalLoadouts.INSTANCE.userInput();}
+        if(horizontal!=0||vertical!=0){com.farmmacro.fishing.AutoFish.INSTANCE.userInput();com.farmmacro.camera.SmoothTurn.bindingUserInput();com.farmmacro.macro.Scheduler.manualInput();com.farmmacro.market.StashSales.INSTANCE.userInput();com.farmmacro.visitor.Visitors.INSTANCE.userInput();com.farmmacro.loadout.GlobalLoadouts.INSTANCE.userInput();}
     }
 
     @Redirect(method="onScroll",at=@At(value="INVOKE",target="Lnet/minecraft/world/entity/player/Inventory;setSelectedSlot(I)V"))
@@ -37,9 +38,10 @@ public class ReactionInputMixin {
     private void farmmacro$reactButton(long window, MouseButtonInfo info, int action, CallbackInfo ci) {
         try {
             var mc=net.minecraft.client.Minecraft.getInstance();
-            if(com.farmmacro.panic.PanicHandoff.onButton(mc,action,info)){ci.cancel();return;}
+            if(action==1)com.farmmacro.panic.PanicDetector.INSTANCE.finishDelayed(mc);
             com.farmmacro.panic.AutomationSafety.INSTANCE.manualMouseKey(mc,window,action,info);
             if (action == 1) {
+                if(com.farmmacro.FarmMacroMod.keyFishing==null||!com.farmmacro.FarmMacroMod.keyFishing.matchesMouse(new net.minecraft.client.input.MouseButtonEvent(0,0,info)))com.farmmacro.fishing.AutoFish.INSTANCE.userInput();
                 if(com.farmmacro.FarmMacroMod.keyPlay==null||!com.farmmacro.FarmMacroMod.keyPlay.matchesMouse(new net.minecraft.client.input.MouseButtonEvent(0,0,info)))
                     com.farmmacro.camera.SmoothTurn.bindingUserInput();
                 com.farmmacro.macro.Scheduler.manualInput();

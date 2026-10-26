@@ -8,17 +8,17 @@ public final class CombatRows {
     public static void build(List<Rows.Row> rows,Runnable save,Runnable rebuild){
         ModConfig c=ModConfig.INSTANCE;var group=MobCatalog.get(c.aimPreset);
         rows.add(new Rows.Section("Режим Combat").key("combat.profiles"));
-        rows.add(new Rows.Selector("Управление боем", "Только наведение: ты бегаешь и атакуешь, мод держит центр выбранного моба. Автоматический Combat сохраняет прежние профили и опции.",
-            ()->List.of(new Rows.Choice("automatic","Автоматический Combat"),new Rows.Choice("manual","Только наведение / Slayer")),()->c.aimManualOnly?"manual":"automatic",v->{
+        rows.add(new Rows.ListSelector("Управление боем", "Только наведение: ты бегаешь и атакуешь, мод держит центр выбранного моба. Автоматический Combat сохраняет прежние профили и опции.",
+            ()->List.of(new Rows.Choice("automatic","Автоматический Combat"),new Rows.Choice("manual","Ручной Aim / Мобы")),()->c.aimManualOnly?"manual":"automatic",v->{
                 AimAssist.INSTANCE.configure(c.aimAssistEnabled);c.aimManualOnly="manual".equals(v);save.run();rebuild.run();}));
-        if(c.aimManualOnly){ManualAimRows.build(rows,save);CombatPanicRows.build(rows,save);return;}
+        if(c.aimManualOnly){ManualAimRows.build(rows,save);return;}
         CombatProfileRows.build(rows,save,rebuild);
         CombatPanicRows.build(rows,save);
-        rows.add(new Rows.Section("Камера и бой — выбранный профиль (альфа)").key("combat.aim"));
+        rows.add(new Rows.Section("Камера и бой — выбранный профиль").key("combat.aim"));
         rows.add(new Rows.Toggle("Разрешить aim assist", "Клавиша выбирает видимую разрешённую цель и удерживает её. Камера; автовыстрел косы и ходьба A/D включаются отдельно",
             () -> c.aimAssistEnabled,v -> {AimAssist.INSTANCE.configure(v);save.run();}));
         rows.add(new Rows.Note(() -> "Клавиша: "+com.farmmacro.macro.MacroManager.keyName(com.farmmacro.FarmMacroMod.keyAim)+" — изменить в Minecraft → Управление → Kaelix → Aim assist",Ui.SUB));
-        rows.add(new Rows.Selector("Режим клавиши", "Hold: держать для наведения. Toggle: одно нажатие вкл, ещё одно выкл",
+        rows.add(new Rows.ListSelector("Режим клавиши", "Hold: держать для наведения. Toggle: одно нажатие вкл, ещё одно выкл",
             () -> List.of(new Rows.Choice("hold","Удерживать"),new Rows.Choice("toggle","Переключать")),() -> c.aimKeyMode,v -> {
                 c.aimKeyMode=v;AimAssist.INSTANCE.configure(c.aimAssistEnabled);save.run();
             }));
@@ -88,7 +88,7 @@ public final class CombatRows {
         rows.add(new Rows.Note(() -> AimAssist.INSTANCE.specialStatus(),Ui.SUB).showIf(() -> c.aimZealotsOnly));
         rows.add(new Rows.Note("Title не сообщает координат/владельца конкретного entity. Ищется подтверждённое имя Special Zealot рядом; чужой nearby special возможен. Для автоматического убийства включи автовыстрел. Ручная кнопка прекращает автоматику.",Ui.SUB).showIf(() -> c.aimZealotsOnly));
         rows.add(new Rows.Section("Каталог мобов и локаций").key("combat.catalog"));
-        rows.add(new Rows.Selector("Группа", "Смена группы заменяет выбранный список; можно отключить каждого моба отдельно",
+        rows.add(new Rows.ListSelector("Группа", "Смена группы заменяет выбранный список; можно отключить каждого моба отдельно",
             () -> MobCatalog.GROUPS.stream().map(g->new Rows.Choice(g.id(),g.title())).toList(),() -> c.aimPreset,v -> {
                 c.aimPreset=v;var g=MobCatalog.get(v);
                 c.aimMobNames=new ArrayList<>(v.equals("nearby")?nearby():g.mobs());AimAssist.INSTANCE.configure(c.aimAssistEnabled);save.run();rebuild.run();

@@ -10,3 +10,14 @@ src/main/java/com/farmmacro/route/SnakeTool.java
 src/stress/java/com/farmmacro/route/AutoRouteCheck.java
 # Окно выбора точки — заменено «Продолжить с места» в 1.12.0.
 src/main/java/com/farmmacro/gui/StartPointScreen.java
+
+# Removed in 2.0.1: tree/Sweep aim feature and superseded mixed checks.
+src/main/java/com/farmmacro/combat/TreeAim.java
+src/main/java/com/farmmacro/combat/TreeAimPolicy.java
+src/main/java/com/farmmacro/combat/TreeGroup.java
+src/main/java/com/farmmacro/combat/TreeCutPolicy.java
+src/main/java/com/farmmacro/combat/SweepReport.java
+src/main/java/com/farmmacro/combat/SweepPlanner.java
+src/stress/java/com/farmmacro/release/TreeStageQuickCheck.java
+src/stress/java/com/farmmacro/release/ForagingHuntingQuickCheck.java
+src/stress/java/com/farmmacro/release/HuntingTreeQuickCheck.java

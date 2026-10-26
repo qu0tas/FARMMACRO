@@ -8,3 +8,26 @@ src/main/java/com/farmmacro/visitor/VisitorJar.java
 src/main/java/com/farmmacro/gui/SaleRows.java
 src/main/java/com/farmmacro/gui/LoadoutRows.java
 src/main/java/com/farmmacro/macro/ReconnectScreenHook.java
+src/main/java/com/farmmacro/mixin/ExperimentMouseAccess.java
+src/main/java/com/farmmacro/mixin/ExperimentContainerAccess.java
+src/main/java/com/farmmacro/experiment/ExperimentSettings.java
+src/main/java/com/farmmacro/experiment/ExperimentEngine.java
+src/main/java/com/farmmacro/experiment/Experiments.java
+src/main/java/com/farmmacro/experiment/ExperimentClickPolicy.java
+src/main/java/com/farmmacro/gui/ExperimentRows.java
+src/main/java/com/farmmacro/mixin/ExperimentPacketMixin.java
+src/main/java/com/farmmacro/mixin/ExperimentOverlayMixin.java
+src/stress/java/com/farmmacro/release/ExperimentQuickCheck.java
+docs/EXPERIMENTS.md
+NEXT-EXPERIMENTS.md
+
+# Removed in 2.0.1: tree/Sweep aim feature and superseded mixed checks.
+src/main/java/com/farmmacro/combat/TreeAim.java
+src/main/java/com/farmmacro/combat/TreeAimPolicy.java
+src/main/java/com/farmmacro/combat/TreeGroup.java
+src/main/java/com/farmmacro/combat/TreeCutPolicy.java
+src/main/java/com/farmmacro/combat/SweepReport.java
+src/main/java/com/farmmacro/combat/SweepPlanner.java
+src/stress/java/com/farmmacro/release/TreeStageQuickCheck.java
+src/stress/java/com/farmmacro/release/ForagingHuntingQuickCheck.java
+src/stress/java/com/farmmacro/release/HuntingTreeQuickCheck.java

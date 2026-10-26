@@ -11,7 +11,7 @@ final class ModuleCardRow extends Rows.Row {
     ModuleCardRow(ModuleCatalog.Module module,Runnable open,java.util.function.BooleanSupplier focused) {
         this.module=module;this.open=open;this.focused=focused;
         int index=ModuleCatalog.ALL.indexOf(module);
-        icon=index>=17?index+1:index; // Atlas17 (retired schedule) is skipped.
+        icon=module.title().startsWith("Рыбалка")?19:module.title().equals("Производительность")?18:index; // Dedicated authored rod glyph; retired schedule remains unused.
     }
     @Override public String searchText() { return module.title()+" "+module.description(); }
     @Override int height(Rows.Ctx c,int w){return MenuLayout.CARD_HEIGHT;}

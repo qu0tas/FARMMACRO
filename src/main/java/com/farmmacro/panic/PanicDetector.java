@@ -102,16 +102,41 @@ public class PanicDetector {
     private String lastPanicId;
     private long   lastPanicMs;
     private String overlayText;
+    private final FarmStopDelay farmStop = new FarmStopDelay();
+    private net.minecraft.client.multiplayer.ClientLevel farmStopWorld;
+    private boolean stopMouseKnown;
+    private double stopMouseX,stopMouseY;
+    public boolean delayed(){return farmStop.active();}
+    public void cancelDelayed(){farmStop.clear();farmStopWorld=null;}
+    /** Runs before automation every client tick, including paused/menu/background contexts. */
+    public void tickDelayed(Minecraft mc){
+        if(!delayed())return;
+        if(!MacroManager.INSTANCE.isPlaying()){cancelDelayed();return;}
+        if(mc.player==null||mc.level==null||mc.level!=farmStopWorld||!mc.player.isAlive()
+                ||mc.screen!=null||mc.isPaused()||!com.farmmacro.window.BackgroundWork.permitted(mc)
+                ||!com.farmmacro.config.ModConfig.INSTANCE.farmPanicDelay||farmStop.due(System.nanoTime()))finishDelayed(mc);
+    }
+    public void finishDelayed(Minecraft mc){
+        if(!delayed())return;
+        String id=farmStop.id(),reason=farmStop.reason();cancelDelayed();
+        triggerPanicNow(mc,id,reason);
+    }
+    /** Real user input always shortens, never extends, a pending farm stop. */
+    public void stopMouseMove(Minecraft mc,double x,double y){
+        if(stopMouseKnown && Math.hypot(x-stopMouseX,y-stopMouseY)>.7)finishDelayed(mc);
+        stopMouseX=x;stopMouseY=y;stopMouseKnown=true;
+    }
 
     // ── Состояние ────────────────────────────────────────────────────────────
 
     private static boolean armed() {
-        return (MacroManager.INSTANCE.isPlaying()||com.farmmacro.pest.PestHunter.INSTANCE.active()||com.farmmacro.visitor.Visitors.INSTANCE.active()||com.farmmacro.market.StashSales.INSTANCE.active()||com.farmmacro.macro.Scheduler.isBreak())&&ModConfig.INSTANCE.panicEnabled;
+        return (com.farmmacro.fishing.AutoFish.INSTANCE.active()||MacroManager.INSTANCE.isPlaying()||com.farmmacro.pest.PestHunter.INSTANCE.active()||com.farmmacro.visitor.Visitors.INSTANCE.active()||com.farmmacro.market.StashSales.INSTANCE.active()||com.farmmacro.macro.Scheduler.isBreak())&&ModConfig.INSTANCE.panicEnabled;
     }
 
     /** Срабатывание из пакета/GUI: через реестр; паника — в следующем тике. */
     void flag(String id, String reason) {
         if(PanicHandoff.pending())return;
+        if(delayed()&&FarmStopDelay.soft(id))return; // duplicate soft packet alarms cannot hide an emergency
         if (hit(id, reason) == null) return;
         EventLog.log("FLAG", reason);
         if (pendingReason == null) {
@@ -126,6 +151,7 @@ public class PanicDetector {
      * @return причина, если действие — паника (или своё действие); null — очки/журнал/выключен/повтор
      */
     String hit(String id, String reason) {
+        if (CombatPanic.manualCameraOnly()) return null;
         if (reason == null) return null;
         Detectors.Action a = Detectors.record(id, reason, System.currentTimeMillis());
         if (a == null) return null;
@@ -140,7 +166,7 @@ public class PanicDetector {
 
     /** Причина этого тика: первая непустая (как раньше «if (reason == null) reason = …»). */
     private void offer(String r) {
-        if (tickReason == null && r != null) { tickReason = r; tickId = lastHitId; }
+        if (r != null && (tickReason == null || delayed() && FarmStopDelay.soft(tickId) && !FarmStopDelay.soft(lastHitId))) { tickReason = r; tickId = lastHitId; }
     }
 
     /** Срабатывание вне тика детекторов (маршрут, запись): через реестр и сразу паника. @return была ли паника */
@@ -276,6 +302,8 @@ public class PanicDetector {
         com.farmmacro.loadout.GlobalLoadouts.INSTANCE.screenOpening(screen);
         if(com.farmmacro.pest.PestTraps.INSTANCE.expectScreen(screen)){com.farmmacro.camera.SmoothTurn.stop();return;}
         Minecraft mc=Minecraft.getInstance();
+        boolean fishingActive=com.farmmacro.fishing.AutoFish.INSTANCE.active();
+        com.farmmacro.fishing.AutoFish.INSTANCE.screenOpening(screen);
         com.farmmacro.combat.AimAssist.INSTANCE.handoff("открыто окно");
         // Connection lifecycle has its own policy; do not cancel an intentionally configured reconnect here.
         if(screen instanceof net.minecraft.client.gui.screens.DisconnectedScreen||mc.player==null||mc.level==null)return;
@@ -287,7 +315,7 @@ public class PanicDetector {
             ||screen instanceof com.farmmacro.gui.RouteVariantScreen||screen instanceof com.farmmacro.gui.PointEditScreen
             ||screen instanceof com.farmmacro.gui.MacroSettingsScreen||screen instanceof com.farmmacro.hud.HudEditorScreen
             ||screen instanceof com.farmmacro.gui.KeybindCaptureScreen;
-        if(armed()&&ModConfig.INSTANCE.detectGuiOpen&&!own)
+        if((armed()||fishingActive&&ModConfig.INSTANCE.panicEnabled)&&ModConfig.INSTANCE.detectGuiOpen&&!own)
             fire(mc,"gui","Открылось окно: "+screen.getTitle().getString()+" ("+screen.getClass().getSimpleName()+")");
         // Even LOG/OFF policies must not keep pressing into an open GUI. No automatic resume on closing.
         if(MacroManager.INSTANCE.isActive())MacroManager.INSTANCE.stopPlayback(mc,"§eОстановлено: открыто окно");
@@ -829,6 +857,39 @@ public class PanicDetector {
 
     /** v1.14.2-pre: id — детектор из реестра (свой звук); null — общий звук. */
     public void triggerPanic(Minecraft mc, String id, String reason) {
+        // Defence in depth for any direct/late detector: camera helper never emits a panic.
+        // Do not suppress alarms belonging to an actual running farm/fishing/other automation.
+        if(CombatPanic.manualCameraOnly()){
+            cancelDelayed();
+            com.farmmacro.combat.AimAssist.INSTANCE.handoff("ручное наведение: контекст изменился");
+            return;
+        }
+        var c=ModConfig.INSTANCE;
+        boolean playing=MacroManager.INSTANCE.isPlaying() && mc.player!=null && mc.level!=null
+                && mc.player.isAlive() && mc.screen==null && !mc.isPaused()
+                && com.farmmacro.window.BackgroundWork.permitted(mc);
+        if(FarmStopDelay.eligible(id,playing,CombatPanic.context()||CombatPanic.isCombatId(id),c.farmPanicDelay)){
+            if(delayed())return;
+            int min=Math.clamp(c.farmPanicMinMs,0,1200),max=Math.clamp(c.farmPanicMaxMs,min,1200);
+            int ms=java.util.concurrent.ThreadLocalRandom.current().nextInt(min,max+1);
+            if(ms>0){
+                farmStop.arm(id,reason,System.nanoTime(),ms);farmStopWorld=mc.level;
+                EventLog.log("PANIC-PENDING",reason+"; стоп фермы через "+ms+" мс");
+                MacroManager.INSTANCE.msgPublic(mc,"§eПаника: "+reason+" §7— остановка через "+ms+" мс");
+                return;
+            }
+        }
+        cancelDelayed(); // critical/combat alarm preempts an earlier soft cause
+        triggerPanicNow(mc,id,reason);
+    }
+
+    private void triggerPanicNow(Minecraft mc,String id,String reason) {
+        if(CombatPanic.manualCameraOnly()){
+            cancelDelayed();
+            com.farmmacro.combat.AimAssist.INSTANCE.handoff("ручное наведение: контекст изменился");
+            return;
+        }
+        com.farmmacro.fishing.AutoFish.INSTANCE.stop("паника");
         com.farmmacro.macro.Reconnect.panic(); // Any panic permanently revokes this automatic-run permit.
         com.farmmacro.market.StashSales.INSTANCE.cancel(mc,"паника");
         com.farmmacro.visitor.Visitors.INSTANCE.cancel(mc,"паника");
@@ -839,7 +900,7 @@ public class PanicDetector {
         else Guard.run("combat/aim-stop",() -> com.farmmacro.combat.AimAssist.INSTANCE.handoff("паника фермы/общая остановка"));
         Guard.run("pest/panic-stop", () -> com.farmmacro.pest.PestHunter.INSTANCE.abort(mc,"паника",false));
         ModConfig c = ModConfig.INSTANCE;
-        if(AutomationSafety.manualHandoff(id)||PanicHandoff.pending()){
+        { // Every completed panic releases holds/queued actions; no acknowledgement latch.
             com.farmmacro.macro.Scheduler.cancel();
             com.farmmacro.macro.Reconnect.cancel();
             Guard.run("panic/manual-hold-stop",() -> com.farmmacro.macro.MouseHold.INSTANCE.stopAll(mc));
@@ -901,8 +962,7 @@ public class PanicDetector {
         // 5. v1.16.3 «Человеческая реакция» (выкл по умолчанию): оглядеться и, может быть, одна фраза в чат;
         // любой ввод игрока сразу её прекращает
         // Nearby-chat handoff never rotates or speaks for the user, even if reaction was enabled.
-        if(AutomationSafety.manualHandoff(id)||PanicHandoff.pending())Guard.run("panic/react-cancel",() -> HumanReaction.stop("аварийная передача управления человеку"));
-        else Guard.run("panic/react", () -> HumanReaction.onPanic(mc, id, reason));
+        Guard.run("panic/react-cancel",() -> HumanReaction.stop("паника — управление у игрока, без автоматической реакции"));
     }
 
     /** Проверка из меню: те же звук и красный экран, но без остановки и без записи в «последнюю панику». */

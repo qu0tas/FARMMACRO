@@ -40,7 +40,7 @@ public final class MobNames {
             if(e instanceof Mob m && m.isAlive()&&!m.isDeadOrDying()&&!m.isRemoved())mobs.add(m);
             else if(e instanceof ArmorStand && e.getCustomName()!=null){
                 String raw=e.getCustomName().getString(),candidate=clean(raw);
-                if(candidate.codePoints().anyMatch(Character::isLetter)&&(KNOWN.contains(candidate.toLowerCase(Locale.ROOT))||raw.indexOf('❤')>=0||raw.indexOf('♥')>=0||raw.indexOf('\uE010')>=0))
+                if(candidate.codePoints().anyMatch(Character::isLetter)&&(KNOWN.contains(candidate.toLowerCase(Locale.ROOT))||DungeonTargets.ALL.contains(candidate)||raw.indexOf('❤')>=0||raw.indexOf('♥')>=0||raw.indexOf('\uE010')>=0))
                     labels.computeIfAbsent(cell((int)Math.floor(e.getX()/4),(int)Math.floor(e.getZ()/4)),k->new ArrayList<>()).add(new Label(e,candidate));
             }
         }

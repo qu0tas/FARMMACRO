@@ -34,13 +34,13 @@ public class FarmMacroMod implements ClientModInitializer {
 
     public static KeyMapping keyRecord, keyPlay, keyClear, keyOpenGui, keyResume, keyResetPos,
             keyCamApply, keyCamNext, keyCamSave, keyEditor, keyHold, keyMouseLock,
-            keyFreecam, keyFreelook, keyLowRender, keyStartFrom, keyUngrab, keyPerf, keyHudEdit, keyPip, keyPest, keyAim, keyTakeControl, keyPestPause, keyPestFinish, keyPestTraps, keyLoadout, keyVisitors, keyStashSale;
+            keyFreecam, keyFreelook, keyLowRender, keyStartFrom, keyUngrab, keyPerf, keyHudEdit, keyPip, keyPest, keyAim, keyTakeControl, keyPestPause, keyPestFinish, keyPestTraps, keyLoadout, keyVisitors, keyStashSale, keyFishing;
 
     /** Single catalog used by the in-mod editor and pending-panic start gate. */
     public static java.util.List<KeyMapping> bindings(){
         return java.util.stream.Stream.of(keyRecord,keyPlay,keyClear,keyOpenGui,keyResume,keyResetPos,keyCamApply,keyCamNext,
             keyCamSave,keyEditor,keyHold,keyMouseLock,keyFreecam,keyFreelook,keyLowRender,keyStartFrom,keyUngrab,keyPerf,keyHudEdit,
-            keyPip,keyPest,keyAim,keyTakeControl,keyPestPause,keyPestFinish,keyPestTraps,keyLoadout,keyVisitors,keyStashSale).filter(java.util.Objects::nonNull).toList();
+            keyPip,keyPest,keyAim,keyTakeControl,keyPestPause,keyPestFinish,keyPestTraps,keyLoadout,keyVisitors,keyStashSale,keyFishing).filter(java.util.Objects::nonNull).toList();
     }
 
     private static KeyMapping makeKey(String id, int defaultCode) {
@@ -50,6 +50,11 @@ public class FarmMacroMod implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         ModConfig.load();
+        com.farmmacro.fishing.FishingMessages.load();
+        com.farmmacro.fishing.FishingCommands.register();
+        net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents.GAME.register((message,overlay)->{
+            com.farmmacro.fishing.AutoFish.INSTANCE.message(message.getString(),overlay);
+        });
         com.farmmacro.notify.DiscordNotify.configured(); // Load local secret redaction before any portable export. No network.
         com.farmmacro.stats.StatsLedger.init();
         com.farmmacro.loading.LoadingOptions.clientReady();
@@ -84,21 +89,25 @@ public class FarmMacroMod implements ClientModInitializer {
         keyHudEdit   = makeKey("key.farmmacro.hudedit", 297);   // F8 (v1.14) — редактор HUD
         keyPip       = makeKey("key.farmmacro.pip", -1);        // v1.16.3 — картинка в картинке (не назначена)
         keyAim=makeKey("key.farmmacro.aim",301); // F12: hold/toggle center lock
-        keyTakeControl=makeKey("key.farmmacro.take_control",66); // B: acknowledgement only, never resume
+        keyStartFrom=makeKey("key.farmmacro.startfrom",-1); // assign in GUI; explicit route-only start
+        keyFishing=makeKey("key.farmmacro.fishing",-1); // explicit unbound attended toggle
+        keyTakeControl=null; // retired: no B acknowledgement or keybind
 
         ClientTickEvents.END_CLIENT_TICK.register(FarmMacroMod::onTick);
         com.farmmacro.route.ChunkCache.register();
         // v1.13: отключение от сервера во время макроса — паника; новый сервер — сброс замера лагов
         // v1.13.1: при переподключении — не паника, а повторный вход (Reconnect)
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            boolean fishingWasActive=com.farmmacro.fishing.AutoFish.INSTANCE.active();
+            com.farmmacro.fishing.AutoFish.INSTANCE.stop("отключение");
             com.farmmacro.market.StashSales.INSTANCE.cancel(client,"отключение");
             com.farmmacro.visitor.Visitors.INSTANCE.cancel(client,"отключение");
             com.farmmacro.loadout.GlobalLoadouts.INSTANCE.cancel(client,"отключение");
             Guard.run("combat/disconnect",()->com.farmmacro.combat.AimAssist.INSTANCE.handoff("отключение"));
-            // Keep a pending panic until explicit B/GUI acknowledgement, including across disconnect.
+            Guard.run("panic/delayed-disconnect",()->PanicDetector.INSTANCE.finishDelayed(client));
             com.farmmacro.panic.AutomationSafety.INSTANCE.clear();
             com.farmmacro.fun.CropFever.reset(client);
-            boolean playing = MacroManager.INSTANCE.playingOrJustLost()
+            boolean playing = fishingWasActive || MacroManager.INSTANCE.playingOrJustLost()
                     && (client.screen == null || client.screen instanceof net.minecraft.client.gui.screens.ChatScreen);
             Guard.run("panic/disconnect", () -> PanicDetector.INSTANCE.onDisconnect(client, playing));
             com.farmmacro.panic.SilenceWatch.INSTANCE.reset();
@@ -119,6 +128,8 @@ public class FarmMacroMod implements ClientModInitializer {
     }
     private static void tickBody(Minecraft mc) {
         MacroManager macro = MacroManager.INSTANCE;
+        if(!Guard.run("panic/delayed-stop",()->PanicDetector.INSTANCE.tickDelayed(mc)))
+            PanicDetector.INSTANCE.triggerPanic(mc,"Ошибка очереди остановки — аварийный стоп");
         Guard.run("window/background",()->com.farmmacro.window.BackgroundWork.tick(mc));
         Guard.run("camera/freecam",()->com.farmmacro.camera.Freecam.tick(mc));
         Guard.run("stats/tick",()->com.farmmacro.stats.Telemetry.tick(mc));
@@ -148,6 +159,7 @@ public class FarmMacroMod implements ClientModInitializer {
             mc.setScreen(new com.farmmacro.gui.WhatsNewScreen(mc.screen));
         }
         if (mc.player == null) {
+            com.farmmacro.fishing.AutoFish.INSTANCE.stop("нет игрока");
             com.farmmacro.market.StashSales.INSTANCE.cancel(mc,"нет игрока");
             com.farmmacro.visitor.Visitors.INSTANCE.cancel(mc,"нет игрока");
             com.farmmacro.loadout.GlobalLoadouts.INSTANCE.cancel(mc,"нет игрока");
@@ -171,8 +183,9 @@ public class FarmMacroMod implements ClientModInitializer {
             for(var key:bindings())if(key!=keyFreecam&&key!=keyResetPos&&key!=keyOpenGui)while(key.consumeClick()){}
             return;
         }
-        while(keyTakeControl.consumeClick()){} // no action outside a pending panic
+        while(keyFishing.consumeClick())com.farmmacro.fishing.AutoFish.INSTANCE.toggle(mc);
         while (keyPlay.consumeClick()) {com.farmmacro.pest.PestHunter.INSTANCE.abort(mc,"запуск макроса",false);macro.togglePlayback(mc);}
+        while (keyStartFrom.consumeClick()) macro.startRouteHere(mc);
         while (keyResume.consumeClick())   macro.resumeFromSaved(mc);
         while (keyResetPos.consumeClick()) macro.resetAll(mc);   // End — стоп и сброс всего временного
         while (keyEditor.consumeClick())   RouteEditor.toggle(mc);
@@ -202,7 +215,7 @@ public class FarmMacroMod implements ClientModInitializer {
             PanicDetector.INSTANCE.triggerPanic(mc,"Ошибка аварийной проверки — автоматика остановлена");
         macro.tickRecord(mc);
         // Read pre-action state for both farm and pests. Never apply their next input before pending alarms.
-        if ((macro.isPlaying()||com.farmmacro.pest.PestHunter.INSTANCE.active()||com.farmmacro.visitor.Visitors.INSTANCE.active()||com.farmmacro.market.StashSales.INSTANCE.active()||com.farmmacro.macro.Scheduler.isBreak())
+        if ((com.farmmacro.fishing.AutoFish.INSTANCE.active()||macro.isPlaying()||com.farmmacro.pest.PestHunter.INSTANCE.active()||com.farmmacro.visitor.Visitors.INSTANCE.active()||com.farmmacro.market.StashSales.INSTANCE.active()||com.farmmacro.macro.Scheduler.isBreak())
             &&!Guard.run("panic/detectors",()->PanicDetector.INSTANCE.tick(mc)))
             PanicDetector.INSTANCE.triggerPanic(mc,"Ошибка детекторов — автоматика остановлена");
         if(com.farmmacro.panic.PanicHandoff.pending())return;
@@ -210,6 +223,7 @@ public class FarmMacroMod implements ClientModInitializer {
             com.farmmacro.combat.AimAssist.INSTANCE.handoff("ошибка Combat — ручной запуск заново");
         if(com.farmmacro.panic.PanicHandoff.pending())return;
         macro.tickPlayback(mc);
+        if(!Guard.run("fishing/tick",()->com.farmmacro.fishing.AutoFish.INSTANCE.tick(mc)))com.farmmacro.fishing.AutoFish.INSTANCE.stop("ошибка рыбалки");
         com.farmmacro.window.BackgroundWork.tick(mc);
         Guard.run("hold/tick", () -> MouseHold.INSTANCE.tick(mc));
     }
@@ -220,7 +234,7 @@ public class FarmMacroMod implements ClientModInitializer {
      */
     private static void checkSilence(Minecraft mc) {
         ModConfig c = ModConfig.INSTANCE;
-        if (!c.panicEnabled || !c.detectSilence || !MacroManager.INSTANCE.isPlaying() && !com.farmmacro.pest.PestHunter.INSTANCE.active() && !com.farmmacro.visitor.Visitors.INSTANCE.active() && !com.farmmacro.market.StashSales.INSTANCE.active()) return;
+        if (!c.panicEnabled || !c.detectSilence || !com.farmmacro.fishing.AutoFish.INSTANCE.active() && !MacroManager.INSTANCE.isPlaying() && !com.farmmacro.pest.PestHunter.INSTANCE.active() && !com.farmmacro.visitor.Visitors.INSTANCE.active() && !com.farmmacro.market.StashSales.INSTANCE.active()) return;
         if (mc.isSingleplayer() || mc.getConnection() == null) return;
         long now = System.currentTimeMillis();
         if (!com.farmmacro.panic.SilenceWatch.INSTANCE.shouldClose(now, c.silenceSec * 1000L)) return;

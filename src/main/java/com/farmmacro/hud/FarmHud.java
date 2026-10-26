@@ -62,7 +62,8 @@ public final class FarmHud {
             new Block("skill","Навыки / XP",WIDE,StatsHud::farming),
             new Block("pet","Питомец / XP",WIDE,StatsHud::pet),
             new Block("combat","Combat",WIDE,StatsHud::combat),
-            new Block("inventory","Инвентарь",244,InventoryHud::draw));
+            new Block("inventory","Инвентарь",244,InventoryHud::draw),
+            new Block("fishing","Рыбалка / AutoFish",210,FarmHud::drawFishing));
 
     /** Место плашки на экране (для редактора HUD). id "all" — общая панель; sub — строка внутри общей панели. */
     public record Rect(String id, String label, int x, int y, int w, int h, boolean hidden, boolean sub) {
@@ -264,6 +265,15 @@ public final class FarmHud {
     private static int accentHi() {
         int rgb = com.farmmacro.visual.HatColors.rgbOr(ModConfig.INSTANCE.hudAccentColor, -1);
         return rgb < 0 ? Ui.ACCENT_HI : 0xFF000000 | rgb;
+    }
+
+    private static int drawFishing(GuiGraphicsExtractor g,Minecraft mc,int x,int y,int w){
+        var fish=com.farmmacro.fishing.AutoFish.INSTANCE;
+        if(!fish.active()&&!fish.armed()&&!editing()&&!pinned("fishing"))return 0;
+        var lines=new java.util.ArrayList<String>();lines.addAll(wrap(mc.font,fish.status(),w-18));lines.addAll(wrap(mc.font,fish.counters(),w-18));
+        int h=24+lines.size()*11;if(g==null)return h;panel(g,x,y,w,h,0xff65cce3);
+        Ui.text(g,mc.font,"РЫБАЛКА · ALPHA",x+9,y+5,StatsHud.fg());int yy=y+21;
+        for(var line:lines){Ui.text(g,mc.font,line,x+9,yy,StatsHud.sub());yy+=11;}return h;
     }
 
     // ── Статус ───────────────────────────────────────────────────────────────

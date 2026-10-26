@@ -49,7 +49,9 @@ public final class RouteWalker implements PlaybackSource {
     private int variantNumber, pathRevision;
     public int pathRevision() { return pathRevision; }
     public String activeName() { return activeRoute==null ? RouteBuffer.INSTANCE.route().name : activeRoute.name; }
-    private boolean resumePass;
+    private boolean resumePass, pinPartialPass;
+    /** Keep the first partial lap on the exact geometry used for projection. */
+    public void pinPartialPass() { pinPartialPass = true; }
     public int variantNumber() { return variantNumber; }
     public com.farmmacro.macro.MacroSettings activeSettings() {
         return activeRoute==null ? RouteBuffer.INSTANCE.settings() : activeRoute.settings;
@@ -58,6 +60,7 @@ public final class RouteWalker implements PlaybackSource {
     public java.util.List<RoutePoint> activePoints() { return activeRoute == null ? RouteBuffer.INSTANCE.points() : activeRoute.points; }
     public void beginRun(boolean resume) {
         farm.beginRun(resume);
+        pinPartialPass = false;
         if (!resume) { variants = null; activeRoute = null; variantNumber = 0; }
         resumePass=resume;
     }
@@ -102,8 +105,10 @@ public final class RouteWalker implements PlaybackSource {
         boolean newLap = activeRoute == null || !resumePass && index == 0 && (!started || core.done());
         resumePass=false;
         if (variants == null) prepareVariants(mc);
-        PointRoute r = newLap ? variants.next(index==0) : activeRoute.copy();
-        variantNumber = variants.number;
+        boolean exactPartial = pinPartialPass;
+        pinPartialPass = false;
+        PointRoute r = exactPartial ? RouteBuffer.INSTANCE.route().copy() : newLap ? variants.next(index==0) : activeRoute.copy();
+        variantNumber = exactPartial ? 0 : variants.number;
         if (newLap) {
             com.farmmacro.panic.EventLog.log("ROUTE_VARIANT", "маршрут " + r.name + ", вариант " + variantNumber + ", сид " + variants.variantSeed);
             var h = com.farmmacro.macro.Humanizer.lap();
@@ -120,7 +125,7 @@ public final class RouteWalker implements PlaybackSource {
                 }
         }
         var human = com.farmmacro.macro.Humanizer.lap();       // null — выкл или идеальный круг (точно как маршрут)
-        if (!r.settings.farm.enabled && human != null && newLap && RouteRandomSettings.OFF.equals(RouteBuffer.INSTANCE.settings().routeRandom.mode)) human.shapeRoute(r);
+        if (!exactPartial && !r.settings.farm.enabled && human != null && newLap && RouteRandomSettings.OFF.equals(RouteBuffer.INSTANCE.settings().routeRandom.mode)) human.shapeRoute(r);
         if(!ModConfig.INSTANCE.uiAdvanced)for(var p:r.points)p.pointAction=new PointAction();
         if(newLap)r=com.farmmacro.motion.FarmBoundaryPauses.prepare(r,ModConfig.INSTANCE.motion,java.util.concurrent.ThreadLocalRandom.current());
         farm.start(r,index);

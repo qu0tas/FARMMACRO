@@ -685,6 +685,32 @@ public final class Rows {
         }
     }
 
+    /** Explicit click-to-open list. Wheel never silently changes the selected value. */
+    public static final class ListSelector extends Labeled {
+        private final Supplier<List<Choice>> options;
+        private final Supplier<String> get;
+        private final Consumer<String> set;
+        public ListSelector(String label,String hint,Supplier<List<Choice>> options,Supplier<String> get,Consumer<String> set){
+            super(label,hint);this.options=options;this.get=get;this.set=set;
+        }
+        int controlWidth(Ctx c){return Math.min(220,Math.max(110,lastW/2-10));}
+        void render(Ctx c,GuiGraphicsExtractor g,int x,int y,int w,int mx,int my,boolean hover){
+            int h=height(c,w);drawCard(c,g,x,y,w,h,hover,true);
+            String id=get.get(),name=id;for(var ch:options.get())if(ch.id().equals(id)){name=ch.label();break;}
+            int cw=controlWidth(c),cx=x+w-cw-2,cy=y+(h-14)/2;
+            boolean hot=on()&&Ui.inside(mx,my,x,y,w,h);
+            Ui.textRight(g,c.font(),Ui.ellipsize(c.font(),name,cw-22),cx+cw-18,cy+3,on()?Ui.SUB:Ui.DIM);
+            Ui.textRight(g,c.font(),"▾",cx+cw-2,cy+3,hot?Ui.ACCENT_HI:Ui.DIM);
+            if(hot)c.hand();
+        }
+        boolean click(Ctx c,double mx,double my,int button){
+            if(button!=0||!on()||!Ui.inside(mx,my,lastX,lastY,lastW,height(c,lastW)))return false;
+            var mc=net.minecraft.client.Minecraft.getInstance();
+            clearWheelFocus();c.clickSound();
+            mc.setScreen(new ChoicePickerScreen(mc.screen,label,options.get(),get.get(),set));return true;
+        }
+    }
+
     // ── Ряд кнопок ───────────────────────────────────────────────────────────
 
     public enum Style { PRIMARY, SECONDARY, DANGER, SUCCESS }

@@ -2,11 +2,11 @@ package com.farmmacro.gui;
 /** Retired entrypoints stay inert even when stale settings ask to activate them. No client. */
 public final class ModuleRetirementCheck {
  public static void main(){
-  if(ModuleCatalog.ALL.size()!=18||ModuleCatalog.CATEGORIES.length!=5)throw new IllegalStateException("retired module catalogue size");
+  if(ModuleCatalog.ALL.size()!=19||ModuleCatalog.CATEGORIES.length!=5)throw new IllegalStateException("retired module catalogue size");
   for(var module:ModuleCatalog.ALL){
    if(module.tab()<0||module.tab()>=10||module.category()<1||module.category()>=5)throw new IllegalStateException("module index "+module);
    String s=module.title().toLowerCase(java.util.Locale.ROOT);
-   if(s.contains("pest")||s.contains("визитор")||s.contains("ловушк")||s.contains("лассо")||s.contains("bazaar")||s.contains("лоадаут"))throw new IllegalStateException("retired card "+s);
+   if(s.contains("эксперимент")||s.contains("pest")||s.contains("визитор")||s.contains("ловушк")||s.contains("лассо")||s.contains("bazaar")||s.contains("лоадаут"))throw new IllegalStateException("retired card "+s);
   }
   var c=new com.farmmacro.config.ModConfig();c.pestHuntEnabled=true;c.pests.autoStart=true;c.pests.assist.traps=true;c.pests.assist.autoTraps=true;c.visitors.enabled=true;c.visitors.auto=true;c.sanitize();
   if(c.pestHuntEnabled||c.pests.autoStart||c.pests.assist.traps||c.pests.assist.autoTraps||c.visitors.enabled||c.visitors.auto)throw new IllegalStateException("legacy/import resurrection");
@@ -22,7 +22,7 @@ public final class ModuleRetirementCheck {
   guests.request(null);guests.tick(null);guests.signal("OFFER ACCEPTED");
   if(pests.active()||guests.active()||!pests.visiblePests().isEmpty()||!pests.navigationPath().isEmpty())throw new IllegalStateException("retired activation");
   if(!pests.technicalState().equals("REMOVED")||!guests.technicalState().equals("REMOVED"))throw new IllegalStateException("retired status");
-  System.out.println("ModuleRetirementCheck: OK (18 cards/5 categories/10 valid tab indices; legacy permission reset; inert Pests/Visitors/Bazaar/Loadouts entrypoints without game)");
+  System.out.println("ModuleRetirementCheck: OK (19 cards/5 categories/10 valid tab indices; legacy permission reset; inert Pests/Visitors/Bazaar/Loadouts entrypoints without game)");
  }
  private ModuleRetirementCheck(){}
 }

@@ -84,12 +84,6 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     private void buildModules() {
         Rows.searching=false; rows.add(search);visibleModules.clear();
-        if(com.farmmacro.panic.PanicHandoff.pending()) {
-            rows.add(new Rows.Note("ОСТАНОВЛЕНО · "+com.farmmacro.panic.PanicHandoff.reason(),Ui.WARN));
-            rows.add(new Rows.Buttons(new Rows.Btn("Взять управление — без запуска",Rows.Style.PRIMARY,()->{
-                com.farmmacro.panic.PanicHandoff.takeControl(minecraft);buildTab();
-            })));
-        }
         rows.add(new Rows.Buttons(
             new Rows.Btn("Редактор HUD",Rows.Style.SECONDARY,()->minecraft.setScreen(new com.farmmacro.hud.HudEditorScreen(this))),
             new Rows.Btn("Все параметры",Rows.Style.SECONDARY,this::openAllSettings)));
@@ -192,13 +186,6 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         if (!q.isEmpty()) { buildSearch(q); return; }
         Rows.searching = false;
         rows.add(search);
-        if(com.farmmacro.panic.PanicHandoff.pending()){
-            rows.add(new Rows.Section("Паника — передача управления"));
-            rows.add(new Rows.Note(com.farmmacro.panic.PanicHandoff.reason(),Ui.WARN));
-            rows.add(new Rows.Buttons(new Rows.Btn("Взять управление (без запуска)",Rows.Style.PRIMARY,()->{
-                com.farmmacro.panic.PanicHandoff.takeControl(minecraft);buildTab();
-            })));
-        }
         if(moduleTitle!=null)rows.add(new Rows.Buttons(new Rows.Btn("← Все модули",Rows.Style.SECONDARY,this::onClose)));
         int from=rows.size();buildContent(tab);filterModule(from);
         rows.add(new Rows.End());
@@ -348,7 +335,14 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Note("Эта вкладка — паника макроса/Garden. Боевая паника отдельно: Combat / Hunting → Паника Combat / Hunting. Главные выключатели и проверки независимы.",Ui.SUB));
         DetectorTable.addTo(rows, this);   // v1.14.2-pre: сводная таблица (отдельный модуль, можно убрать этой строкой)
 
-        rows.add(new Rows.Section("Аварийная передача — макрос / Garden").key("p.handoff"));
+        rows.add(new Rows.Section("Остановка — макрос / Garden").key("p.handoff"));
+        rows.add(toggle("Короткая задержка стопа фермы", "Только некритические события: игроки, чат, титры, BPS/XP. Combat, телепорт, предмет, урон, мир, ошибки — сразу.",
+                () -> cfg().farmPanicDelay, v -> cfg().farmPanicDelay = v).enabledIf(master));
+        rows.add(number("Минимальная задержка стопа", "Одна задержка на событие, повторы её не продлевают. Ручной ввод завершает остановку сразу.",
+                () -> cfg().farmPanicMinMs, v -> cfg().farmPanicMinMs = (int)v, 0, 1200, 50, 100, v -> (int)v + " мс").integer().under(() -> cfg().farmPanicDelay));
+        rows.add(number("Максимальная задержка стопа", "Не меньше минимальной; по умолчанию 350–750 мс. Никакого автоматического возобновления.",
+                () -> cfg().farmPanicMaxMs, v -> cfg().farmPanicMaxMs = (int)v, 0, 1200, 50, 100, v -> (int)v + " мс").integer().under(() -> cfg().farmPanicDelay));
+        rows.add(new Rows.Note("Подтверждение кнопкой B убрано. После остановки управляешь сам; повторный запуск — обычной кнопкой модуля.", Ui.SUB));
         rows.add(toggle("Стоп при телепорте во время автоматики", "Любой серверный пакет позиции, включая нулевой сдвиг/лаг-откат, и респавн. Работает также при aim/осмотре/A-D; законный warp тоже остановит",
                 () -> cfg().detectAutomationTeleport, v -> cfg().detectAutomationTeleport = v).enabledIf(master));
         rows.add(toggle("Стоп при потере/замене оружия", "Предмет в руке исчез/сменился, включая SkyBlock ID/UUID, или сменился слот. Собственная смена слота модом учитывается; расходуемый стак может закончиться",
@@ -711,26 +705,8 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
                 + "Если система не даёт фокус (Windows) — окно мигает в панели задач", () -> cfg().panicFocusWindow, v -> cfg().panicFocusWindow = v));
         rows.add(toggle("Выйти из «картинки в картинке»", "Сразу обычное окно", () -> cfg().panicExitPip, v -> cfg().panicExitPip = v));
 
-        rows.add(new Rows.Section("Человеческая реакция (тест)").key("p.react").closed());
-        rows.add(new Rows.Note("После стопа мод «оглядывается» как человек и иногда пишет одну короткую фразу в чат. "
-                + "Звук, красный экран и окно вперёд — как обычно. Пошевелил мышью или нажал клавишу — реакция сразу "
-                + "прекращается, дальше управляешь ты. На каких проверках — колонка «☺» в «Все детекторы».", Ui.SUB));
-        rows.add(toggle("Реагировать", "Выкл по умолчанию — это тест", () -> cfg().reactEnabled, v -> cfg().reactEnabled = v));
-        java.util.function.BooleanSupplier re = () -> cfg().reactEnabled;
-        rows.add(new Rows.Range("Поворотов", "Сколько раз оглядеться (0 — не оглядываться)",
-                number("", null, () -> cfg().reactLooksMin, v -> cfg().reactLooksMin = (int) v, 0, com.farmmacro.panic.ReactionPlan.MAX_LOOKS, 1, 1, v -> String.valueOf((int) v)).integer(),
-                number("", null, () -> cfg().reactLooksMax, v -> cfg().reactLooksMax = (int) v, 0, com.farmmacro.panic.ReactionPlan.MAX_LOOKS, 1, 1, v -> String.valueOf((int) v)).integer()).under(re));
-        rows.add(new Rows.Range("Задержка реакции", "От паники до первого поворота",
-                number("", null, () -> cfg().reactDelayMin, v -> cfg().reactDelayMin = (int) v, 0, 5000, 10, 100, v -> (int) v + " мс").integer(),
-                number("", null, () -> cfg().reactDelayMax, v -> cfg().reactDelayMax = (int) v, 0, 10000, 10, 100, v -> (int) v + " мс").integer()).under(re).adv());
-        rows.add(number("Шанс фразы", "Не больше одной фразы за панику", () -> cfg().reactChatChance, v -> cfg().reactChatChance = (int) v,
-                0, 100, 5, 10, v -> (int) v + " %").integer().under(re));
-        rows.add(new Rows.Range("Фраза через", null,
-                number("", null, () -> cfg().reactChatMinMs, v -> cfg().reactChatMinMs = (int) v, 0, 30000, 100, 500, v -> (int) v + " мс").integer(),
-                number("", null, () -> cfg().reactChatMaxMs, v -> cfg().reactChatMaxMs = (int) v, 0, 60000, 100, 500, v -> (int) v + " мс").integer()).under(re).adv());
-        rows.add(new Rows.TextField("Фразы", "Через «|». Команды («/…») не отправляются", () -> cfg().reactPhrases, v -> {
-            cfg().reactPhrases = String.join(" | ", com.farmmacro.panic.ReactionPlan.parsePhrases(v)); save(); return true;
-        }, null, 2000, 0).under(re));
+        rows.add(new Rows.Section("После остановки").key("p.react").closed());
+        rows.add(new Rows.Note("Управление сразу у тебя. Мод не ждёт B, не возобновляется, не поворачивает камеру и не отвечает в чат после паники. Короткая задержка фермы настраивается в разделе «Остановка».", Ui.SUB));
 
         rows.add(new Rows.Section("Discord").key("p.discord").closed());
         java.util.function.BooleanSupplier wh = () -> cfg().webhookEnabled;
@@ -876,7 +852,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         rows.add(new Rows.Section("Старт").key("l.start"));
         rows.add(number("Обратный отсчёт", "Удобно для записи видео", () -> cfg().startCountdownSeconds,
                 v -> cfg().startCountdownSeconds = (int) v, 0, 600, 1, 5, v -> v == 0 ? "выкл" : (int) v + " с").integer());
-        rows.add(new Rows.Note("Старт только рядом с точкой; автоматический подход и запуск с произвольного места удалены.",Ui.SUB));
+        rows.add(new Rows.Note("Обычный старт — рядом с первой точкой. «Маршруты → Начать с места» продолжает ближайший отрезок; автоматического подхода нет.",Ui.SUB));
         rows.add(number("Точка старта: допуск", "Дальше — отказ запуска; подойди вручную",
                 () -> cfg().startPointWarnDistance, v -> cfg().startPointWarnDistance = v,
                 0.01, 2, 0.05, .2, v -> Rows.num(v) + " бл").adv());
@@ -1384,6 +1360,7 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
 
     /** Вкладка «Маршруты»: текущий маршрут (точки), подсказка по редактору, автоход и редактор, сохранённые. */
     private void buildAutomation() {
+        FishingRows.build(rows,FarmMacroScreen::save);
         AutomationRows.build(rows, () -> ModConfig.save());
         // v1.15 «Возврат на маршрут»
         rows.add(new Rows.Section("Возврат на маршрут").key("r.return"));
@@ -1421,6 +1398,14 @@ public class FarmMacroScreen extends Screen implements Rows.Ctx {
         var rb = com.farmmacro.route.RouteBuffer.INSTANCE;
         rows.add(new Rows.Section("Маршрут по точкам").key("r.cur"));
         rows.add(new RouteBufferCard());
+        rows.add(new Rows.Buttons(new Rows.Btn("▶ Начать с места", Rows.Style.PRIMARY, () -> {
+            minecraft.setScreen(null);
+            MacroManager.INSTANCE.startRouteHere(minecraft);
+        }).enabledIf(() -> rb.size() >= 2 && MacroManager.INSTANCE.getState() == MacroManager.State.IDLE)));
+        rows.add(new Rows.Number("Допуск старта с места", "Расстояние до ближайшего отрезка; этаж учитывается. Не автовозврат к началу.",
+                () -> cfg().resumeAnywhereMaxDist, v -> cfg().resumeAnywhereMaxDist = v,
+                .5, 16, .5, 1, v -> Rows.num(v) + " бл"));
+        rows.add(new Rows.Note("Начать с места — продолжить загруженный маршрут по его направлению. Бинд назначается в «Клавиши».", Ui.SUB));
         rows.add(new Rows.Note(() -> rb.isEmpty() ? "" : rb.settings().summary(true)
                 + " · ⚙ — настройки маршрута (камера, зажим мыши)", Ui.SUB));
 

@@ -15,7 +15,7 @@ final class HudVisibility {
         combat=com.farmmacro.combat.AimAssist.INSTANCE.keyActive()||com.farmmacro.combat.CombatSway.INSTANCE.holdingCrouch()
             ||com.farmmacro.combat.SpecialZealotHunt.INSTANCE.active()||com.farmmacro.combat.SpecialZealotHunt.INSTANCE.pending();
         pests=com.farmmacro.pest.PestHunter.INSTANCE.active();
-        service=com.farmmacro.market.StashSales.INSTANCE.active()||com.farmmacro.visitor.Visitors.INSTANCE.active()
+        service=com.farmmacro.fishing.AutoFish.INSTANCE.active()||com.farmmacro.market.StashSales.INSTANCE.active()||com.farmmacro.visitor.Visitors.INSTANCE.active()
             ||com.farmmacro.loadout.GlobalLoadouts.INSTANCE.active();
         navigation=com.farmmacro.route.NavigationInput.busy();
         active=farm||combat||pests||service||navigation||com.farmmacro.macro.Reconnect.state()!=com.farmmacro.macro.Reconnect.State.OFF;
@@ -29,7 +29,7 @@ final class HudVisibility {
             case "profit" -> com.farmmacro.stats.Telemetry.present()&&(farm||pests||service);
             case "skill","pet" -> com.farmmacro.stats.Telemetry.present()&&(farm||combat||com.farmmacro.stats.Telemetry.recentSkill());
             case "inventory" -> active;
-            case "status" -> farm||service;
+            case "status" -> farm||service&&!com.farmmacro.fishing.AutoFish.INSTANCE.active();
             case "nav" -> navigation||farm;
             default -> true;
         };

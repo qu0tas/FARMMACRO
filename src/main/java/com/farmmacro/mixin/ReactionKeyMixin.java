@@ -15,11 +15,12 @@ public class ReactionKeyMixin {
     @Inject(method = "keyPress", at = @At("HEAD"), cancellable = true)
     private void farmmacro$reactKey(long window, int action, KeyEvent event, CallbackInfo ci) {
         try { var mc=net.minecraft.client.Minecraft.getInstance();
-            if(com.farmmacro.panic.PanicHandoff.onKey(mc,action,event)){ci.cancel();return;}
+            if(action==1)com.farmmacro.panic.PanicDetector.INSTANCE.finishDelayed(mc);
             if(com.farmmacro.camera.Freecam.active())return;
             com.farmmacro.panic.AutomationSafety.INSTANCE.manualKey(mc,window,action,event);
             com.farmmacro.combat.CombatSway.INSTANCE.onKey(mc,action,event);
             if (action == 1) {
+            if(com.farmmacro.fishing.AutoFish.INSTANCE.active()&&(mc.options.keyUse.matches(event)||mc.options.keyAttack.matches(event)||java.util.Arrays.stream(mc.options.keyHotbarSlots).anyMatch(k->k.matches(event))))com.farmmacro.fishing.AutoFish.INSTANCE.userInput();
             com.farmmacro.macro.Scheduler.manualInput();
             if(com.farmmacro.FarmMacroMod.keyStashSale==null||!com.farmmacro.FarmMacroMod.keyStashSale.matches(event))
                 com.farmmacro.market.StashSales.INSTANCE.userInput();

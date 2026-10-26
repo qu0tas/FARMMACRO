@@ -1,0 +1,7 @@
+Skyblock AutoFisher — lyn1dev
+https://github.com/lyn1dev/skyblock-autofisher
+Pinned commit ec82aec357406d1137189936917775030d6ef56b
+License: CC0-1.0; full upstream legal text: Skyblock-AutoFisher-CC0.txt.
+Adapted workflow: !!! reel, recast, Fireveil switch/use/return, layered delays, debug; 52 exact creature messages.
+Kaelix rewrites scheduling for Minecraft26.1.2: client-tick state machine, own-hook association, observed lifecycle, stop gates, normal gameMode.useItem and vanilla hotbar selection. No upstream custom slot packets/executor, no ban-safety claims. Upstream author and project are not affiliated with Kaelix.
+Complete corresponding source and original pinned reference: kaelix-2.0.1-github-files.zip. Overall Kaelix distribution remains GPL-3.0-only; this contribution remains available under CC0.

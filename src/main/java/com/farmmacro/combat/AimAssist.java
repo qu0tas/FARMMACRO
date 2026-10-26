@@ -31,10 +31,10 @@ public final class AimAssist {
     private int blockedCandidates;
     private static final int BODY_BUDGET=128;private long bodyCursor;private String technicalGate="ACQUIRING";
     private final Set<Mob> budgetSkipped=Collections.newSetFromMap(new IdentityHashMap<>());
-    public String technicalState(){return !ModConfig.INSTANCE.aimAssistEnabled?"DISABLED":com.farmmacro.panic.PanicHandoff.pending()?"HANDOFF":active&&target!=null?"TRACKING":requested()?technicalGate:localStopReason.isEmpty()?"WAIT_KEY":"PAUSED_LOCAL";}
+    public String technicalState(){return !ModConfig.INSTANCE.aimAssistEnabled?"DISABLED":com.farmmacro.panic.PanicHandoff.pending()?"HANDOFF":active&&(target!=null||manualNpc!=null)?"TRACKING":requested()?technicalGate:localStopReason.isEmpty()?"WAIT_KEY":"PAUSED_LOCAL";}
     public String safeTargetDiagnostics(){return diagnostics.safeDetails();}
     public String searchStatus(){return manualMode()?"Осмотр отключён: только наведение":idleLook.status();}
-    public String cameraStatus(){if(manualMode())return "Motion: точный центр · "+Math.round(ModConfig.INSTANCE.motion.camera.aimTurnSpeed)+"°/с · без рандома";return camera.status()+(active&&target!=null?" · "+body.status():"");}
+    public String cameraStatus(){if(manualMode())return "Motion: "+manualScythe.status()+" · "+Math.round(ModConfig.INSTANCE.motion.camera.aimTurnSpeed)+"°/с · без рандома";return camera.status()+(active&&target!=null?" · "+body.status():"");}
     public String swayStatus(){return manualMode()?"Движение вручную":CombatSway.INSTANCE.status();}
     public String targetDiagnostics(){return diagnostics.details();}
     /** Deliberately omits chat, nicknames, coordinates, server address, custom profile names and filters. */
@@ -61,6 +61,9 @@ public final class AimAssist {
     private void pauseOccluded(){active=false;lastFrame=0;camera.suspend();}
     private ClientLevel world;
     private Mob target;
+    private net.minecraft.world.entity.LivingEntity manualNpc;
+    private final ManualScytheAim manualScythe=new ManualScytheAim();
+    private net.minecraft.world.entity.LivingEntity manualFocus(){return manualNpc!=null?manualNpc:target;}
     private boolean lastManual;
     private final EggSacAim eggSacs=new EggSacAim();
     private String targetName="",status="Aim assist выключен",lastMode="hold";
@@ -79,7 +82,7 @@ public final class AimAssist {
         Minecraft mc=Minecraft.getInstance();var c=ModConfig.INSTANCE;Mob mob=named.mob();
         if(!VisibleBody.valid(mc,mob))return TargetDiagnostics.Reason.INVALID;
         if(manualMode()){
-            if(!manualAllowed(named.name(),c))return TargetDiagnostics.Reason.FILTER;
+            if(!manualAllowed(named.mob(),named.name(),c))return TargetDiagnostics.Reason.FILTER;
             if(mc.player.getEyePosition().distanceTo(mob.getBoundingBox().getCenter())>c.aimManualRange)return TargetDiagnostics.Reason.RANGE;
             if(selected(mob))return TargetDiagnostics.Reason.CHOSEN;
             return highlightPoints.containsKey(mob)?TargetDiagnostics.Reason.READY:TargetDiagnostics.Reason.COVER;
@@ -139,10 +142,11 @@ public final class AimAssist {
             scanTick=ticks;
         }
     }
-    public void configure(boolean enabled){com.farmmacro.panic.AutomationSafety.INSTANCE.clearManualInput();localStopReason="";lastMode=ModConfig.INSTANCE.aimKeyMode;ModConfig.INSTANCE.aimAssistEnabled=enabled;resetActivation();release();autoFire.reset();clearChain();engagements.clear();diagnostics.clear(enabled?"ожидание клавиши":"выключен");special.cancel(Minecraft.getInstance(),"настройка/стоп");CombatSway.INSTANCE.stop(Minecraft.getInstance(),"настройка/стоп");status=enabled?"Aim assist: ожидаю клавишу":"Aim assist выключен";}
+    public void configure(boolean enabled){PlayerGazeGuard.reset();idleLook.clearMemory();com.farmmacro.panic.AutomationSafety.INSTANCE.clearManualInput();localStopReason="";lastMode=ModConfig.INSTANCE.aimKeyMode;ModConfig.INSTANCE.aimAssistEnabled=enabled;resetActivation();release();autoFire.reset();clearChain();engagements.clear();diagnostics.clear(enabled?"ожидание клавиши":"выключен");special.cancel(Minecraft.getInstance(),"настройка/стоп");CombatSway.INSTANCE.stop(Minecraft.getInstance(),"настройка/стоп");status=enabled?"Aim assist: ожидаю клавишу":"Aim assist выключен";}
     public void disable(){configure(false);}
     /** Local combat stop: keep the saved master permission, require deliberate reactivation. */
     public void pauseLocal(String why){
+        PlayerGazeGuard.reset();idleLook.clearMemory();
         com.farmmacro.panic.AutomationSafety.INSTANCE.clearManualInput();
         var mc=Minecraft.getInstance();localStopReason=why;resetActivation();release();autoFire.reset();clearChain();engagements.clear();
         special.cancel(mc,"локальный стоп");CombatSway.INSTANCE.pauseForHandoff(mc,why);
@@ -159,7 +163,7 @@ public final class AimAssist {
     public String status(){return status;}
     private void release(){release(false);}
     private void release(boolean handoff){
-        eggSacs.clear();
+        eggSacs.clear();manualNpc=null;manualScythe.reset();
         if(target!=null&&target.level()==world){chainMob=target;chainPoint=target.getBoundingBox().getCenter();chainAt=System.nanoTime();}
         active=false;target=null;targetName="";lastFrame=0;occludedTicks=0;body.reset();if(!handoff)resetTracking();else {areaAim.reset();jitter.reset();}}
     private void clearChain(){chainMob=null;chainPoint=null;chainAt=chainRearUntil=0;}
@@ -206,7 +210,7 @@ public final class AimAssist {
     private boolean mcFocusedMouse(){var mc=Minecraft.getInstance();return mc.isWindowActive()&&mc.mouseHandler.isMouseGrabbed()&&!Ungrab.active();}
     private boolean free(Minecraft mc){
         return mc.player!=null&&mc.level!=null&&mc.player.isAlive()&&!mc.player.isSpectator()&&mc.screen==null&&!mc.isPaused()
-            && !MacroManager.INSTANCE.isActive()&&!MacroManager.INSTANCE.isRecording()&&!RouteEditor.isActive()
+            && !com.farmmacro.fishing.AutoFish.INSTANCE.active() && !MacroManager.INSTANCE.isActive()&&!MacroManager.INSTANCE.isRecording()&&!RouteEditor.isActive()
             && com.farmmacro.window.BackgroundWork.combatInput(mc)&&!Mousemat.busy()
             &&!com.farmmacro.camera.Freecam.active()
             && !PestHunter.INSTANCE.active()&&(!NavigationInput.busy()||special.walking())&&(!SmoothTurn.isActive()||special.walking())&&!Freelook.active()&&!MouseLock.isLocked()&&!HumanReaction.running();
@@ -242,8 +246,17 @@ public final class AimAssist {
     }
     public void tick(Minecraft mc){
         if(lastManual!=manualMode()){configure(ModConfig.INSTANCE.aimAssistEnabled);lastManual=manualMode();}
-        if(manualMode()){manualTick(mc);return;}
+        if(manualMode()){PlayerGazeGuard.reset();idleLook.clearMemory();manualTick(mc);return;}
         updateAim(mc);
+        if(mc.player!=null&&mc.level!=null&&requested()&&free(mc)&&ModConfig.INSTANCE.aimAssistEnabled&&ticks%4==0){
+            int remembered=0;
+            for(var n:visible){
+                var mob=n.mob();var point=mob.getBoundingBox().getCenter();
+                if(VisibleBody.valid(mc,mob)&&allowed(mob,n.name(),ModConfig.INSTANCE)&&ShotPath.clear(mc,mc.player.getEyePosition(),point)){
+                    idleLook.remember(mc,mob.getId(),point);if(++remembered>=8)break;
+                }
+            }
+        }
         long now=System.nanoTime();
         IdleLook.Context searchContext=target!=null?(occludedTicks>0?IdleLook.Context.COVERED:IdleLook.Context.INACTIVE):
             searchAllowed?(blockedCandidates>0?IdleLook.Context.COVERED:IdleLook.Context.EMPTY):IdleLook.Context.WAITING;
@@ -265,15 +278,16 @@ public final class AimAssist {
         exposure.clear();budgetSkipped.clear();technicalGate="ACQUIRING";
         var c=ModConfig.INSTANCE;
         if(!free(mc))handoff(blockedReason(mc));
-        if(world!=mc.level){world=mc.level;resetActivation();release();autoFire.reset();clearChain();engagements.clear();diagnostics.clear("смена мира");special.cancel(mc,"смена мира");CombatSway.INSTANCE.stop(mc,"смена мира");candidates=List.of();visible=List.of();mouseSeen=false;lastPlayer=null;manualUntil=System.nanoTime()+500_000_000L;}
+        if(world!=mc.level){PlayerGazeGuard.reset();idleLook.clearMemory();world=mc.level;resetActivation();release();autoFire.reset();clearChain();engagements.clear();diagnostics.clear("смена мира");special.cancel(mc,"смена мира");CombatSway.INSTANCE.stop(mc,"смена мира");candidates=List.of();visible=List.of();mouseSeen=false;lastPlayer=null;manualUntil=System.nanoTime()+500_000_000L;}
         if(mc.player!=null){
             Vec3 position=mc.player.position();
-            if(lastPlayer!=null&&position.distanceTo(lastPlayer)>8){resetActivation();release();clearChain();manualUntil=System.nanoTime()+1_000_000_000L;}
+            if(lastPlayer!=null&&position.distanceTo(lastPlayer)>8){PlayerGazeGuard.reset();idleLook.clearMemory();resetActivation();release();clearChain();manualUntil=System.nanoTime()+1_000_000_000L;}
             lastPlayer=position;
         }
         engagements.prune(mc.level);
         ticks++;boolean wants=updateActivation(mc,c);
         if(wants)localStopReason="";
+        if(PlayerGazeGuard.tick(mc,wants&&free(mc)&&System.nanoTime()>=manualUntil)){technicalGate="PLAYER_GAZE";return;}
         if(stopForPlayerOverlap(mc)){technicalGate="PLAYER_OVERLAP";return;}
         if(AutomationSafety.INSTANCE.tick(mc)){technicalGate="SAFETY_STOP";return;}
         if(special.active()||special.pending()){
@@ -416,6 +430,11 @@ public final class AimAssist {
         applyCamera(mc,d);
     }
     private boolean manualAllowed(String name,ModConfig c){return BossTargets.matches(c.aimManualTarget,name,c.aimManualName);}
+    private boolean manualAllowed(net.minecraft.world.entity.LivingEntity body,String name,ModConfig c){
+        return HuntingTargets.selection(c.aimManualTarget)
+            ?body instanceof Mob&&HuntingTargets.body(c.aimManualTarget,name,body.getType().getDescriptionId())
+            :manualAllowed(name,c);
+    }
     private boolean manualFree(Minecraft mc){return free(mc)&&mc.isWindowActive()&&mc.mouseHandler.isMouseGrabbed();}
     /** Camera-only lifecycle. Never ticks Special, Sway, IdleLook or AutoScytheFire. */
     private void manualTick(Minecraft mc){
@@ -427,35 +446,42 @@ public final class AimAssist {
             release();visible=List.of();highlightPoints.clear();technicalGate="WAIT_MANUAL_KEY";
             status="Только наведение: "+(!c.aimAssistEnabled?"включи разрешение":!manualFree(mc)?"нужны фокус игры и свободный контекст":"нажми/удерживай "+MacroManager.keyName(FarmMacroMod.keyAim));return;
         }
-        if(AutomationSafety.INSTANCE.tick(mc))return;
+        // Manual camera only: no weapon/teleport/chat/staff alarms. Context gates still release it.
         localStopReason="";var eye=mc.player.getEyePosition();
         if(eggSacs.update(mc,c,target,targetName,ticks)){
             active=true;occludedTicks=0;technicalGate="MANUAL_EGG_SAC";
             status="Tarantula: мешок с яйцами · стреляй сам; затем следующий / босс";return;
         }
-        if(target!=null){
-            boolean valid=VisibleBody.valid(mc,target)&&manualAllowed(targetName,c)&&eye.distanceTo(target.getBoundingBox().getCenter())<=c.aimManualRange;
+        var focus=manualFocus();
+        if(focus!=null){
+            boolean valid=ManualTargets.valid(mc,focus)&&manualAllowed(focus,targetName,c)&&eye.distanceTo(focus.getBoundingBox().getCenter())<=c.aimManualRange
+                &&ManualTargets.confirmedNpc(mc,focus,targetName,c.aimManualRange);
             if(!valid)release();
-            else if(ShotPath.clear(mc,eye,target.getBoundingBox().getCenter())){active=true;occludedTicks=0;technicalGate="MANUAL_TRACKING";status="Только наведение: "+targetName+" · движение/атаки вручную";return;}
-            else{active=false;lastFrame=0;technicalGate="MANUAL_COVER";status="Центр закрыт: "+targetName+" · захват временно сохранён";if(++occludedTicks<=8)return;release();}
+            else{manualScythe.sample(focus);
+                if(ShotPath.clear(mc,eye,focus.getBoundingBox().getCenter())){active=true;occludedTicks=0;technicalGate="MANUAL_TRACKING";status="Только наведение: "+targetName+" · "+manualScythe.status()+" · ходьба/стрельба вручную";return;}
+                active=false;lastFrame=0;technicalGate="MANUAL_COVER";status="Тело закрыто: "+targetName+" · захват временно сохранён";if(++occludedTicks<=8)return;release();
+            }
         }
         if(ticks%2!=0)return;
-        var list=new ArrayList<MobNames.Named>(MobNames.nearby(mc,c.aimManualRange));
-        list.sort(Comparator.comparingDouble(n->mc.player.distanceToSqr(n.mob())));
-        candidates=List.copyOf(list);var open=new ArrayList<MobNames.Named>();highlightPoints.clear();
-        Mob best=null;String name="";double bestScore=Double.POSITIVE_INFINITY;int probes=0;
+        var list=new ArrayList<ManualTargets.Named>(ManualTargets.nearby(mc,c.aimManualRange));
+        list.sort(Comparator.comparingDouble(n->mc.player.distanceToSqr(n.body())));
+        candidates=list.stream().filter(n->n.body() instanceof Mob).map(n->new MobNames.Named((Mob)n.body(),n.name())).toList();
+        var open=new ArrayList<MobNames.Named>();highlightPoints.clear();
+        net.minecraft.world.entity.LivingEntity best=null;String name="";double bestScore=Double.POSITIVE_INFINITY;int probes=0;
         for(var n:list){
-            var mob=n.mob();if(!VisibleBody.valid(mc,mob)||!manualAllowed(n.name(),c))continue;
+            var mob=n.body();if(!ManualTargets.valid(mc,mob)||!manualAllowed(mob,n.name(),c))continue;
             var center=mob.getBoundingBox().getCenter();double dist=eye.distanceTo(center);if(dist>c.aimManualRange)continue;
             float[] a=angles(eye,center,mc.player.getYRot());double error=Math.hypot(WalkCore.wrap(a[0]-mc.player.getYRot()),a[1]-mc.player.getXRot());
             if(error>c.aimManualFov||++probes>BODY_BUDGET||!ShotPath.clear(mc,eye,center))continue;
-            open.add(n);highlightPoints.put(mob,center);double score=BossTargets.score(error,dist);
+            if(mob instanceof Mob m){open.add(new MobNames.Named(m,n.name()));highlightPoints.put(m,center);}
+            double score=HuntingTargets.target(c.aimManualTarget)?HuntingTargets.acquisitionScore(dist,error):BossTargets.score(error,dist);
             if(score<bestScore||score==bestScore&&(best==null||mob.getId()<best.getId())){best=mob;name=n.name();bestScore=score;}
         }
         visible=List.copyOf(open);
-        if(best==null){technicalGate="MANUAL_NO_TARGET";status="Только наведение: нет видимого центра выбранного моба в радиусе/FOV";return;}
-        target=best;targetName=name;active=true;lastFrame=0;occludedTicks=0;technicalGate="MANUAL_TRACKING";
-        status="Только наведение: "+name+" · движение/атаки вручную";
+        if(best==null){technicalGate="MANUAL_NO_TARGET";status="Только наведение: нет видимого тела выбранного моба в радиусе/FOV";return;}
+        target=best instanceof Mob m?m:null;manualNpc=target==null?best:null;targetName=name;
+        manualScythe.sample(best);active=true;lastFrame=0;occludedTicks=0;technicalGate="MANUAL_TRACKING";
+        status="Только наведение: "+name+" · ходьба/стрельба вручную";
     }
     private void manualFrame(Minecraft mc){
         var c=ModConfig.INSTANCE;
@@ -466,9 +492,12 @@ public final class AimAssist {
         if(eggSacs.locked()){
             point=eggSacs.framePoint(mc,c,partial);if(point==null){lastFrame=0;return;}
         }else{
-            if(target==null)return;
-            if(!VisibleBody.valid(mc,target)||!manualAllowed(targetName,c)){release();return;}
-            point=target.getBoundingBox().getCenter().add(target.getPosition(partial).subtract(target.position()));
+            var focus=manualFocus();if(focus==null)return;
+            if(!ManualTargets.valid(mc,focus)||!manualAllowed(focus,targetName,c)){release();return;}
+            point=HuntingTargets.target(c.aimManualTarget)
+                ?manualScythe.huntingPoint(mc,focus,mc.player.getEyePosition(partial),partial,c)
+                :manualScythe.point(mc,focus,mc.player.getEyePosition(partial),partial,c);
+            if(point==null){lastFrame=0;return;}
         }
         Vec3 eye=mc.player.getEyePosition(partial);
         if(eye.distanceTo(point)>c.aimManualRange||!ShotPath.clear(mc,eye,point)){lastFrame=0;return;}
@@ -491,7 +520,7 @@ public final class AimAssist {
     /** Live player list and actual body overlap, never discovery/ESP cache or a staff heuristic. */
     public boolean stopForPlayerOverlap(Minecraft mc){
         var c=ModConfig.INSTANCE;var p=c.combatPanic;
-        if(mc.player==null||mc.level==null||!c.aimAssistEnabled||!requested()||PanicHandoff.pending()
+        if(manualMode()||mc.player==null||mc.level==null||!c.aimAssistEnabled||!requested()||PanicHandoff.pending()
             ||p==null||!p.enabled||!p.playerOverlap
             ||!(c.aimZealotsOnly||"zealots".equals(c.combatProfileId)||zealot(targetName)))return false;
         var own=mc.player.getBoundingBox();

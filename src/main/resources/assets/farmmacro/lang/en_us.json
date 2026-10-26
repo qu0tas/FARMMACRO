@@ -30,5 +30,6 @@
   "key.farmmacro.loadout": "Apply selected loadout",
   "key.farmmacro.visitors": "Visitors: start / cancel (Alpha)",
   "key.farmmacro.stash_sale": "Stash → Bazaar: start / cancel",
-  "key.farmmacro.freecam": "Freecam"
+  "key.farmmacro.freecam": "Freecam",
+  "key.farmmacro.fishing": "AutoFish: start/stop"
 }
