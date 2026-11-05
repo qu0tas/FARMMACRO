@@ -50,3 +50,8 @@ run-navserver/
 
 # User secrets, private local checkpoints, exported profiles and screenshots
 /config/
+
+# Готовые JAR не храним в git — они прикладываются к GitHub Releases
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.patch

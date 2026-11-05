@@ -1,9 +1,12 @@
 package com.farmmacro.visual;
 
 import com.farmmacro.config.ModConfig;
+import com.farmmacro.util.Clock;
 import com.farmmacro.util.Guard;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.Map;
+import java.util.WeakHashMap;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Camera;
@@ -13,9 +16,6 @@ import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
-
-import java.util.Map;
-import java.util.WeakHashMap;
 
 /**
  * «China Hat»: полупрозрачный плоский конус над головой игрока. Только клиент, видна только мне.
@@ -36,6 +36,7 @@ public final class ChinaHatRenderer {
 
     /** Сглаженная высота макушки (приседание/плавание меняют её скачком). */
     private static final Map<AbstractClientPlayer, float[]> SMOOTH = new WeakHashMap<>();
+
     private static long lastNs;
 
     public static void register() {
@@ -59,7 +60,7 @@ public final class ChinaHatRenderer {
         long now = System.nanoTime();
         float dt = lastNs == 0 ? 0.016f : Math.min(0.25f, (now - lastNs) / 1e9f);
         lastNs = now;
-        double time = (System.currentTimeMillis() % 3_600_000L) / 1000.0;
+        double time = (Clock.millis() % 3_600_000L) / 1000.0;
 
         for (AbstractClientPlayer p : level.players()) {
             boolean self = p == mc.player;
@@ -70,11 +71,11 @@ public final class ChinaHatRenderer {
         }
     }
 
-    private static void submitHat(LevelRenderContext ctx, AbstractClientPlayer p, Vec3 cam, float pt, float dt,
-                                  double time, ModConfig c) {
+    private static void submitHat(
+            LevelRenderContext ctx, AbstractClientPlayer p, Vec3 cam, float pt, float dt, double time, ModConfig c) {
         // плавная высота макушки
         float target = p.getBbHeight();
-        float[] s = SMOOTH.computeIfAbsent(p, k -> new float[]{target});
+        float[] s = SMOOTH.computeIfAbsent(p, k -> new float[] {target});
         s[0] += (target - s[0]) * (1f - (float) Math.exp(-dt * 14f));
 
         Vec3 pos = p.getPosition(pt);
@@ -83,7 +84,7 @@ public final class ChinaHatRenderer {
         float z = (float) (pos.z - cam.z);
 
         float headYaw = Mth.rotLerp(pt, p.yHeadRotO, p.yHeadRot);
-        double spin = time * c.hatSpeed * 0.6;                 // оборотов… условно: 1.0 ≈ 1 круг за ~10 с
+        double spin = time * c.hatSpeed * 0.6; // оборотов… условно: 1.0 ≈ 1 круг за ~10 с
         double baseAngle = Math.toRadians(-headYaw) + spin;
 
         int segments = Math.max(8, Math.min(96, c.hatSegments));
@@ -101,7 +102,7 @@ public final class ChinaHatRenderer {
         try {
             ps.translate(x, y, z);
             ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.debugQuads(), (pose, vc) -> {
-                float lip = 0.93f;    // где начинается светлая кромка (доля радиуса)
+                float lip = 0.93f; // где начинается светлая кромка (доля радиуса)
                 for (int i = 0; i < segments; i++) {
                     double t0 = (double) i / segments, t1 = (double) (i + 1) / segments;
                     double a0 = baseAngle + t0 * Math.PI * 2, a1 = baseAngle + t1 * Math.PI * 2;

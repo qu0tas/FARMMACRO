@@ -2,7 +2,6 @@ package com.farmmacro.notify;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
@@ -19,7 +18,9 @@ public final class Webhook {
             "^https://(?:(?:ptb|canary)\\.)?discord(?:app)?\\.com/api(?:/v\\d+)?/webhooks/\\d{5,25}/[A-Za-z0-9_\\-]{20,120}/?$");
     public static final int CONTENT_MAX = 1900;
 
-    public static boolean validUrl(String url) { return url != null && URL.matcher(url.strip()).matches(); }
+    public static boolean validUrl(String url) {
+        return url != null && URL.matcher(url.strip()).matches();
+    }
 
     /** Для поля в меню: адрес без токена. */
     public static String masked(String url) {
@@ -46,14 +47,20 @@ public final class Webhook {
     public static byte[] multipart(String boundary, String payloadJson, String fileName, byte[] png) {
         ByteArrayOutputStream out = new ByteArrayOutputStream(png.length + 1024);
         String safeName = fileName.replaceAll("[^A-Za-z0-9_.\\-]", "_");
-        write(out, "--" + boundary + "\r\nContent-Disposition: form-data; name=\"payload_json\"\r\n"
-                + "Content-Type: application/json\r\n\r\n" + payloadJson + "\r\n");
-        write(out, "--" + boundary + "\r\nContent-Disposition: form-data; name=\"files[0]\"; filename=\"" + safeName + "\"\r\n"
-                + "Content-Type: image/png\r\n\r\n");
+        write(
+                out,
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"payload_json\"\r\n"
+                        + "Content-Type: application/json\r\n\r\n" + payloadJson + "\r\n");
+        write(
+                out,
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"files[0]\"; filename=\"" + safeName
+                        + "\"\r\n" + "Content-Type: image/png\r\n\r\n");
         out.writeBytes(png);
         write(out, "\r\n--" + boundary + "--\r\n");
         return out.toByteArray();
     }
 
-    private static void write(ByteArrayOutputStream out, String s) { out.writeBytes(s.getBytes(StandardCharsets.UTF_8)); }
+    private static void write(ByteArrayOutputStream out, String s) {
+        out.writeBytes(s.getBytes(StandardCharsets.UTF_8));
+    }
 }

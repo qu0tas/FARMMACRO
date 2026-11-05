@@ -1,6 +1,7 @@
 {
   "required": true,
   "package": "com.farmmacro.mixin",
+  "plugin": "com.farmmacro.util.mixin.KaelixMixinPlugin",
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraTurnMixin",

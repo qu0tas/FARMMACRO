@@ -1,5 +1,10 @@
+import net.ltgt.gradle.errorprone.CheckSeverity
+
 plugins {
 	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+	id 'jacoco'
+	id 'com.diffplug.spotless' version "${spotless_version}"
+	id 'net.ltgt.errorprone' version "${errorprone_plugin_version}"
 }
 
 version = project.mod_version
@@ -13,10 +18,23 @@ dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+	// @NullMarked/@Nullable только для компиляции и NullAway; в JAR не попадает.
+	compileOnly "org.jspecify:jspecify:${project.jspecify_version}"
+	errorprone "com.google.errorprone:error_prone_core:${project.errorprone_version}"
+	errorprone "com.uber.nullaway:nullaway:${project.nullaway_version}"
+
+	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testCompileOnly "org.jspecify:jspecify:${project.jspecify_version}"
+
+	// Клиентские game-тесты в продакшен-запуске (CI, Xvfb): тот же Fabric API, что и в dev.
+	productionRuntimeMods "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 }
 
 processResources {
-    inputs.property("navTestMode", project.hasProperty("navTest"))
+	inputs.property("navTestMode", project.hasProperty("navTest"))
 	def props = [version: project.version, minecraft_version: project.minecraft_version,
 	             loader_version: project.loader_version, fabric_version: project.fabric_version]
 	inputs.properties props
@@ -27,9 +45,114 @@ java {
 	toolchain.languageVersion = JavaLanguageVersion.of(25)
 }
 
-tasks.withType(JavaCompile).configureEach {
-	it.options.encoding = 'UTF-8'
-	it.options.release = 25
+tasks.withType(JavaCompile).configureEach { task ->
+	def mainCompile = (task.name == 'compileJava')
+	task.options.encoding = 'UTF-8'
+	task.options.release = 25
+	// Error Prone + NullAway только для кода мода. NullAway проверяет пакеты с @NullMarked
+	// (package-info.java) — так строгая проверка вводится постепенно, без тысяч предупреждений сразу.
+	task.options.errorprone {
+		enabled = mainCompile
+		disableWarningsInGeneratedCode = true
+		// Автоисправление: ./gradlew compileJava -PepPatch=MissingOverride (правит исходники на месте).
+		if (project.hasProperty('epPatch')) errorproneArgs.addAll('-XepPatchChecks:' + project.epPatch, '-XepPatchLocation:IN_PLACE')
+		check('NullAway', CheckSeverity.ERROR)
+		option('NullAway:OnlyNullMarked', 'true')
+		option('NullAway:JSpecifyMode', 'true')
+		// Шумные для этого кода стилевые проверки: не баги.
+		disable('UnusedVariable', 'UnusedMethod', 'MissingSummary', 'InlineMeSuggester', 'JavaTimeDefaultTimeZone',
+			'StringCaseLocaleUsage', 'NarrowCalculation', 'NonApiType', 'OperatorPrecedence', 'MixedMutabilityReturnType',
+			'EmptyCatch', 'StatementSwitchToExpressionSwitch', 'PatternMatchingInstanceof', 'UnnecessaryParentheses',
+			'CatchAndPrintStackTrace', 'JdkObsolete', 'ReferenceEquality', 'FloatingPointLiteralPrecision', 'LongDoubleConversion',
+			'InvalidLink', 'InvalidParam', 'InvalidBlockTag', 'EscapedEntity', 'UnicodeEscape', 'AlmostJavadoc', 'EffectivelyPrivate',
+			// Осознанные решения в коде: ordinal() в горячем цикле PathFinder, массивы в record-ах-буферах,
+			// IdentityHashMap для сущностей, volatile-счётчики одного потока, имена Rows.Number и т.п.
+			'EnumOrdinal', 'ArrayRecordComponent', 'IdentityHashMapUsage', 'NonAtomicVolatileUpdate', 'ThreadPriorityCheck',
+			'StringSplitter', 'InconsistentCapitalization', 'ImmutableEnumChecker', 'AvoidCommonTypeNames', 'MutablePublicArray')
+	}
+}
+
+// ── Тесты ────────────────────────────────────────────────────────────────────────────────────
+// src/test — обычный JUnit без игры (секунды). Включает и все старые quickCheck из src/stress
+// (как динамические тесты), поэтому `./gradlew build` = компиляция + все быстрые проверки.
+test {
+	useJUnitPlatform()
+	maxHeapSize = '768m'
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+	testLogging {
+		events 'failed', 'skipped'
+		exceptionFormat 'full'
+		showStandardStreams = false
+	}
+	finalizedBy 'jacocoTestReport'
+}
+
+jacoco { toolVersion = project.jacoco_version }
+jacocoTestReport {
+	dependsOn test
+	reports { xml.required = true; html.required = true }
+	// Покрытие только кода мода (не тестов и не стресс-утилит).
+	sourceSets sourceSets.main
+}
+
+// Клиентские game-тесты: настоящий Minecraft-клиент, одиночный мир, скриншоты.
+// Локально: ./gradlew runClientGameTest (нужен экран или Xvfb). В CI: runProductionClientGameTest.
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = 'kaelix-gametest'
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true
+	}
+}
+
+// JAR с тестами Kaelix (src/gametest) — только для production-запуска; не в build/libs, в релиз не попадает.
+def gametestJar = tasks.register('gametestJar', Jar) {
+	group = 'verification'
+	archiveClassifier = 'gametest'
+	destinationDirectory = layout.buildDirectory.dir('gametest-libs')
+	from sourceSets.gametest.output
+}
+
+tasks.register('runProductionClientGameTest', net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+	group = 'verification'
+	description = 'Клиентские game-тесты на собранном JAR (как у игрока); в CI под Xvfb'
+	mods.from(gametestJar)
+	runDir = layout.buildDirectory.dir('run/productionClientGameTest')
+	jvmArgs.add('-Dfabric.client.gametest')
+	jvmArgs.add('-Dfabric.client.gametest.disableNetworkSynchronizer=true')
+	useXVFB = true
+}
+
+// Релиз: тег vX.Y.Z должен совпадать с mod_version. CI: ./gradlew verifyReleaseVersion -PreleaseModVersion=2.1.0
+tasks.register('verifyReleaseVersion') {
+	group = 'verification'
+	description = 'Проверяет, что -PreleaseModVersion (из git-тега) совпадает с mod_version'
+	def expected = providers.gradleProperty('releaseModVersion')
+	def actual = project.mod_version.toString()
+	doLast {
+		if (!expected.isPresent()) {
+			throw new GradleException('Укажи -PreleaseModVersion=<версия из тега>')
+		}
+		def tag = expected.get().replaceFirst(/^v/, '')
+		if (tag != actual) {
+			throw new GradleException("Тег v${tag} не совпадает с mod_version=${actual} в gradle.properties")
+		}
+		logger.lifecycle("Версия релиза совпадает: ${actual}")
+	}
+}
+
+// ── Форматирование ───────────────────────────────────────────────────────────────────────────
+// ./gradlew spotlessApply — отформатировать; spotlessCheck входит в check (CI падает на неформатированном коде).
+spotless {
+	java {
+		target 'src/*/java/**/*.java'
+		palantirJavaFormat(project.palantir_version)
+		removeUnusedImports()
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
 }
 
 // Проверка декодера звуков вне игры: ./gradlew soundStress [-Piterations=1000]. В build не входит.
@@ -92,43 +215,53 @@ tasks.named('compileJava') { dependsOn 'checkRemovedFiles' }
 
 // Opt-in integration harness: never included in the distributable JAR.
 if (project.hasProperty('navTest')) {
-    sourceSets {
-        navTest {
-            compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
-            runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
-        }
-    }
-    loom {
-        mods {
-            farmmacro { sourceSet sourceSets.main; sourceSet sourceSets.navTest }
-        }
-        runs {
-            client {
-                runDir 'run-navclient'
-                vmArg '-Dfarmmacro.navTest=true'
-                programArgs '--quickPlayMultiplayer', '127.0.0.1:25567', '--username', 'NavTester'
-            }
-            server { runDir 'run-navserver' }
-        }
-    }
-    tasks.named('processResources') {
-        doLast {
-            def f = file("$buildDir/resources/main/fabric.mod.json")
-            def data = new groovy.json.JsonSlurper().parse(f)
-            data.entrypoints.client.add('com.farmmacro.navtest.NavClientTest')
-            f.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(data))
-        }
-    }
-    tasks.named('runClient') { dependsOn tasks.named('navTestClasses'); classpath += sourceSets.navTest.output; maxHeapSize='768m' }
-    tasks.named('runServer') { maxHeapSize='512m' }
+	sourceSets {
+		navTest {
+			compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+			runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+		}
+	}
+	loom {
+		mods {
+			farmmacro { sourceSet sourceSets.main; sourceSet sourceSets.navTest }
+		}
+		runs {
+			client {
+				runDir 'run-navclient'
+				vmArg '-Dfarmmacro.navTest=true'
+				programArgs '--quickPlayMultiplayer', '127.0.0.1:25567', '--username', 'NavTester'
+			}
+			server { runDir 'run-navserver' }
+		}
+	}
+	tasks.named('processResources') {
+		doLast {
+			def f = layout.buildDirectory.file('resources/main/fabric.mod.json').get().asFile
+			def data = new groovy.json.JsonSlurper().parse(f)
+			data.entrypoints.client.add('com.farmmacro.navtest.NavClientTest')
+			f.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(data))
+		}
+	}
+	tasks.named('runClient') { dependsOn tasks.named('navTestClasses'); classpath += sourceSets.navTest.output; maxHeapSize='768m' }
+	tasks.named('runServer') { maxHeapSize='512m' }
 }
 
 
 // Small explicit checks for attended-start and copy geometry; no routeStress/client/server.
 tasks.register('quickCheck', JavaExec) {
- group = 'verification'
- description = 'Small attended-start/copy/config checks only; no large simulations or game'
- classpath = sourceSets.stress.runtimeClasspath
- mainClass = 'com.farmmacro.release.AttendedQuickCheck'
- jvmArgs = ['-Xmx256m']
+	group = 'verification'
+	description = 'Small attended-start/copy/config checks only; no large simulations or game'
+	classpath = sourceSets.stress.runtimeClasspath
+	mainClass = 'com.farmmacro.release.AttendedQuickCheck'
+	jvmArgs = ['-Xmx256m']
 }
+
+// JUnit (src/test) видит классы src/stress: старые quickCheck запускаются там как динамические тесты.
+sourceSets {
+	test {
+		compileClasspath += sourceSets.stress.output
+		runtimeClasspath += sourceSets.stress.output
+	}
+}
+
+// quickCheck остаётся для быстрого текстового прогона; в build/CI те же проверки идут через `test`.

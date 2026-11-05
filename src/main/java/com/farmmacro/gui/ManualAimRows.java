@@ -1,47 +1,249 @@
 package com.farmmacro.gui;
-import com.farmmacro.config.ModConfig;
+
+import com.farmmacro.FarmMacroMod;
 import com.farmmacro.combat.*;
+import com.farmmacro.config.ModConfig;
+import com.farmmacro.macro.MacroManager;
 import java.util.*;
+
 final class ManualAimRows {
- static void build(List<Rows.Row> rows,Runnable save){var c=ModConfig.INSTANCE;
-  rows.add(new Rows.Section("Ручной Aim / Мобы").key("combat.aim"));
-  rows.add(new Rows.Toggle("Разрешить наведение", "Только камера: без ходьбы, атак, выстрелов, осмотра и Special-поиска. Старые флаги автоматизации в этом режиме игнорируются.",()->c.aimAssistEnabled,v->{AimAssist.INSTANCE.configure(v);save.run();}));
-  rows.add(new Rows.ListSelector("Режим клавиши", "Общая клавиша Aim assist: Hold или Toggle. WASD, прыжки, спринт, атаки и ручная мышь не выключают этот режим; для выхода отпусти Hold/нажми Toggle или End.",()->List.of(new Rows.Choice("hold","Удерживать"),new Rows.Choice("toggle","Переключать")),()->c.aimKeyMode,v->{c.aimKeyMode=v;AimAssist.INSTANCE.configure(c.aimAssistEnabled);save.run();}));
-  rows.add(new Rows.Note(()->"Клавиша: "+com.farmmacro.macro.MacroManager.keyName(com.farmmacro.FarmMacroMod.keyAim)+" · назначается в разделе Клавиши",Ui.SUB));
-  rows.add(new Rows.ListSelector("Цель наведения", "Все боссы — только основные имена. В каждой ветке отдельно босс/формы либо босс + мини/формы; обычные XP-мобы не входят. Доступны также точное имя и каталог. Данжи: отдельные группы и имена. Владелец, уязвимость и активная фаза не определяются.",()->{
-   var out=new ArrayList<Rows.Choice>();
-   out.add(new Rows.Choice("hunting:nearby","Hunting: ближайший моб (любое имя)"));out.add(new Rows.Choice("hunting:all","Hunting: каталог + лягушки / аксолотли / рыбы"));for(var g:HuntingTargets.groups())out.add(new Rows.Choice("hunting:"+g.id(),g.title()));
-   out.add(new Rows.Choice("slayers","Slayer: все боссы"));
-   for(var b:SlayerCatalog.BRANCHES){
-    out.add(new Rows.Choice("slayer:"+b.id()+":boss","Slayer "+b.title()+": босс / формы"));
-    out.add(new Rows.Choice("slayer:"+b.id()+":encounter","Slayer "+b.title()+": босс + мини / формы"));
-    for(String n:b.bossForms())out.add(new Rows.Choice(n,(b.bosses().contains(n)?"Босс: ":"Форма: ")+n));
-   }
-   out.add(new Rows.Choice("dungeon:all","Данжи: боссы + мини"));
-   out.add(new Rows.Choice("dungeon:bosses","Данжи: боссы"));out.add(new Rows.Choice("dungeon:minis","Данжи: мини-боссы"));
-   for(String n:DungeonTargets.ALL)out.add(new Rows.Choice(n,"Данжи: "+n));
-   var seen=new HashSet<String>(DungeonTargets.ALL);for(var b:SlayerCatalog.BRANCHES)seen.addAll(b.bossForms());for(var g:MobCatalog.GROUPS)for(String n:g.mobs())if(!n.isBlank()&&seen.add(n))out.add(new Rows.Choice(n,n));
-   out.add(new Rows.Choice("custom","Своё имя"));return out;
-  },()->c.aimManualTarget,v->{c.aimManualTarget=v;AimAssist.INSTANCE.configure(c.aimAssistEnabled);save.run();}));
-  rows.add(new Rows.Note("Hunting: ближайший моб — без фильтра имени, любое видимое живое Mob-тело (включая обычных животных). Игроки, стойки и Display не цели. В каталоге + водные также распознаёт типы Frog/Tadpole/Axolotl/Cod/Salmon/Pufferfish/Tropical Fish/Squid/Glow Squid без известного имени. Начальный выбор — по расстоянию в пределах FOV, затем держит цель до потери/смерти. Ходьба/атаки/REEL вручную. Если сущность — только декорация или скрытое тело, захват не гарантируется.",Ui.SUB));
-  rows.add(new Rows.Toggle("Hunting: упреждение выстрела", "Учитывает скорость тела по клиентским тикам. По умолчанию только лук/арбалет/Glacial Scythe. Не применяет стрельбу в ноги/пол, не стреляет сам. Это ограниченный прямолинейный прогноз, не полная баллистика стрел/воды.",()->c.huntingAimLead,v->{c.huntingAimLead=v;save.run();}).showIf(()->HuntingTargets.target(c.aimManualTarget)));
-  rows.add(new Rows.Toggle("Hunting: прогноз с любым предметом", "Для особых предметов, которые сервер отображает не как лук. С лассо/сетью/ближним оружием обычно лучше выключить: тогда центр тела.",()->c.huntingAimLeadOtherItems,v->{c.huntingAimLeadOtherItems=v;save.run();}).showIf(()->HuntingTargets.target(c.aimManualTarget)&&c.huntingAimLead));
-  rows.add(new Rows.Number("Hunting: скорость снаряда (оценка)", "Блоки/с;40 — настраиваемая оценка, не серверная константа. Слишком далеко вперёд: увеличь скорость; недостаточно: уменьши. Для стрел нет компенсации гравитации.",()->c.huntingAimProjectileSpeed,v->{c.huntingAimProjectileSpeed=v;save.run();},10,150,1,10,v->Rows.num(v)+" бл/с").showIf(()->HuntingTargets.target(c.aimManualTarget)&&c.huntingAimLead));
-  rows.add(new Rows.Number("Hunting: предел упреждения", "Секунды, дополнительно не более4 блоков; устаревшая выборка/телепорт сбрасывают прогноз. Закрытая прогнозируемая точка — центр видимого тела.",()->c.huntingAimMaxLead,v->{c.huntingAimMaxLead=v;save.run();},.05,1,.05,.1,v->Rows.num(v)+" с").showIf(()->HuntingTargets.target(c.aimManualTarget)&&c.huntingAimLead));
-  rows.add(new Rows.Number("Hunting: добавочная задержка", "Ручной запас0–200мс, не измерение ping.",()->c.huntingAimLeadDelayMs,v->{c.huntingAimLeadDelayMs=(int)v;save.run();},0,200,10,25,v->Rows.num(v)+" мс").showIf(()->HuntingTargets.target(c.aimManualTarget)&&c.huntingAimLead));
-  rows.add(new Rows.TextField("Точное имя моба", "Без цвета, уровня и HP. Настоящий видимый Mob. Для данжевых NPC нужны v2 UUID и известное имя/связанная метка. Обычные игроки и таблички не цели.",()->c.aimManualName,v->{c.aimManualName=v.strip();AimAssist.INSTANCE.configure(c.aimAssistEnabled);save.run();return true;},null,80,0).showIf(()->"custom".equals(c.aimManualTarget)));
-  rows.add(new Rows.Note("Ручная смена предмета: хотбар-клавиши и колесо сохраняют захват (лук, хил-посох, коса и другие предметы). В ручном режиме нет паники на смену/пропажу предмета, телепорт, чат или игроков рядом. Отдельные предметы не выбираются автоматически.",Ui.SUB));
-  rows.add(new Rows.Toggle("Tarantula: сначала мешки с яйцами", "Только ручной аим, когда фильтр разрешает Tarantula/Primordial/Conjoined. Подтверждённый мешок (SHOOT ME! + таймер + модель рядом с живым пауком) временно важнее босса. Стреляешь сам; после исчезновения — следующий либо босс. Без автолука и проверки уязвимости. Alpha: визуальный центр модели требует ручного теста.",()->c.aimManualEggSacs,v->{c.aimManualEggSacs=v;AimAssist.INSTANCE.configure(c.aimAssistEnabled);save.run();}));
-  rows.add(new Rows.Number("Радиус захвата", "Только загруженные мобы; дальность атаки оружия не увеличивается.",()->c.aimManualRange,v->{c.aimManualRange=v;save.run();},2,64,1,5,v->Rows.num(v)+" бл"));
-  rows.add(new Rows.Number("Угол первого захвата", "Градусы от прицела; живую захваченную цель держит при поворотах. Hunting — ближайший по расстоянию; другие ветки — ближе к прицелу, затем расстояние.",()->c.aimManualFov,v->{c.aimManualFov=v;save.run();},5,180,5,20,v->Rows.num(v)+"°"));
-  rows.add(new Rows.Note(()->"Скорость: "+Rows.num(c.motion.camera.aimTurnSpeed)+"°/с · настраивается в Motion → Базовая скорость наведения",Ui.SUB));
-  rows.add(new Rows.Toggle("Glacial Scythe: упреждение", "Только с косой в руке. Скорость цели по клиентским позициям, ограниченный перехват; телепорт/старая выборка сбрасывают прогноз. Без автокаста.",()->c.aimManualScytheLead,v->{c.aimManualScytheLead=v;save.run();}));
-  rows.add(new Rows.Toggle("Glacial Scythe: ноги + взрыв об пол", "Низкая точка внутри тела только при подтверждённом пересечении тела и пола рядом. Иначе центр тела. Это геометрическая возможность, не гарантия двойного урона.",()->c.aimManualScytheFeet,v->{c.aimManualScytheFeet=v;save.run();}));
-  rows.add(new Rows.Number("Оценка скорости Ice Bolt", "Блоки/с: начальная оценка 40, не подтверждённая серверная константа. Если уводит слишком далеко — увеличь; не хватает опережения — уменьши.",()->c.aimManualScytheSpeed,v->{c.aimManualScytheSpeed=v;save.run();},10,100,1,5,v->Rows.num(v)+" бл/с"));
-  rows.add(new Rows.Number("Предел упреждения", "Секунды; смещение дополнительно ограничено 4 блоками. Резкие повороты и лаги требуют ручной проверки.",()->c.aimManualScytheMaxLead,v->{c.aimManualScytheMaxLead=v;save.run();},.05,1,.05,.1,v->Rows.num(v)+" с"));
-  rows.add(new Rows.Number("Добавочная задержка прогноза", "Не измерение ping: небольшой ручной запас 0–200мс. По умолчанию 50мс.",()->c.aimManualScytheDelayMs,v->{c.aimManualScytheDelayMs=(int)v;save.run();},0,200,10,25,v->Rows.num(v)+" мс"));
-  rows.add(new Rows.Note("Без хуманайза: нет джиттера/перелётов. Вне Hunting с другим оружием — центр; мешки Tarantula имеют приоритет и не используют прогноз косы. Стена — пауза до8тиков. Данжи: атаки/фазы/уязвимость вручную; Thorn требует Spirit Bow, Watcher без живого тела не захватывается. Обычные игроки исключены; NPC без подтверждения пропускаются. Меню/потеря фокуса/смерть/смена мира/Freecam освобождают камеру без тревоги, затем новое нажатие. Паника относится только к автоматическим модулям.",Ui.SUB));
-  rows.add(new Rows.Note(()->AimAssist.INSTANCE.status(),Ui.SUB));
- }
- private ManualAimRows(){}
+    static void build(List<Rows.Row> rows, Runnable save) {
+        var c = ModConfig.INSTANCE;
+        rows.add(new Rows.Section("Ручной Aim / Мобы").key("combat.aim"));
+        rows.add(new Rows.Toggle(
+                "Разрешить наведение",
+                "Только камера: без ходьбы, атак, выстрелов, осмотра и Special-поиска. Старые флаги автоматизации в этом режиме игнорируются.",
+                () -> c.aimAssistEnabled,
+                v -> {
+                    AimAssist.INSTANCE.configure(v);
+                    save.run();
+                }));
+        rows.add(new Rows.ListSelector(
+                "Режим клавиши",
+                "Общая клавиша Aim assist: Hold или Toggle. WASD, прыжки, спринт, атаки и ручная мышь не выключают этот режим; для выхода отпусти Hold/нажми Toggle или End.",
+                () -> List.of(new Rows.Choice("hold", "Удерживать"), new Rows.Choice("toggle", "Переключать")),
+                () -> c.aimKeyMode,
+                v -> {
+                    c.aimKeyMode = v;
+                    AimAssist.INSTANCE.configure(c.aimAssistEnabled);
+                    save.run();
+                }));
+        rows.add(new Rows.Note(
+                () -> "Клавиша: " + MacroManager.keyName(FarmMacroMod.keyAim) + " · назначается в разделе Клавиши",
+                Ui.SUB));
+        rows.add(new Rows.ListSelector(
+                "Цель наведения",
+                "Все боссы — только основные имена. В каждой ветке отдельно босс/формы либо босс + мини/формы; обычные XP-мобы не входят. Доступны также точное имя и каталог. Данжи: отдельные группы и имена. Владелец, уязвимость и активная фаза не определяются.",
+                () -> {
+                    var out = new ArrayList<Rows.Choice>();
+                    out.add(new Rows.Choice("hunting:nearby", "Hunting: ближайший моб (любое имя)"));
+                    out.add(new Rows.Choice("hunting:all", "Hunting: каталог + лягушки / аксолотли / рыбы"));
+                    for (var g : HuntingTargets.groups()) out.add(new Rows.Choice("hunting:" + g.id(), g.title()));
+                    out.add(new Rows.Choice("slayers", "Slayer: все боссы"));
+                    for (var b : SlayerCatalog.BRANCHES) {
+                        out.add(new Rows.Choice(
+                                "slayer:" + b.id() + ":boss", "Slayer " + b.title() + ": босс / формы"));
+                        out.add(new Rows.Choice(
+                                "slayer:" + b.id() + ":encounter", "Slayer " + b.title() + ": босс + мини / формы"));
+                        for (String n : b.bossForms())
+                            out.add(new Rows.Choice(n, (b.bosses().contains(n) ? "Босс: " : "Форма: ") + n));
+                    }
+                    out.add(new Rows.Choice("dungeon:all", "Данжи: боссы + мини"));
+                    out.add(new Rows.Choice("dungeon:bosses", "Данжи: боссы"));
+                    out.add(new Rows.Choice("dungeon:minis", "Данжи: мини-боссы"));
+                    for (String n : DungeonTargets.ALL) out.add(new Rows.Choice(n, "Данжи: " + n));
+                    var seen = new HashSet<String>(DungeonTargets.ALL);
+                    for (var b : SlayerCatalog.BRANCHES) seen.addAll(b.bossForms());
+                    for (var g : MobCatalog.GROUPS)
+                        for (String n : g.mobs()) if (!n.isBlank() && seen.add(n)) out.add(new Rows.Choice(n, n));
+                    out.add(new Rows.Choice("custom", "Своё имя"));
+                    return out;
+                },
+                () -> c.aimManualTarget,
+                v -> {
+                    c.aimManualTarget = v;
+                    AimAssist.INSTANCE.configure(c.aimAssistEnabled);
+                    save.run();
+                }));
+        rows.add(new Rows.Note(
+                "Hunting: ближайший моб — без фильтра имени, любое видимое живое Mob-тело (включая обычных животных). Игроки, стойки и Display не цели. В каталоге + водные также распознаёт типы Frog/Tadpole/Axolotl/Cod/Salmon/Pufferfish/Tropical Fish/Squid/Glow Squid без известного имени. Начальный выбор — по расстоянию в пределах FOV, затем держит цель до потери/смерти. Ходьба/атаки/REEL вручную. Если сущность — только декорация или скрытое тело, захват не гарантируется.",
+                Ui.SUB));
+        rows.add(new Rows.Toggle(
+                        "Hunting: упреждение выстрела",
+                        "Учитывает скорость тела по клиентским тикам. По умолчанию только лук/арбалет/Glacial Scythe. Не применяет стрельбу в ноги/пол, не стреляет сам. Это ограниченный прямолинейный прогноз, не полная баллистика стрел/воды.",
+                        () -> c.huntingAimLead,
+                        v -> {
+                            c.huntingAimLead = v;
+                            save.run();
+                        })
+                .showIf(() -> HuntingTargets.target(c.aimManualTarget)));
+        rows.add(new Rows.Toggle(
+                        "Hunting: прогноз с любым предметом",
+                        "Для особых предметов, которые сервер отображает не как лук. С лассо/сетью/ближним оружием обычно лучше выключить: тогда центр тела.",
+                        () -> c.huntingAimLeadOtherItems,
+                        v -> {
+                            c.huntingAimLeadOtherItems = v;
+                            save.run();
+                        })
+                .showIf(() -> HuntingTargets.target(c.aimManualTarget) && c.huntingAimLead));
+        rows.add(new Rows.Number(
+                        "Hunting: скорость снаряда (оценка)",
+                        "Блоки/с;40 — настраиваемая оценка, не серверная константа. Слишком далеко вперёд: увеличь скорость; недостаточно: уменьши. Для стрел нет компенсации гравитации.",
+                        () -> c.huntingAimProjectileSpeed,
+                        v -> {
+                            c.huntingAimProjectileSpeed = v;
+                            save.run();
+                        },
+                        10,
+                        150,
+                        1,
+                        10,
+                        v -> Rows.num(v) + " бл/с")
+                .showIf(() -> HuntingTargets.target(c.aimManualTarget) && c.huntingAimLead));
+        rows.add(new Rows.Number(
+                        "Hunting: предел упреждения",
+                        "Секунды, дополнительно не более4 блоков; устаревшая выборка/телепорт сбрасывают прогноз. Закрытая прогнозируемая точка — центр видимого тела.",
+                        () -> c.huntingAimMaxLead,
+                        v -> {
+                            c.huntingAimMaxLead = v;
+                            save.run();
+                        },
+                        .05,
+                        1,
+                        .05,
+                        .1,
+                        v -> Rows.num(v) + " с")
+                .showIf(() -> HuntingTargets.target(c.aimManualTarget) && c.huntingAimLead));
+        rows.add(new Rows.Number(
+                        "Hunting: добавочная задержка",
+                        "Ручной запас0–200мс, не измерение ping.",
+                        () -> c.huntingAimLeadDelayMs,
+                        v -> {
+                            c.huntingAimLeadDelayMs = (int) v;
+                            save.run();
+                        },
+                        0,
+                        200,
+                        10,
+                        25,
+                        v -> Rows.num(v) + " мс")
+                .showIf(() -> HuntingTargets.target(c.aimManualTarget) && c.huntingAimLead));
+        rows.add(new Rows.TextField(
+                        "Точное имя моба",
+                        "Без цвета, уровня и HP. Настоящий видимый Mob. Для данжевых NPC нужны v2 UUID и известное имя/связанная метка. Обычные игроки и таблички не цели.",
+                        () -> c.aimManualName,
+                        v -> {
+                            c.aimManualName = v.strip();
+                            AimAssist.INSTANCE.configure(c.aimAssistEnabled);
+                            save.run();
+                            return true;
+                        },
+                        null,
+                        80,
+                        0)
+                .showIf(() -> "custom".equals(c.aimManualTarget)));
+        rows.add(new Rows.Note(
+                "Ручная смена предмета: хотбар-клавиши и колесо сохраняют захват (лук, хил-посох, коса и другие предметы). В ручном режиме нет паники на смену/пропажу предмета, телепорт, чат или игроков рядом. Отдельные предметы не выбираются автоматически.",
+                Ui.SUB));
+        rows.add(new Rows.Toggle(
+                "Tarantula: сначала мешки с яйцами",
+                "Только ручной аим, когда фильтр разрешает Tarantula/Primordial/Conjoined. Подтверждённый мешок (SHOOT ME! + таймер + модель рядом с живым пауком) временно важнее босса. Стреляешь сам; после исчезновения — следующий либо босс. Без автолука и проверки уязвимости. Alpha: визуальный центр модели требует ручного теста.",
+                () -> c.aimManualEggSacs,
+                v -> {
+                    c.aimManualEggSacs = v;
+                    AimAssist.INSTANCE.configure(c.aimAssistEnabled);
+                    save.run();
+                }));
+        rows.add(new Rows.Number(
+                "Радиус захвата",
+                "Только загруженные мобы; дальность атаки оружия не увеличивается.",
+                () -> c.aimManualRange,
+                v -> {
+                    c.aimManualRange = v;
+                    save.run();
+                },
+                2,
+                64,
+                1,
+                5,
+                v -> Rows.num(v) + " бл"));
+        rows.add(new Rows.Number(
+                "Угол первого захвата",
+                "Градусы от прицела; живую захваченную цель держит при поворотах. Hunting — ближайший по расстоянию; другие ветки — ближе к прицелу, затем расстояние.",
+                () -> c.aimManualFov,
+                v -> {
+                    c.aimManualFov = v;
+                    save.run();
+                },
+                5,
+                180,
+                5,
+                20,
+                v -> Rows.num(v) + "°"));
+        rows.add(new Rows.Note(
+                () -> "Скорость: " + Rows.num(c.motion.camera.aimTurnSpeed)
+                        + "°/с · настраивается в Motion → Базовая скорость наведения",
+                Ui.SUB));
+        rows.add(new Rows.Toggle(
+                "Glacial Scythe: упреждение",
+                "Только с косой в руке. Скорость цели по клиентским позициям, ограниченный перехват; телепорт/старая выборка сбрасывают прогноз. Без автокаста.",
+                () -> c.aimManualScytheLead,
+                v -> {
+                    c.aimManualScytheLead = v;
+                    save.run();
+                }));
+        rows.add(new Rows.Toggle(
+                "Glacial Scythe: ноги + взрыв об пол",
+                "Низкая точка внутри тела только при подтверждённом пересечении тела и пола рядом. Иначе центр тела. Это геометрическая возможность, не гарантия двойного урона.",
+                () -> c.aimManualScytheFeet,
+                v -> {
+                    c.aimManualScytheFeet = v;
+                    save.run();
+                }));
+        rows.add(new Rows.Number(
+                "Оценка скорости Ice Bolt",
+                "Блоки/с: начальная оценка 40, не подтверждённая серверная константа. Если уводит слишком далеко — увеличь; не хватает опережения — уменьши.",
+                () -> c.aimManualScytheSpeed,
+                v -> {
+                    c.aimManualScytheSpeed = v;
+                    save.run();
+                },
+                10,
+                100,
+                1,
+                5,
+                v -> Rows.num(v) + " бл/с"));
+        rows.add(new Rows.Number(
+                "Предел упреждения",
+                "Секунды; смещение дополнительно ограничено 4 блоками. Резкие повороты и лаги требуют ручной проверки.",
+                () -> c.aimManualScytheMaxLead,
+                v -> {
+                    c.aimManualScytheMaxLead = v;
+                    save.run();
+                },
+                .05,
+                1,
+                .05,
+                .1,
+                v -> Rows.num(v) + " с"));
+        rows.add(new Rows.Number(
+                "Добавочная задержка прогноза",
+                "Не измерение ping: небольшой ручной запас 0–200мс. По умолчанию 50мс.",
+                () -> c.aimManualScytheDelayMs,
+                v -> {
+                    c.aimManualScytheDelayMs = (int) v;
+                    save.run();
+                },
+                0,
+                200,
+                10,
+                25,
+                v -> Rows.num(v) + " мс"));
+        rows.add(new Rows.Note(
+                "Без хуманайза: нет джиттера/перелётов. Вне Hunting с другим оружием — центр; мешки Tarantula имеют приоритет и не используют прогноз косы. Стена — пауза до8тиков. Данжи: атаки/фазы/уязвимость вручную; Thorn требует Spirit Bow, Watcher без живого тела не захватывается. Обычные игроки исключены; NPC без подтверждения пропускаются. Меню/потеря фокуса/смерть/смена мира/Freecam освобождают камеру без тревоги, затем новое нажатие. Паника относится только к автоматическим модулям.",
+                Ui.SUB));
+        rows.add(new Rows.Note(() -> AimAssist.INSTANCE.status(), Ui.SUB));
+    }
+
+    private ManualAimRows() {}
 }

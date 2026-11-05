@@ -12,18 +12,25 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(Camera.class)
 public class FreelookCameraMixin {
 
-    @Redirect(method = "alignWithEntity", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewYRot(F)F"))
+    @Redirect(
+            method = "alignWithEntity",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewYRot(F)F"))
     private float farmmacro$yaw(Entity e, float pt) {
         return mine(e) ? Freelook.yaw() : e.getViewYRot(pt);
     }
 
-    @Redirect(method = "alignWithEntity", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewXRot(F)F"))
+    @Redirect(
+            method = "alignWithEntity",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getViewXRot(F)F"))
     private float farmmacro$pitch(Entity e, float pt) {
         return mine(e) ? Freelook.pitch() : e.getViewXRot(pt);
     }
 
     private static boolean mine(Entity e) {
-        try { return Freelook.active() && e == Minecraft.getInstance().player; }
-        catch (Throwable t) { return false; }
+        try {
+            return Freelook.active() && e == Minecraft.getInstance().player;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 }

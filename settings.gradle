@@ -8,3 +8,8 @@ pluginManagement {
 		gradlePluginPortal()
 	}
 }
+
+plugins {
+	// Если на машине нет JDK 25, Gradle сам скачает подходящий (вместо ошибки «Cannot find a Java installation»).
+	id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}

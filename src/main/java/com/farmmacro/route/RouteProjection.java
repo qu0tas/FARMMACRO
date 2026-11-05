@@ -16,7 +16,9 @@ public final class RouteProjection {
     /** Результат: отрезок seg (от точки seg к seg+1), доля t 0…1, расстояние по горизонтали и по высоте. */
     public record Hit(int seg, double t, double dist, double dy) {
         /** Индекс точки, к которой идти дальше (конец отрезка). */
-        public int target() { return seg + 1; }
+        public int target() {
+            return seg + 1;
+        }
     }
 
     /** null — меньше двух точек. y = NaN — высота не учитывается. */
@@ -39,7 +41,10 @@ public final class RouteProjection {
             }
             double cost = Math.hypot(d, dy * Y_WEIGHT);
             // при равенстве (стоим ровно в точке-стыке) — более поздний отрезок: туда и идём дальше
-            if (cost <= bestCost + 1e-9) { bestCost = cost; best = new Hit(i, t, d, dy); }
+            if (cost <= bestCost + 1e-9) {
+                bestCost = cost;
+                best = new Hit(i, t, d, dy);
+            }
         }
         return best;
     }

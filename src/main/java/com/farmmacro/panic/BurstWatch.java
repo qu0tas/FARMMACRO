@@ -9,10 +9,10 @@ import java.util.Set;
  * Без Minecraft — проверка PlayersCheck.
  */
 public final class BurstWatch {
-    private final ArrayDeque<long[]> events = new ArrayDeque<>();   // {ms, pos}
+    private final ArrayDeque<long[]> events = new ArrayDeque<>(); // {ms, pos}
 
     public void add(long nowMs, long pos) {
-        if (events.size() < 512) events.addLast(new long[]{nowMs, pos});
+        if (events.size() < 512) events.addLast(new long[] {nowMs, pos});
     }
 
     /** Разных позиций за последние windowMs. */
@@ -23,5 +23,7 @@ public final class BurstWatch {
         return s.size();
     }
 
-    public void clear() { events.clear(); }
+    public void clear() {
+        events.clear();
+    }
 }

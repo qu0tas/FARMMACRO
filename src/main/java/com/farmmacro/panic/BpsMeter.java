@@ -1,5 +1,7 @@
 package com.farmmacro.panic;
 
+import java.util.Arrays;
+
 /**
  * v1.13 «Урожай не ломается»: блоков в секунду по «рабочим» тикам (ЛКМ зажата и идём).
  * Кольцо на {@code window} тиков: в каждом — рабочий ли тик и сколько блоков сломано.
@@ -11,18 +13,26 @@ public final class BpsMeter {
     private int pos, filled, workTotal, pendingBroken;
 
     /** Сломан блок (засчитается в текущий тик). */
-    public void onBroken() { if(pendingBroken<4096)pendingBroken++; }
+    public void onBroken() {
+        if (pendingBroken < 4096) pendingBroken++;
+    }
 
     /** Конец тика. windowTicks — длина окна (меняется из настроек — кольцо пересоздаётся). */
     public void tick(boolean isWorking, int windowTicks) {
         windowTicks = Math.max(20, Math.min(1200, windowTicks));
-        if (broken.length != windowTicks) { broken = new int[windowTicks]; working = new boolean[windowTicks]; pos = 0; filled = 0; workTotal = 0; }
+        if (broken.length != windowTicks) {
+            broken = new int[windowTicks];
+            working = new boolean[windowTicks];
+            pos = 0;
+            filled = 0;
+            workTotal = 0;
+        }
         broken[pos] = pendingBroken;
         working[pos] = isWorking;
         pendingBroken = 0;
         pos = (pos + 1) % broken.length;
         if (filled < broken.length) filled++;
-        if (isWorking&&workTotal<2400) workTotal++;
+        if (isWorking && workTotal < 2400) workTotal++;
     }
 
     private int workTicks() {
@@ -45,7 +55,11 @@ public final class BpsMeter {
     }
 
     public void reset() {
-        java.util.Arrays.fill(broken, 0); java.util.Arrays.fill(working, false);
-        pos = 0; filled = 0; workTotal = 0; pendingBroken = 0;
+        Arrays.fill(broken, 0);
+        Arrays.fill(working, false);
+        pos = 0;
+        filled = 0;
+        workTotal = 0;
+        pendingBroken = 0;
     }
 }

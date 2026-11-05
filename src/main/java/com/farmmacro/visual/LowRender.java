@@ -3,6 +3,9 @@ package com.farmmacro.visual;
 import com.farmmacro.FarmMacroMod;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroManager;
+import com.farmmacro.util.Clock;
+import java.util.concurrent.atomic.LongAdder;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
@@ -21,35 +24,41 @@ public final class LowRender {
     private static volatile boolean active;
     private static volatile Center center;
     /** v1.14.1: сколько раз сборка секций спросила блок в режиме (0 через 4 с — наш код не вызывается). */
-    private static final java.util.concurrent.atomic.LongAdder asked = new java.util.concurrent.atomic.LongAdder();
+    private static final LongAdder asked = new LongAdder();
+
     private static long onMs;
     private static boolean warned;
 
     private LowRender() {}
 
-    public static boolean active() { return active; }
+    public static boolean active() {
+        return active;
+    }
 
     public static void toggle(Minecraft mc) {
-        if (active) off(mc); else on(mc);
+        if (active) off(mc);
+        else on(mc);
     }
 
     public static void on(Minecraft mc) {
         if (active || mc.player == null) return;
         center = centerOf(mc.player);
         asked.reset();
-        onMs = System.currentTimeMillis();
+        onMs = Clock.millis();
         warned = false;
         active = true;
-        mc.levelRenderer.allChanged();                      // пересобрать всё: за радиусом — пусто
-        msg(mc, "§b▣ Low render: " + ModConfig.INSTANCE.lowRenderRadius + " бл §7("
-                + MacroManager.keyName(FarmMacroMod.keyLowRender) + " — выкл)");
+        mc.levelRenderer.allChanged(); // пересобрать всё: за радиусом — пусто
+        msg(
+                mc,
+                "§b▣ Low render: " + ModConfig.INSTANCE.lowRenderRadius + " бл §7("
+                        + MacroManager.keyName(FarmMacroMod.keyLowRender) + " — выкл)");
     }
 
     public static void off(Minecraft mc) {
         if (!active) return;
         active = false;
         center = null;
-        mc.levelRenderer.allChanged();                      // вернуть мир целиком
+        mc.levelRenderer.allChanged(); // вернуть мир целиком
         msg(mc, "§7□ Low render выключен");
     }
 
@@ -72,16 +81,26 @@ public final class LowRender {
             if (ModConfig.INSTANCE.lowRenderSavedChunks > 2) restoreChunks(mc);
         }
         if (!active) return;
-        if (mc.player == null || mc.level == null) { active = false; center = null; return; }
-        if (!warned && System.currentTimeMillis() - onMs > 4000) {
+        if (mc.player == null || mc.level == null) {
+            active = false;
+            center = null;
+            return;
+        }
+        if (!warned && Clock.millis() - onMs > 4000) {
             warned = true;
             if (asked.sum() == 0) {
-                FarmMacroMod.LOGGER.warn("FarmMacro Low render: сборка чанков не вызвала ни RenderSectionRegion, ни Sodium LevelSlice — "
-                        + "чанки собирает другой мод, режим не работает");
-                if (mc.player != null) mc.player.sendSystemMessage(Component.literal(
-                        "§8[§9Kaelix§8] §eLow render не сработал: чанки собирает другой мод рендера (не vanilla и не Sodium). Подробности — в логе."));
-            } else FarmMacroMod.LOGGER.info("FarmMacro Low render: работает ({} запросов блоков за 4 с, Sodium: {})", asked.sum(),
-                    net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
+                FarmMacroMod.LOGGER.warn(
+                        "FarmMacro Low render: сборка чанков не вызвала ни RenderSectionRegion, ни Sodium LevelSlice — "
+                                + "чанки собирает другой мод, режим не работает");
+                if (mc.player != null)
+                    mc.player.sendSystemMessage(
+                            Component.literal(
+                                    "§8[§9Kaelix§8] §eLow render не сработал: чанки собирает другой мод рендера (не vanilla и не Sodium). Подробности — в логе."));
+            } else
+                FarmMacroMod.LOGGER.info(
+                        "FarmMacro Low render: работает ({} запросов блоков за 4 с, Sodium: {})",
+                        asked.sum(),
+                        FabricLoader.getInstance().isModLoaded("sodium"));
         }
         Center old = center, now = centerOf(mc.player);
         if (now.equals(old)) return;
@@ -90,18 +109,26 @@ public final class LowRender {
         int m = Math.max(old == null ? 0 : old.r, now.r) + 1;
         int x0 = now.x, y0 = now.y, z0 = now.z, x1 = now.x, y1 = now.y, z1 = now.z;
         if (old != null) {
-            x0 = Math.min(x0, old.x); y0 = Math.min(y0, old.y); z0 = Math.min(z0, old.z);
-            x1 = Math.max(x1, old.x); y1 = Math.max(y1, old.y); z1 = Math.max(z1, old.z);
+            x0 = Math.min(x0, old.x);
+            y0 = Math.min(y0, old.y);
+            z0 = Math.min(z0, old.z);
+            x1 = Math.max(x1, old.x);
+            y1 = Math.max(y1, old.y);
+            z1 = Math.max(z1, old.z);
         }
-        if (old != null && (Math.abs(old.x - now.x) > 32 || Math.abs(old.y - now.y) > 32 || Math.abs(old.z - now.z) > 32)) {
-            mc.levelRenderer.allChanged();                  // телепорт далеко — проще пересобрать всё
+        if (old != null
+                && (Math.abs(old.x - now.x) > 32 || Math.abs(old.y - now.y) > 32 || Math.abs(old.z - now.z) > 32)) {
+            mc.levelRenderer.allChanged(); // телепорт далеко — проще пересобрать всё
             return;
         }
         mc.levelRenderer.setBlocksDirty(x0 - m, y0 - m, z0 - m, x1 + m, y1 + m, z1 + m);
     }
 
     private static Center centerOf(LocalPlayer p) {
-        return new Center((int) Math.floor(p.getX()), (int) Math.floor(p.getY() + 0.01), (int) Math.floor(p.getZ()),
+        return new Center(
+                (int) Math.floor(p.getX()),
+                (int) Math.floor(p.getY() + 0.01),
+                (int) Math.floor(p.getZ()),
                 ModConfig.INSTANCE.lowRenderRadius);
     }
 
@@ -117,11 +144,12 @@ public final class LowRender {
     public static int classify(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
         Center c = center;
         if (!active || c == null) return LowRenderMath.INSIDE;
-        return LowRenderMath.classify(minX, minY, minZ, maxX, maxY, maxZ,
-                c.x + 0.5, c.y + 0.5, c.z + 0.5, c.r + LowRenderMath.MARGIN);
+        return LowRenderMath.classify(
+                minX, minY, minZ, maxX, maxY, maxZ, c.x + 0.5, c.y + 0.5, c.z + 0.5, c.r + LowRenderMath.MARGIN);
     }
 
     private static void msg(Minecraft mc, String text) {
-        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
+        if (mc != null && mc.player != null)
+            mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
     }
 }

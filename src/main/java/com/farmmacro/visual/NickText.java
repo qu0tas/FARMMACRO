@@ -19,7 +19,8 @@ public final class NickText {
     public static final int MAX_TEXT = 16;
 
     /** Замены: свой ник → ownText; друзья → friendText (если hideFriends). Длинные — первыми (чтобы «Bob_1» раньше «Bob»). */
-    public static List<Pair> pairs(String own, String ownText, boolean hideFriends, Collection<String> friends, String friendText) {
+    public static List<Pair> pairs(
+            String own, String ownText, boolean hideFriends, Collection<String> friends, String friendText) {
         List<Pair> out = new ArrayList<>();
         if (valid(own)) out.add(new Pair(own, clean(ownText, "Player")));
         if (hideFriends && friends != null) {
@@ -27,7 +28,11 @@ public final class NickText {
             for (String f : friends) {
                 if (!valid(f) || (own != null && f.equalsIgnoreCase(own))) continue;
                 boolean dup = false;
-                for (Pair p : out) if (p.from().equalsIgnoreCase(f)) { dup = true; break; }
+                for (Pair p : out)
+                    if (p.from().equalsIgnoreCase(f)) {
+                        dup = true;
+                        break;
+                    }
                 if (!dup) out.add(new Pair(f, ft));
             }
         }
@@ -35,7 +40,9 @@ public final class NickText {
         return List.copyOf(out);
     }
 
-    private static boolean valid(String n) { return n != null && n.length() >= 2 && n.length() <= 32; }
+    private static boolean valid(String n) {
+        return n != null && n.length() >= 2 && n.length() <= 32;
+    }
 
     /** Текст замены: без §, обрезан до 16 символов; пустой — запасной. */
     public static String clean(String s, String fallback) {
@@ -44,7 +51,9 @@ public final class NickText {
         return t.isEmpty() ? fallback : t;
     }
 
-    static boolean word(int cp) { return cp == '_' || (cp < 128 && Character.isLetterOrDigit(cp)) || (cp >= 128 && Character.isLetterOrDigit(cp)); }
+    static boolean word(int cp) {
+        return cp == '_' || (cp < 128 && Character.isLetterOrDigit(cp)) || (cp >= 128 && Character.isLetterOrDigit(cp));
+    }
 
     private static boolean eqIc(int a, int b) {
         return a == b || Character.toLowerCase(a) == Character.toLowerCase(b);
@@ -55,7 +64,8 @@ public final class NickText {
         List<int[]> out = new ArrayList<>();
         if (cps == null || pairs == null || pairs.isEmpty()) return out;
         int[][] from = new int[pairs.size()][];
-        for (int k = 0; k < pairs.size(); k++) from[k] = pairs.get(k).from().codePoints().toArray();
+        for (int k = 0; k < pairs.size(); k++)
+            from[k] = pairs.get(k).from().codePoints().toArray();
         int i = 0;
         outer:
         while (i < cps.length) {
@@ -65,11 +75,15 @@ public final class NickText {
                     int[] f = from[k];
                     if (i + f.length > cps.length) continue;
                     boolean m = true;
-                    for (int j = 0; j < f.length; j++) if (!eqIc(cps[i + j], f[j])) { m = false; break; }
+                    for (int j = 0; j < f.length; j++)
+                        if (!eqIc(cps[i + j], f[j])) {
+                            m = false;
+                            break;
+                        }
                     if (!m) continue;
                     int e = i + f.length;
                     if (e < cps.length && word(cps[e])) continue;
-                    out.add(new int[]{i, e, k});
+                    out.add(new int[] {i, e, k});
                     i = e;
                     continue outer;
                 }

@@ -1,19 +1,23 @@
 package com.farmmacro.visual;
 
-import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
+import javax.imageio.ImageIO;
 
 /** v1.16.1 «Анимешные щёчки»: раскладка, зеркало, обрезка по лицу, стили и текстуры (без игры). */
 public final class CheeksCheck {
     private CheeksCheck() {}
 
     static int checks;
+
     static void check(boolean ok, String what) {
         if (!ok) throw new IllegalStateException("CheeksCheck: " + what);
         checks++;
     }
-    static boolean near(float a, double b) { return Math.abs(a - b) < 1e-4; }
+
+    static boolean near(float a, double b) {
+        return Math.abs(a - b) < 1e-4;
+    }
 
     public static void main() {
         // по умолчанию: симметрично, под глазами (строка 4), внутри лица
@@ -24,7 +28,9 @@ public final class CheeksCheck {
         check(l[0] >= 0 && r[2] <= 8 && l[3] <= 8, "щека вылезла за лицо");
         check(near(l[4], 0) && near(l[6], 1), "левая щека: u должно идти 0→1");
         check(near(r[4], 1) && near(r[6], 0), "правая щека: u должно быть зеркальным 1→0");
-        check(near(l[2] - l[0], CheekMath.BASE_W) && near(l[3] - l[1], CheekMath.BASE_H), "размер 100% не равен базовому");
+        check(
+                near(l[2] - l[0], CheekMath.BASE_W) && near(l[3] - l[1], CheekMath.BASE_H),
+                "размер 100% не равен базовому");
 
         // крупные и разведённые к краю — обрезаются по лицу, UV тоже
         float[] big = CheekMath.rect(true, 7.5, 3.5, 200);
@@ -46,7 +52,7 @@ public final class CheeksCheck {
         check(CheekMath.rgb("nope") == CheekMath.COLORS.get(0).rgb(), "неизвестный цвет — не розовый");
 
         // украшение — с внешней (левой) стороны текстуры левой щеки
-        for (String d : new String[]{"deco_hearts", "deco_lines"}) {
+        for (String d : new String[] {"deco_hearts", "deco_lines"}) {
             BufferedImage img = tex(d);
             check(img.getWidth() == 64 && img.getHeight() == 32, d + ": размер");
             int x = firstOpaqueX(img);
@@ -64,7 +70,9 @@ public final class CheeksCheck {
         System.out.println("CheeksCheck: OK (" + checks + " проверок)");
     }
 
-    static int alpha(BufferedImage img, int x, int y) { return (img.getRGB(x, y) >>> 24) & 0xFF; }
+    static int alpha(BufferedImage img, int x, int y) {
+        return (img.getRGB(x, y) >>> 24) & 0xFF;
+    }
 
     static int firstOpaqueX(BufferedImage img) {
         for (int x = 0; x < img.getWidth(); x++)
@@ -73,7 +81,8 @@ public final class CheeksCheck {
     }
 
     static BufferedImage tex(String name) {
-        try (InputStream in = CheeksCheck.class.getResourceAsStream("/assets/farmmacro/textures/entity/cheeks/" + name + ".png")) {
+        try (InputStream in =
+                CheeksCheck.class.getResourceAsStream("/assets/farmmacro/textures/entity/cheeks/" + name + ".png")) {
             return in == null ? null : ImageIO.read(in);
         } catch (Exception e) {
             return null;

@@ -4,9 +4,9 @@ import com.farmmacro.camera.FreelookMath;
 import com.farmmacro.route.PointRoute;
 import com.farmmacro.route.RoutePoint;
 import com.farmmacro.route.RouteProjection;
+import com.farmmacro.route.TestRoutes;
 import com.farmmacro.route.WalkCore;
 import com.farmmacro.visual.LowRenderMath;
-
 import java.util.Locale;
 import java.util.Random;
 
@@ -14,23 +14,39 @@ import java.util.Random;
 public final class ViewCheck {
     private ViewCheck() {}
 
-    private static void check(boolean ok, String what) { if (!ok) throw new IllegalStateException("ViewCheck: " + what); }
+    private static void check(boolean ok, String what) {
+        if (!ok) throw new IllegalStateException("ViewCheck: " + what);
+    }
 
     public static void main() {
         // ── Low render: секция 16³ ──
         double px = 8.5, py = 70, pz = 8.5, r = 12;
-        check(LowRenderMath.classify(0, 64, 0, 16, 80, 16, px, py, pz, r) == LowRenderMath.PARTIAL, "своя секция — пересекает");
-        check(LowRenderMath.classify(32, 64, 0, 48, 80, 16, px, py, pz, r) == LowRenderMath.OUTSIDE, "через секцию — снаружи");
-        check(LowRenderMath.classify(16, 64, 0, 32, 80, 16, px, py, pz, r) == LowRenderMath.PARTIAL, "соседняя — пересекает");
-        check(LowRenderMath.classify(16, 64, 16, 32, 80, 32, px, py, pz, r) == LowRenderMath.PARTIAL, "по диагонали (угол в 10.6 бл) — пересекает");
-        check(LowRenderMath.classify(8, 69, 8, 9, 71, 9, px, py, pz, r) == LowRenderMath.INSIDE, "сущность рядом — внутри");
-        check(LowRenderMath.classify(0, 100, 0, 16, 116, 16, px, py, pz, r) == LowRenderMath.OUTSIDE, "высоко над — снаружи");
+        check(
+                LowRenderMath.classify(0, 64, 0, 16, 80, 16, px, py, pz, r) == LowRenderMath.PARTIAL,
+                "своя секция — пересекает");
+        check(
+                LowRenderMath.classify(32, 64, 0, 48, 80, 16, px, py, pz, r) == LowRenderMath.OUTSIDE,
+                "через секцию — снаружи");
+        check(
+                LowRenderMath.classify(16, 64, 0, 32, 80, 16, px, py, pz, r) == LowRenderMath.PARTIAL,
+                "соседняя — пересекает");
+        check(
+                LowRenderMath.classify(16, 64, 16, 32, 80, 32, px, py, pz, r) == LowRenderMath.PARTIAL,
+                "по диагонали (угол в 10.6 бл) — пересекает");
+        check(
+                LowRenderMath.classify(8, 69, 8, 9, 71, 9, px, py, pz, r) == LowRenderMath.INSIDE,
+                "сущность рядом — внутри");
+        check(
+                LowRenderMath.classify(0, 100, 0, 16, 116, 16, px, py, pz, r) == LowRenderMath.OUTSIDE,
+                "высоко над — снаружи");
         // перебор: ни один блок в радиусе не отрезан, ни один дальше радиуса+диагональ секции не нарисован
         Random rnd = new Random(1);
         int cut = 0, far = 0;
         for (int i = 0; i < 200_000; i++) {
             double x = rnd.nextDouble() * 200 - 100, y = 60 + rnd.nextDouble() * 20, z = rnd.nextDouble() * 200 - 100;
-            int sx = (int) Math.floor(x / 16) * 16, sy = (int) Math.floor(y / 16) * 16, sz = (int) Math.floor(z / 16) * 16;
+            int sx = (int) Math.floor(x / 16) * 16,
+                    sy = (int) Math.floor(y / 16) * 16,
+                    sz = (int) Math.floor(z / 16) * 16;
             int k = LowRenderMath.classify(sx, sy, sz, sx + 16, sy + 16, sz + 16, px, py, pz, r);
             double d = Math.hypot(x - px, z - pz);
             if (d <= r && Math.abs(y - py) <= r && k == LowRenderMath.OUTSIDE) cut++;
@@ -47,14 +63,42 @@ public final class ViewCheck {
                         boolean in = LowRenderMath.blockInside(bx, by, bz, cx, cy, cz, rr);
                         if (in && by == cy) layer++;
                         if (!in) continue;
-                        check(Math.hypot(bx - cx, bz - cz) <= rr + 0.5 && Math.abs(by - cy) <= rr, "блок дальше радиуса " + rr);
-                        int k = LowRenderMath.classify(bx, by, bz, bx + 1, by + 1, bz + 1, cx + 0.5, cy + 0.5, cz + 0.5, rr + LowRenderMath.MARGIN);
+                        check(
+                                Math.hypot(bx - cx, bz - cz) <= rr + 0.5 && Math.abs(by - cy) <= rr,
+                                "блок дальше радиуса " + rr);
+                        int k = LowRenderMath.classify(
+                                bx,
+                                by,
+                                bz,
+                                bx + 1,
+                                by + 1,
+                                bz + 1,
+                                cx + 0.5,
+                                cy + 0.5,
+                                cz + 0.5,
+                                rr + LowRenderMath.MARGIN);
                         check(k != LowRenderMath.OUTSIDE, "видимый блок отсечён коробкой, r=" + rr);
-                        int sx = Math.floorDiv(bx, 16) * 16, sy = Math.floorDiv(by, 16) * 16, sz = Math.floorDiv(bz, 16) * 16;
-                        check(LowRenderMath.classify(sx, sy, sz, sx + 16, sy + 16, sz + 16, cx + 0.5, cy + 0.5, cz + 0.5,
-                                rr + LowRenderMath.MARGIN) != LowRenderMath.OUTSIDE, "секция с видимым блоком отсечена, r=" + rr);
+                        int sx = Math.floorDiv(bx, 16) * 16,
+                                sy = Math.floorDiv(by, 16) * 16,
+                                sz = Math.floorDiv(bz, 16) * 16;
+                        check(
+                                LowRenderMath.classify(
+                                                sx,
+                                                sy,
+                                                sz,
+                                                sx + 16,
+                                                sy + 16,
+                                                sz + 16,
+                                                cx + 0.5,
+                                                cy + 0.5,
+                                                cz + 0.5,
+                                                rr + LowRenderMath.MARGIN)
+                                        != LowRenderMath.OUTSIDE,
+                                "секция с видимым блоком отсечена, r=" + rr);
                     }
-            check(LowRenderMath.blockInside(cx + rr, cy, cz, cx, cy, cz, rr) && !LowRenderMath.blockInside(cx + rr + 1, cy, cz, cx, cy, cz, rr),
+            check(
+                    LowRenderMath.blockInside(cx + rr, cy, cz, cx, cy, cz, rr)
+                            && !LowRenderMath.blockInside(cx + rr + 1, cy, cz, cx, cy, cz, rr),
                     "край круга по оси, r=" + rr);
             if (rr == 3) System.out.println("Low render r=3: блоков в слое " + layer);
         }
@@ -66,9 +110,10 @@ public final class ViewCheck {
         a = FreelookMath.turn(0, -89, 0, -100);
         check(a[1] == -90f, "freelook: pitch вниз ограничен");
 
-        // ── «Продолжить с места» (N): игрок в случайном месте дороги → ближайший отрезок → дошёл до конца без паники ──
+        // ── «Продолжить с места» (N): игрок в случайном месте дороги → ближайший отрезок → дошёл до конца без паники
+        // ──
         PointRoute route = new PointRoute();
-        route.points.addAll(com.farmmacro.route.TestRoutes.rows(0, 0, 19, 19, 3, 64));
+        route.points.addAll(TestRoutes.rows(0, 0, 19, 19, 3, 64));
         int n = route.points.size(), ok = 0, runs = 300, same = 0;
         Random rr = new Random(7);
         for (int k = 0; k < runs; k++) {
@@ -76,7 +121,7 @@ public final class ViewCheck {
             RoutePoint a0 = route.points.get(s0), b0 = route.points.get(s0 + 1);
             double t0 = rr.nextDouble();
             double ex = b0.x - a0.x, ez = b0.z - a0.z, len = Math.hypot(ex, ez);
-            double side = (rr.nextDouble() * 2 - 1) * 0.8;          // в стороне от линии до 0.8 бл
+            double side = (rr.nextDouble() * 2 - 1) * 0.8; // в стороне от линии до 0.8 бл
             double x = a0.x + ex * t0 - ez / len * side, z = a0.z + ez * t0 + ex / len * side;
             var hit = RouteProjection.nearest(route.points, x, 64, z);
             check(hit.dist() <= 0.81, "до дороги " + hit.dist());
@@ -92,28 +137,37 @@ public final class ViewCheck {
                 core.tick(x, 64, z, true, 90f, 0.3, true, 30, true, 4.0, true, out);
                 check(out.panic == null, "с места " + k + ": " + out.panic);
                 check(core.target() >= hit.target(), "пошёл назад");
-                if (core.done()) { ok++; break; }
+                if (core.done()) {
+                    ok++;
+                    break;
+                }
                 boolean moving = out.forward || out.back || out.left || out.right;
                 double speed = moving ? (out.sprint ? WalkCore.SPRINT : WalkCore.WALK) : 0;
                 double[] dir = WalkCore.moveDir(out, 90f);
-                vx = vx * 0.55 + dir[0] * speed * 0.45; vz = vz * 0.55 + dir[1] * speed * 0.45;
-                x += vx; z += vz;
+                vx = vx * 0.55 + dir[0] * speed * 0.45;
+                vz = vz * 0.55 + dir[1] * speed * 0.45;
+                x += vx;
+                z += vz;
             }
         }
         check(ok == runs, "дошли не со всех мест: " + ok + "/" + runs);
         check(same >= runs * 0.9, "свой отрезок только в " + same + "/" + runs);
         // этажи: такой же ряд на 4 бл ниже — выбирается свой этаж
         PointRoute two = new PointRoute();
-        two.points.addAll(com.farmmacro.route.TestRoutes.rows(0, 0, 19, 19, 3, 64));
+        two.points.addAll(TestRoutes.rows(0, 0, 19, 19, 3, 64));
         int upper = two.points.size();
-        two.points.addAll(com.farmmacro.route.TestRoutes.rows(0, 0, 19, 19, 3, 60));
-        RoutePoint m = two.points.get(upper + 3);                  // середина ряда z=3 — над ним такой же ряд
+        two.points.addAll(TestRoutes.rows(0, 0, 19, 19, 3, 60));
+        RoutePoint m = two.points.get(upper + 3); // середина ряда z=3 — над ним такой же ряд
         var low = RouteProjection.nearest(two.points, 9.5, 60, m.z);
         var high = RouteProjection.nearest(two.points, 9.5, 64, m.z);
         check(low.seg() >= upper && low.dy() == 0, "нижний этаж: отрезок " + (low.seg() + 1));
         check(high.seg() < upper - 1 && high.dy() == 0, "верхний этаж: отрезок " + (high.seg() + 1));
         check(RouteProjection.nearest(route.points, 40, 64, 40).dist() > 3, "далеко от дороги");
-        System.out.printf(Locale.ROOT, "View (v1.12): low render 200000 блоков — в радиусе ничего не отрезано, дальше r+22.6 ничего не рисуется; "
-                + "freelook — pitch ±90; «Продолжить с места» — %d случайных мест на дороге (до 0.8 бл в стороне): ближайший отрезок (свой в %d), вперёд, до конца без паники; этажи не путает — OK%n", ok, same);
+        System.out.printf(
+                Locale.ROOT,
+                "View (v1.12): low render 200000 блоков — в радиусе ничего не отрезано, дальше r+22.6 ничего не рисуется; "
+                        + "freelook — pitch ±90; «Продолжить с места» — %d случайных мест на дороге (до 0.8 бл в стороне): ближайший отрезок (свой в %d), вперёд, до конца без паники; этажи не путает — OK%n",
+                ok,
+                same);
     }
 }

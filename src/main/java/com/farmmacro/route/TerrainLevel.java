@@ -11,7 +11,9 @@ public final class TerrainLevel implements Terrain.Cells {
     private final Level level;
     private final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 
-    public TerrainLevel(Level level) { this.level = level; }
+    public TerrainLevel(Level level) {
+        this.level = level;
+    }
 
     @Override
     public double top(int x, int y, int z) {

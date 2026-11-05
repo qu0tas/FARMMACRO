@@ -3,6 +3,7 @@ package com.farmmacro.panic;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.gui.Ui;
 import com.farmmacro.util.Guard;
+import com.farmmacro.visual.NickHide;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -16,21 +17,25 @@ import org.joml.Matrix3x2fStack;
 public class PanicOverlayRenderer {
 
     public static void register() {
-        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("farmmacro", "panic_overlay"), Guard.hud("panic_overlay", (g, delta) -> {
-            ModConfig cfg = ModConfig.INSTANCE;
-            int left = PanicDetector.INSTANCE.getRedScreenTicks();
-            int max = PanicDetector.INSTANCE.getRedScreenMaxTicks();
-            if (left <= 0 || max <= 0) return;
-            if (com.farmmacro.visual.NickHide.shotPending()) return;   // v1.16.3: снимок без ника — без красного экрана
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.player == null) return;
+        HudElementRegistry.addLast(
+                Identifier.fromNamespaceAndPath("farmmacro", "panic_overlay"),
+                Guard.hud("panic_overlay", (g, delta) -> {
+                    ModConfig cfg = ModConfig.INSTANCE;
+                    int left = PanicDetector.INSTANCE.getRedScreenTicks();
+                    int max = PanicDetector.INSTANCE.getRedScreenMaxTicks();
+                    if (left <= 0 || max <= 0) return;
+                    if (NickHide.shotPending()) return; // v1.16.3: снимок без ника — без красного экрана
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc.player == null) return;
 
-            int w=mc.getWindow().getGuiScaledWidth(),h=mc.getWindow().getGuiScaledHeight();
-            if(left>0&&max>0){
-                float ratio = Math.max(0, Math.min(1, (left - delta.getGameTimeDeltaPartialTick(false)) / (float) max));
-                draw(g,w,h,ratio,PanicDetector.INSTANCE.getOverlayText());
-            }
-        }));
+                    int w = mc.getWindow().getGuiScaledWidth(),
+                            h = mc.getWindow().getGuiScaledHeight();
+                    if (left > 0 && max > 0) {
+                        float ratio = Math.max(
+                                0, Math.min(1, (left - delta.getGameTimeDeltaPartialTick(false)) / (float) max));
+                        draw(g, w, h, ratio, PanicDetector.INSTANCE.getOverlayText());
+                    }
+                }));
     }
 
     /** v1.14.2-pre: рисование отдельно — мастер первого запуска показывает экран сам (HUD под экранами не рисуется). */
@@ -53,7 +58,7 @@ public class PanicOverlayRenderer {
             String title = "ПАНИКА";
             g.text(mc.font, title, -mc.font.width(title) / 2, -4, Ui.alpha(0xFFFFFFFF, textA), true);
         } finally {
-            pose.popMatrix();     // стек матриц не должен «протечь» даже при исключении
+            pose.popMatrix(); // стек матриц не должен «протечь» даже при исключении
         }
         if (reason != null) {
             String r = Ui.ellipsize(mc.font, reason, w - 40);

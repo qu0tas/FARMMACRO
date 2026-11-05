@@ -8,6 +8,6 @@ public final class FreelookMath {
     public static float[] turn(float yaw, float pitch, double dx, double dy) {
         float y = yaw + (float) (dx * 0.15);
         float p = pitch + (float) (dy * 0.15);
-        return new float[]{y, Math.max(-90f, Math.min(90f, p))};
+        return new float[] {y, Math.max(-90f, Math.min(90f, p))};
     }
 }

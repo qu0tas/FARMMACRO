@@ -1,5 +1,6 @@
 package com.farmmacro.mixin;
 
+import com.farmmacro.camera.Freecam;
 import com.farmmacro.route.RouteEditor;
 import com.farmmacro.util.Guard;
 import net.minecraft.client.Minecraft;
@@ -22,21 +23,21 @@ public class EditorInputMixin {
         Minecraft mc = (Minecraft) (Object) this;
         if (mc.screen != null || mc.player == null) return;
         while (mc.options.keyAttack.consumeClick()) Guard.run("editor/left", () -> RouteEditor.onLeftClick(mc));
-        while (mc.options.keyUse.consumeClick())    Guard.run("editor/right", () -> RouteEditor.onRightClick(mc));
+        while (mc.options.keyUse.consumeClick()) Guard.run("editor/right", () -> RouteEditor.onRightClick(mc));
     }
 
     @Inject(method = "startAttack", at = @At("HEAD"), cancellable = true)
     private void farmmacro$noAttack(CallbackInfoReturnable<Boolean> cir) {
-        if (RouteEditor.isActive() || com.farmmacro.camera.Freecam.active()) cir.setReturnValue(false);
+        if (RouteEditor.isActive() || Freecam.active()) cir.setReturnValue(false);
     }
 
     @Inject(method = "startUseItem", at = @At("HEAD"), cancellable = true)
     private void farmmacro$noUse(CallbackInfo ci) {
-        if (RouteEditor.isActive() || com.farmmacro.camera.Freecam.active()) ci.cancel();
+        if (RouteEditor.isActive() || Freecam.active()) ci.cancel();
     }
 
     @Inject(method = "continueAttack", at = @At("HEAD"), cancellable = true)
     private void farmmacro$noContinue(boolean down, CallbackInfo ci) {
-        if (RouteEditor.isActive() || com.farmmacro.camera.Freecam.active()) ci.cancel();
+        if (RouteEditor.isActive() || Freecam.active()) ci.cancel();
     }
 }

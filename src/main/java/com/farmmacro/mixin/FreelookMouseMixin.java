@@ -1,5 +1,6 @@
 package com.farmmacro.mixin;
 
+import com.farmmacro.camera.Freecam;
 import com.farmmacro.camera.Freelook;
 import net.minecraft.client.MouseHandler;
 import net.minecraft.client.player.LocalPlayer;
@@ -14,11 +15,17 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(MouseHandler.class)
 public class FreelookMouseMixin {
 
-    @Redirect(method = "turnPlayer", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/LocalPlayer;turn(DD)V"))
+    @Redirect(
+            method = "turnPlayer",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/LocalPlayer;turn(DD)V"))
     private void farmmacro$freelook(LocalPlayer player, double dx, double dy) {
         boolean fl;
-        try { fl = Freelook.active(); } catch (Throwable t) { fl = false; }
-        if (com.farmmacro.camera.Freecam.active()) com.farmmacro.camera.Freecam.turn(dx,dy);
+        try {
+            fl = Freelook.active();
+        } catch (Throwable t) {
+            fl = false;
+        }
+        if (Freecam.active()) Freecam.turn(dx, dy);
         else if (fl) Freelook.turn(dx, dy);
         else player.turn(dx, dy);
     }

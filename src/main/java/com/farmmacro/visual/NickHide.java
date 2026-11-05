@@ -2,12 +2,12 @@ package com.farmmacro.visual;
 
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.panic.PlayerRules;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Style;
 import net.minecraft.util.FormattedCharSequence;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * v1.16.3 «Скрытие ника»: свой ник (и по желанию ники друзей) заменяется при отрисовке текста — чат, Tab, ник над
@@ -27,20 +27,31 @@ public final class NickHide {
     private static String sig = "";
 
     /** Сейчас заменять (из потока отрисовки). */
-    public static boolean active() { return (always || shotFrames > 0) && !pairs.isEmpty(); }
+    public static boolean active() {
+        return (always || shotFrames > 0) && !pairs.isEmpty();
+    }
 
     /** Идёт снимок без ника — красный экран не рисовать. */
-    public static boolean shotPending() { return shotTask != null; }
+    public static boolean shotPending() {
+        return shotTask != null;
+    }
 
     /** Каждый тик: обновить список замен (дёшево — по подписи настроек). */
     public static void tick(Minecraft mc) {
         ModConfig c = ModConfig.INSTANCE;
         String own = mc.getUser() != null ? mc.getUser().getName() : null;
-        String s = c.nickHideMode + "|" + own + "|" + c.nickHideText + "|" + c.nickHideFriends + "|" + c.friendNames + "|" + c.nickFriendText;
+        String s = c.nickHideMode + "|" + own + "|" + c.nickHideText + "|" + c.nickHideFriends + "|" + c.friendNames
+                + "|" + c.nickFriendText;
         if (!s.equals(sig)) {
             sig = s;
-            pairs = "off".equals(c.nickHideMode) ? List.of()
-                    : NickText.pairs(own, c.nickHideText, c.nickHideFriends, PlayerRules.parseNames(c.friendNames), c.nickFriendText);
+            pairs = "off".equals(c.nickHideMode)
+                    ? List.of()
+                    : NickText.pairs(
+                            own,
+                            c.nickHideText,
+                            c.nickHideFriends,
+                            PlayerRules.parseNames(c.friendNames),
+                            c.nickFriendText);
         }
         always = "always".equals(c.nickHideMode);
     }
@@ -67,29 +78,43 @@ public final class NickHide {
             final Style[][] sb = {st};
             seq.accept((i, style, cp) -> {
                 if (n[0] == cb[0].length) {
-                    cb[0] = java.util.Arrays.copyOf(cb[0], n[0] * 2);
-                    sb[0] = java.util.Arrays.copyOf(sb[0], n[0] * 2);
+                    cb[0] = Arrays.copyOf(cb[0], n[0] * 2);
+                    sb[0] = Arrays.copyOf(sb[0], n[0] * 2);
                 }
-                cb[0][n[0]] = cp; sb[0][n[0]] = style; n[0]++;
+                cb[0][n[0]] = cp;
+                sb[0][n[0]] = style;
+                n[0]++;
                 return true;
             });
-            cps = cb[0]; st = sb[0];
-        } catch (Throwable t) { return seq; }
+            cps = cb[0];
+            st = sb[0];
+        } catch (Throwable t) {
+            return seq;
+        }
         int len = n[0];
         if (len < 2) return seq;
-        int[] exact = java.util.Arrays.copyOf(cps, len);
+        int[] exact = Arrays.copyOf(cps, len);
         List<int[]> hits = NickText.find(exact, pr);
         if (hits.isEmpty()) return seq;
         List<Integer> oc = new ArrayList<>(len + 8);
         List<Style> os = new ArrayList<>(len + 8);
         int pos = 0;
         for (int[] h : hits) {
-            for (int j = pos; j < h[0]; j++) { oc.add(exact[j]); os.add(st[j]); }
+            for (int j = pos; j < h[0]; j++) {
+                oc.add(exact[j]);
+                os.add(st[j]);
+            }
             Style s0 = st[h[0]];
-            pr.get(h[2]).to().codePoints().forEach(cp -> { oc.add(cp); os.add(s0); });
+            pr.get(h[2]).to().codePoints().forEach(cp -> {
+                oc.add(cp);
+                os.add(s0);
+            });
             pos = h[1];
         }
-        for (int j = pos; j < len; j++) { oc.add(exact[j]); os.add(st[j]); }
+        for (int j = pos; j < len; j++) {
+            oc.add(exact[j]);
+            os.add(st[j]);
+        }
         int[] fc = oc.stream().mapToInt(Integer::intValue).toArray();
         Style[] fs = os.toArray(new Style[0]);
         return sink -> {
@@ -100,7 +125,10 @@ public final class NickHide {
 
     /** Режим shots: снимок task — после кадра, нарисованного без ника. Иначе — сразу. */
     public static void armShot(Runnable task) {
-        if (!"shots".equals(ModConfig.INSTANCE.nickHideMode) || pairs.isEmpty()) { task.run(); return; }
+        if (!"shots".equals(ModConfig.INSTANCE.nickHideMode) || pairs.isEmpty()) {
+            task.run();
+            return;
+        }
         shotTask = task;
         shotFrames = 2;
     }

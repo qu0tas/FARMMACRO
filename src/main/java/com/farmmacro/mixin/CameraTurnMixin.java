@@ -1,7 +1,7 @@
 package com.farmmacro.mixin;
 
-import com.farmmacro.camera.SmoothTurn;
 import com.farmmacro.util.Guard;
+import com.farmmacro.visual.NickHide;
 import net.minecraft.client.MouseHandler;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -15,6 +15,6 @@ public class CameraTurnMixin {
     @Inject(method = "handleAccumulatedMovement", at = @At("RETURN"))
     private void farmmacro$smoothTurn(CallbackInfo ci) {
         // SmoothTurn is stepped once in AimFrameMixin, including background frames.
-        Guard.run("nick/frame", com.farmmacro.visual.NickHide::onFrame);
+        Guard.run("nick/frame", NickHide::onFrame);
     }
 }

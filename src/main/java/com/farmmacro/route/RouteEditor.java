@@ -3,9 +3,14 @@ package com.farmmacro.route;
 import com.farmmacro.FarmMacroMod;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.gui.PointEditScreen;
+import com.farmmacro.gui.RouteVariantScreen;
+import com.farmmacro.gui.Rows;
 import com.farmmacro.macro.MacroManager;
+import com.farmmacro.util.Clock;
 import com.farmmacro.visual.RouteRenderer;
 import com.mojang.blaze3d.platform.InputConstants;
+import java.util.List;
+import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -17,8 +22,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
-
-import java.util.List;
 
 /**
  * Редактор маршрута в мире. Пока включён, ЛКМ/ПКМ не уходят в мир (миксин {@code EditorInputMixin}).
@@ -35,37 +38,54 @@ public final class RouteEditor {
     private static int hover = -1;
     private static int dragIndex = -1;
     private static boolean dragMoved;
-    private static boolean undoWasDown, selAllWasDown, dropWasDown;
+    private static boolean undoWasDown, redoWasDown, selAllWasDown, dropWasDown;
     /** Стрелки: какая была нажата в прошлом тике, сколько тиков держится, когда был последний сдвиг (для Ctrl+Z одним шагом). */
     private static int arrowHeld = -1, arrowTicks;
+
     private static boolean randomWasDown;
     private static long lastNudgeMs;
     private static List<Integer> lastNudgeSel = List.of();
 
-    public static boolean isActive() { return active; }
-    public static int hovered()      { return hover; }
+    public static boolean isActive() {
+        return active;
+    }
+
+    public static int hovered() {
+        return hover;
+    }
 
     public static void toggle(Minecraft mc) {
-        if (active) { setActive(mc, false); return; }
+        if (active) {
+            setActive(mc, false);
+            return;
+        }
         MacroManager m = MacroManager.INSTANCE;
-        if (m.getState() != MacroManager.State.IDLE) { msg(mc, "§cСначала останови запись/воспроизведение"); return; }
+        if (m.getState() != MacroManager.State.IDLE) {
+            msg(mc, "§cСначала останови запись/воспроизведение");
+            return;
+        }
         setActive(mc, true);
     }
 
     public static void setActive(Minecraft mc, boolean on) {
         if (active == on) return;
         active = on;
-        hover = -1; dragIndex = -1;
+        hover = -1;
+        dragIndex = -1;
         RouteRenderer.editorActive = on;
         RouteRenderer.editorHover = -1;
         if (on) {
             MacroManager.INSTANCE.useRouteSource();
-            msg(mc, "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+D — спуск, "
-                    + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход");
+            msg(
+                    mc,
+                    "§d✎ Редактор маршрута: §7ЛКМ — точка, ПКМ — удалить, Shift+ПКМ — параметры, Ctrl+D — спуск, "
+                            + MacroManager.keyName(FarmMacroMod.keyEditor) + " — выход");
         } else {
-            RouteBuffer.INSTANCE.select(-1);         // подсветка выбранной точки — только в редакторе
-            msg(mc, "§7Редактор закрыт: " + RouteBuffer.INSTANCE.size() + " точек"
-                    + (RouteBuffer.INSTANCE.isDirty() ? " §e(не сохранено — меню → Маршруты)" : ""));
+            RouteBuffer.INSTANCE.select(-1); // подсветка выбранной точки — только в редакторе
+            msg(
+                    mc,
+                    "§7Редактор закрыт: " + RouteBuffer.INSTANCE.size() + " точек"
+                            + (RouteBuffer.INSTANCE.isDirty() ? " §e(не сохранено — меню → Маршруты)" : ""));
         }
     }
 
@@ -75,9 +95,12 @@ public final class RouteEditor {
         LocalPlayer p = mc.player;
         if (p == null) return;
         boolean shift = mc.hasShiftDown();
-        if (mc.hasAltDown()) {                   // Alt+ЛКМ — добавить/убрать из выделения
+        if (mc.hasAltDown()) { // Alt+ЛКМ — добавить/убрать из выделения
             int h = pickPoint(mc);
-            if (h < 0) { msg(mc, "§7Alt+ЛКМ — по точке, чтобы выделить несколько"); return; }
+            if (h < 0) {
+                msg(mc, "§7Alt+ЛКМ — по точке, чтобы выделить несколько");
+                return;
+            }
             RouteBuffer.INSTANCE.toggleMark(h);
             msg(mc, "§7Выделено точек: " + RouteBuffer.INSTANCE.selection().size() + " · стрелки — сдвиг в блоке");
             return;
@@ -90,17 +113,24 @@ public final class RouteEditor {
             return;
         }
         Vec3 at = targetPoint(mc);
-        if (at == null) { msg(mc, "§7Наведи прицел на блок (до " + (int) ModConfig.INSTANCE.routeEditReach + " бл)"); return; }
+        if (at == null) {
+            msg(mc, "§7Наведи прицел на блок (до " + (int) ModConfig.INSTANCE.routeEditReach + " бл)");
+            return;
+        }
         if (!checkDimension(mc)) return;
-        int idx = shift ? RouteBuffer.INSTANCE.insertNearest(mc, at.x, at.y, at.z)
-                        : RouteBuffer.INSTANCE.add(mc, at.x, at.y, at.z);
+        int idx = shift
+                ? RouteBuffer.INSTANCE.insertNearest(mc, at.x, at.y, at.z)
+                : RouteBuffer.INSTANCE.add(mc, at.x, at.y, at.z);
         if (idx < 0) msg(mc, "§cНе больше " + RouteBuffer.MAX_POINTS + " точек");
         else if (shift) msg(mc, "§aВставлена точка " + (idx + 1));
     }
 
     public static void onRightClick(Minecraft mc) {
         int h = pickPoint(mc);
-        if (h < 0) { RouteBuffer.INSTANCE.select(-1); return; }
+        if (h < 0) {
+            RouteBuffer.INSTANCE.select(-1);
+            return;
+        }
         if (mc.hasShiftDown()) {
             RouteBuffer.INSTANCE.select(h);
             mc.setScreen(new PointEditScreen(null, h));
@@ -125,16 +155,22 @@ public final class RouteEditor {
         if (!active) return;
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) {
-            active = false; RouteRenderer.editorActive = false; RouteRenderer.editorHover = -1;
+            active = false;
+            RouteRenderer.editorActive = false;
+            RouteRenderer.editorHover = -1;
             RouteBuffer.INSTANCE.select(-1);
             return;
         }
-        if (MacroManager.INSTANCE.getState() != MacroManager.State.IDLE) { setActive(mc, false); return; }
+        if (MacroManager.INSTANCE.getState() != MacroManager.State.IDLE) {
+            setActive(mc, false);
+            return;
+        }
 
-        boolean random=mc.screen==null && mc.hasControlDown()
-                && InputConstants.isKeyDown(mc.getWindow(),InputConstants.KEY_R);
-        if(random && !randomWasDown) mc.setScreen(new com.farmmacro.gui.RouteVariantScreen());
-        randomWasDown=random;
+        boolean random = mc.screen == null
+                && mc.hasControlDown()
+                && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_R);
+        if (random && !randomWasDown) mc.setScreen(new RouteVariantScreen());
+        randomWasDown = random;
         // перетаскивание
         if (dragIndex >= 0) {
             if (mc.screen != null || !mc.options.keyAttack.isDown() || RouteBuffer.INSTANCE.get(dragIndex) == null) {
@@ -142,33 +178,63 @@ public final class RouteEditor {
             } else {
                 Vec3 at = targetPoint(mc);
                 RoutePoint q = RouteBuffer.INSTANCE.get(dragIndex);
-                if (at != null && (Math.abs(at.x - q.centerX()) > 1e-3 || Math.abs(at.z - q.centerZ()) > 1e-3 || Math.abs(at.y - q.y) > 1e-3)) {
-                    if (!dragMoved) { RouteBuffer.INSTANCE.snapshot(); dragMoved = true; }
+                if (at != null
+                        && (Math.abs(at.x - q.centerX()) > 1e-3
+                                || Math.abs(at.z - q.centerZ()) > 1e-3
+                                || Math.abs(at.y - q.y) > 1e-3)) {
+                    if (!dragMoved) {
+                        RouteBuffer.INSTANCE.snapshot();
+                        dragMoved = true;
+                    }
                     RouteBuffer.INSTANCE.moveNoUndo(dragIndex, at.x, at.y, at.z);
                 }
             }
         }
 
-        // Ctrl+Z
-        boolean z = mc.screen == null && mc.hasControlDown()
+        // Ctrl+Z — отменить; 2.1.0: Ctrl+Y или Ctrl+Shift+Z — повторить
+        boolean zDown = mc.screen == null
+                && mc.hasControlDown()
                 && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_Z);
+        boolean z = zDown && !mc.hasShiftDown();
         if (z && !undoWasDown) {
-            msg(mc, RouteBuffer.INSTANCE.undo() ? "§7Отменено · точек: " + RouteBuffer.INSTANCE.size() : "§7Нечего отменять");
+            msg(
+                    mc,
+                    RouteBuffer.INSTANCE.undo()
+                            ? "§7Отменено · точек: " + RouteBuffer.INSTANCE.size()
+                            : "§7Нечего отменять");
         }
         undoWasDown = z;
+        boolean y = mc.screen == null
+                && mc.hasControlDown()
+                && (InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_Y) || zDown && mc.hasShiftDown());
+        if (y && !redoWasDown) {
+            msg(
+                    mc,
+                    RouteBuffer.INSTANCE.redo()
+                            ? "§7Повторено · точек: " + RouteBuffer.INSTANCE.size()
+                            : "§7Нечего повторять");
+        }
+        redoWasDown = y;
 
         // Ctrl+A — выделить все / снять выделение
-        boolean selAll = mc.screen == null && mc.hasControlDown()
+        boolean selAll = mc.screen == null
+                && mc.hasControlDown()
                 && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_A);
         if (selAll && !selAllWasDown) {
             RouteBuffer rb = RouteBuffer.INSTANCE;
-            if (rb.markedCount() >= rb.size() && rb.size() > 0) { rb.select(-1); msg(mc, "§7Выделение снято"); }
-            else { rb.markAll(); msg(mc, "§7Выделены все точки: " + rb.size() + " · стрелки — сдвиг в блоке"); }
+            if (rb.markedCount() >= rb.size() && rb.size() > 0) {
+                rb.select(-1);
+                msg(mc, "§7Выделение снято");
+            } else {
+                rb.markAll();
+                msg(mc, "§7Выделены все точки: " + rb.size() + " · стрелки — сдвиг в блоке");
+            }
         }
         selAllWasDown = selAll;
 
         // Ctrl+D — спуск
-        boolean dk = mc.screen == null && mc.hasControlDown()
+        boolean dk = mc.screen == null
+                && mc.hasControlDown()
                 && InputConstants.isKeyDown(mc.getWindow(), InputConstants.KEY_D);
         if (dk && !dropWasDown) toggleDrop(mc);
         dropWasDown = dk;
@@ -191,10 +257,14 @@ public final class RouteEditor {
         RouteBuffer rb = RouteBuffer.INSTANCE;
         int i = rb.selected() >= 0 ? rb.selected() : hover;
         RoutePoint p = rb.get(i);
-        if (p == null) { msg(mc, "§7Ctrl+D — по выбранной точке (ЛКМ по точке)"); return; }
+        if (p == null) {
+            msg(mc, "§7Ctrl+D — по выбранной точке (ЛКМ по точке)");
+            return;
+        }
         if (p.drop) {
             rb.snapshot();
-            p.drop = false; p.dropDepth = 0;
+            p.drop = false;
+            p.dropDepth = 0;
             rb.changed();
             msg(mc, "§7Точка " + (i + 1) + ": спуск снят · Ctrl+Z — вернуть");
             return;
@@ -206,10 +276,15 @@ public final class RouteEditor {
             double[] e = Terrain.edgeOnSegment(w, rb.points(), i);
             if (e != null && Math.hypot(e[0] - p.centerX(), e[2] - p.centerZ()) > 0.3) {
                 RoutePoint q = p.withPos(e[0], e[1], e[2]);
-                q.pauseTicks = 0; q.jump = false;
-                q.drop = true; q.dropDir = RoutePoint.DIR_AUTO;
+                q.pauseTicks = 0;
+                q.jump = false;
+                q.drop = true;
+                q.dropDir = RoutePoint.DIR_AUTO;
                 int idx = rb.insertAt(i + 1, q);
-                if (idx < 0) { msg(mc, "§cНе больше " + RouteBuffer.MAX_POINTS + " точек"); return; }
+                if (idx < 0) {
+                    msg(mc, "§cНе больше " + RouteBuffer.MAX_POINTS + " точек");
+                    return;
+                }
                 double depth = Terrain.fillDepth(w, rb.points(), idx);
                 rb.changed();
                 msg(mc, "§b↓ Вставлен спуск: точка " + (idx + 1) + depthText(depth) + " §7· Ctrl+Z — отменить");
@@ -220,17 +295,24 @@ public final class RouteEditor {
         p.drop = true;
         double depth = Terrain.fillDepth(w, rb.points(), i);
         rb.changed();
-        msg(mc, "§b↓ Точка " + (i + 1) + ": спуск" + depthText(depth)
-                + (Double.isNaN(depth) ? " §e· по ходу обрыва не видно — Shift+ПКМ → направление спуска" : "") + " §7· Ctrl+Z — отменить");
+        msg(
+                mc,
+                "§b↓ Точка " + (i + 1) + ": спуск" + depthText(depth)
+                        + (Double.isNaN(depth) ? " §e· по ходу обрыва не видно — Shift+ПКМ → направление спуска" : "")
+                        + " §7· Ctrl+Z — отменить");
     }
 
     static String depthText(double depth) {
-        return Double.isNaN(depth) ? "" : String.format(java.util.Locale.ROOT, ", вниз %.1f бл%s", depth, depth > 3.01 ? " §c(урон!)§b" : "");
+        return Double.isNaN(depth)
+                ? ""
+                : String.format(Locale.ROOT, ", вниз %.1f бл%s", depth, depth > 3.01 ? " §c(урон!)§b" : "");
     }
 
     // ── Смещение в блоке стрелками ───────────────────────────────────────────
 
-    private static final int[] ARROWS = {InputConstants.KEY_UP, InputConstants.KEY_DOWN, InputConstants.KEY_LEFT, InputConstants.KEY_RIGHT};
+    private static final int[] ARROWS = {
+        InputConstants.KEY_UP, InputConstants.KEY_DOWN, InputConstants.KEY_LEFT, InputConstants.KEY_RIGHT
+    };
 
     /**
      * Стрелки сдвигают выделенные точки внутри блока: ↑/↓ — вперёд/назад, ←/→ — влево/вправо относительно взгляда
@@ -240,29 +322,50 @@ public final class RouteEditor {
     private static void tickArrows(Minecraft mc) {
         int key = -1;
         if (mc.screen == null && !mc.hasControlDown() && !mc.hasAltDown())
-            for (int k : ARROWS) if (InputConstants.isKeyDown(mc.getWindow(), k)) { key = k; break; }
-        if (key < 0) { arrowHeld = -1; arrowTicks = 0; return; }
+            for (int k : ARROWS)
+                if (InputConstants.isKeyDown(mc.getWindow(), k)) {
+                    key = k;
+                    break;
+                }
+        if (key < 0) {
+            arrowHeld = -1;
+            arrowTicks = 0;
+            return;
+        }
         boolean fire = key != arrowHeld || (arrowTicks >= 7 && arrowTicks % 2 == 1);
         arrowTicks = key == arrowHeld ? arrowTicks + 1 : 0;
         arrowHeld = key;
         if (!fire) return;
         RouteBuffer rb = RouteBuffer.INSTANCE;
         List<Integer> sel = rb.selection();
-        if (sel.isEmpty()) { msg(mc, "§7Выбери точку (ЛКМ), Alt+ЛКМ — ещё, Ctrl+A — все; стрелки сдвигают в блоке"); return; }
+        if (sel.isEmpty()) {
+            msg(mc, "§7Выбери точку (ЛКМ), Alt+ЛКМ — ещё, Ctrl+A — все; стрелки сдвигают в блоке");
+            return;
+        }
         ModConfig c = ModConfig.INSTANCE;
         double step = mc.hasShiftDown() ? c.routeOffsetFineStep : c.routeOffsetStep;
-        int dir = key == InputConstants.KEY_UP ? RoutePoint.FORWARD : key == InputConstants.KEY_DOWN ? RoutePoint.BACK
-                : key == InputConstants.KEY_RIGHT ? RoutePoint.RIGHT : RoutePoint.LEFT;
+        int dir = key == InputConstants.KEY_UP
+                ? RoutePoint.FORWARD
+                : key == InputConstants.KEY_DOWN
+                        ? RoutePoint.BACK
+                        : key == InputConstants.KEY_RIGHT ? RoutePoint.RIGHT : RoutePoint.LEFT;
         double[] d = RoutePoint.axisStep(mc.player.getYRot(), dir);
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         boolean snap = now - lastNudgeMs > 1000 || !sel.equals(lastNudgeSel);
         rb.nudge(sel, d[0] * step, d[1] * step, snap);
         lastNudgeMs = now;
         lastNudgeSel = sel;
         RoutePoint p = rb.get(sel.get(0));
-        msg(mc, String.format(java.util.Locale.ROOT, "§bСмещение%s: X %+.3f  Z %+.3f §7(шаг %s%s) · Ctrl+Z — отменить",
-                sel.size() == 1 ? " точки " + (sel.get(0) + 1) : " " + sel.size() + " точек (у первой)", p.ox, p.oz,
-                com.farmmacro.gui.Rows.num(step), mc.hasShiftDown() ? ", мелкий" : ""));
+        msg(
+                mc,
+                String.format(
+                        Locale.ROOT,
+                        "§bСмещение%s: X %+.3f  Z %+.3f §7(шаг %s%s) · Ctrl+Z — отменить",
+                        sel.size() == 1 ? " точки " + (sel.get(0) + 1) : " " + sel.size() + " точек (у первой)",
+                        p.ox,
+                        p.oz,
+                        Rows.num(step),
+                        mc.hasShiftDown() ? ", мелкий" : ""));
     }
 
     // ── Прицел ───────────────────────────────────────────────────────────────
@@ -277,7 +380,8 @@ public final class RouteEditor {
         HitResult hit = p.pick(reach, 1f, false);
         double limit = hit.getType() == HitResult.Type.BLOCK ? hit.getLocation().distanceTo(eye) + 0.6 : reach;
         List<RoutePoint> pts = RouteBuffer.INSTANCE.points();
-        int best = -1; double bestScore = Double.MAX_VALUE;
+        int best = -1;
+        double bestScore = Double.MAX_VALUE;
         for (int i = 0; i < pts.size(); i++) {
             RoutePoint q = pts.get(i);
             double wx = q.x - eye.x, wy = q.y + 0.12 - eye.y, wz = q.z - eye.z;
@@ -285,10 +389,13 @@ public final class RouteEditor {
             if (t < 0 || t > limit) continue;
             double dx = wx - dir.x * t, dy = wy - dir.y * t, dz = wz - dir.z * t;
             double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            double tol = 0.3 + t * 0.012;           // дальние точки чуть легче поймать
+            double tol = 0.3 + t * 0.012; // дальние точки чуть легче поймать
             if (d > tol) continue;
             double score = d / tol + t * 0.002;
-            if (score < bestScore) { bestScore = score; best = i; }
+            if (score < bestScore) {
+                bestScore = score;
+                best = i;
+            }
         }
         return best;
     }
@@ -308,7 +415,9 @@ public final class RouteEditor {
         for (int i = 0; i < 4; i++) {
             BlockState st = level.getBlockState(cur);
             VoxelShape sh = st.getCollisionShape(level, cur);
-            if (!sh.isEmpty()) return new Vec3(cur.getX() + 0.5, cur.getY() + Math.min(1.5, sh.max(Direction.Axis.Y)), cur.getZ() + 0.5);
+            if (!sh.isEmpty())
+                return new Vec3(
+                        cur.getX() + 0.5, cur.getY() + Math.min(1.5, sh.max(Direction.Axis.Y)), cur.getZ() + 0.5);
             cur = cur.below();
         }
         return new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);

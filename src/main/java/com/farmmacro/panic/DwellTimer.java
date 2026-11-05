@@ -22,6 +22,12 @@ public final class DwellTimer<K> {
         return hit;
     }
 
-    public long elapsed(K k, long nowMs) { Long s = since.get(k); return s == null ? -1 : nowMs - s; }
-    public void clear() { since.clear(); }
+    public long elapsed(K k, long nowMs) {
+        Long s = since.get(k);
+        return s == null ? -1 : nowMs - s;
+    }
+
+    public void clear() {
+        since.clear();
+    }
 }

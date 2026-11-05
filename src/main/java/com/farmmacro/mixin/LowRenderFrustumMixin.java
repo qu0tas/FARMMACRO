@@ -21,10 +21,14 @@ public class LowRenderFrustumMixin {
     @Inject(method = "isVisible(Lnet/minecraft/world/phys/AABB;)Z", at = @At("HEAD"), cancellable = true)
     private void farmmacro$lowRenderAabb(AABB b, CallbackInfoReturnable<Boolean> cir) {
         if (!LowRender.active()) return;
-        if (LowRender.classify(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ) == LowRenderMath.OUTSIDE) cir.setReturnValue(false);
+        if (LowRender.classify(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ) == LowRenderMath.OUTSIDE)
+            cir.setReturnValue(false);
     }
 
-    @Inject(method = "cubeInFrustum(Lnet/minecraft/world/level/levelgen/structure/BoundingBox;)I", at = @At("RETURN"), cancellable = true)
+    @Inject(
+            method = "cubeInFrustum(Lnet/minecraft/world/level/levelgen/structure/BoundingBox;)I",
+            at = @At("RETURN"),
+            cancellable = true)
     private void farmmacro$lowRenderBox(BoundingBox b, CallbackInfoReturnable<Integer> cir) {
         if (!LowRender.active()) return;
         int k = LowRender.classify(b.minX(), b.minY(), b.minZ(), b.maxX() + 1, b.maxY() + 1, b.maxZ() + 1);

@@ -22,23 +22,34 @@ public final class Freelook {
 
     private Freelook() {}
 
-    public static boolean active() { return active; }
-    public static float yaw()   { return yaw; }
-    public static float pitch() { return pitch; }
+    public static boolean active() {
+        return active;
+    }
+
+    public static float yaw() {
+        return yaw;
+    }
+
+    public static float pitch() {
+        return pitch;
+    }
 
     /** Движение мыши во время freelook (из миксина). */
     public static void turn(double dx, double dy) {
         float[] r = FreelookMath.turn(yaw, pitch, dx, dy);
-        yaw = r[0]; pitch = r[1];
+        yaw = r[0];
+        pitch = r[1];
     }
 
     public static void toggle(Minecraft mc) {
-        if (active) off(mc, null); else on(mc);
+        if (active) off(mc, null);
+        else on(mc);
     }
 
     public static void on(Minecraft mc) {
         if (active || Freecam.active() || mc.player == null) return;
-        yaw = mc.player.getYRot(); pitch = mc.player.getXRot();
+        yaw = mc.player.getYRot();
+        pitch = mc.player.getXRot();
         prevType = mc.options.getCameraType();
         mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
         active = true;
@@ -50,14 +61,21 @@ public final class Freelook {
     public static void off(Minecraft mc, String why) {
         if (!active) return;
         active = false;
-        if (mc != null && mc.options != null) mc.options.setCameraType(prevType != null ? prevType : CameraType.FIRST_PERSON);
+        if (mc != null && mc.options != null)
+            mc.options.setCameraType(prevType != null ? prevType : CameraType.FIRST_PERSON);
         prevType = null;
         if (why != null) msg(mc, "§e○ Freelook выключен: " + why);
     }
 
     /** Каждый тик: режим «держать» и выход из мира. */
     public static void tick(Minecraft mc) {
-        if (mc.player == null || mc.level == null) { if (active) { active = false; prevType = null; } return; }
+        if (mc.player == null || mc.level == null) {
+            if (active) {
+                active = false;
+                prevType = null;
+            }
+            return;
+        }
         if (ModConfig.INSTANCE.freelookHold && FarmMacroMod.keyFreelook != null) {
             boolean down = FarmMacroMod.keyFreelook.isDown() && mc.screen == null;
             if (down && !active) on(mc);
@@ -66,6 +84,7 @@ public final class Freelook {
     }
 
     private static void msg(Minecraft mc, String text) {
-        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
+        if (mc != null && mc.player != null)
+            mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
     }
 }

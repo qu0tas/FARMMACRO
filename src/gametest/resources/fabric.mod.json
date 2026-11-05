@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "kaelix-gametest",
+  "version": "1.0.0",
+  "name": "Kaelix game tests",
+  "description": "Client game tests for Kaelix (never shipped in the release JAR)",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": [
+      "com.farmmacro.gametest.KaelixClientGameTest"
+    ]
+  },
+  "depends": {
+    "farmmacro": "*",
+    "fabric-client-gametest-api-v1": "*"
+  }
+}

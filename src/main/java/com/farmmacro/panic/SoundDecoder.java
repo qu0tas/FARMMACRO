@@ -1,13 +1,15 @@
 package com.farmmacro.panic;
 
-import net.minecraft.client.sounds.JOrbisAudioStream;
-
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
+import it.unimi.dsi.fastutil.floats.FloatConsumer;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Locale;
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.UnsupportedAudioFileException;
+import net.minecraft.client.sounds.JOrbisAudioStream;
 
 /**
  * Декодирование звуков в PCM16 только на Java, без нативной памяти.
@@ -27,12 +29,17 @@ public final class SoundDecoder {
 
     /** PCM 16 бит со знаком, кадры чередуются по каналам. Частота всегда целая. */
     public record Clip(short[] samples, int channels, int sampleRate) {
-        public int frames() { return samples.length / channels; }
-        public double seconds() { return frames() / (double) sampleRate; }
+        public int frames() {
+            return samples.length / channels;
+        }
+
+        public double seconds() {
+            return frames() / (double) sampleRate;
+        }
     }
 
     public static Clip decode(byte[] raw, String fileName) throws IOException {
-        String n = fileName.toLowerCase(java.util.Locale.ROOT);
+        String n = fileName.toLowerCase(Locale.ROOT);
         if (n.endsWith(".ogg")) return decodeOgg(raw);
         if (n.endsWith(".wav")) return decodeWav(raw);
         throw new IOException("Неизвестный формат: " + fileName);
@@ -46,9 +53,11 @@ public final class SoundDecoder {
             if (channels < 1 || channels > 8 || rate < 1000 || rate > 192_000)
                 throw new IOException("Странный формат ogg: " + f);
             ShortSink sink = new ShortSink((long) MAX_SECONDS * rate * channels);
-            while (in.readChunk(sink) && !sink.full()) { /* читаем до конца */ }
+            while (in.readChunk(sink) && !sink.full()) {
+                /* читаем до конца */
+            }
             short[] pcm = sink.toArray();
-            pcm = Arrays.copyOf(pcm, pcm.length - pcm.length % channels);  // только целые кадры
+            pcm = Arrays.copyOf(pcm, pcm.length - pcm.length % channels); // только целые кадры
             if (pcm.length == 0) throw new IOException("Пустой ogg");
             return new Clip(pcm, channels, rate);
         }
@@ -61,8 +70,8 @@ public final class SoundDecoder {
             int rate = Math.round(f.getSampleRate());
             if (channels < 1 || channels > 8 || rate < 1000 || rate > 192_000)
                 throw new IOException("Странный формат wav: " + f);
-            AudioFormat target = new AudioFormat(AudioFormat.Encoding.PCM_SIGNED, rate, 16,
-                    channels, channels * 2, rate, false);
+            AudioFormat target =
+                    new AudioFormat(AudioFormat.Encoding.PCM_SIGNED, rate, 16, channels, channels * 2, rate, false);
             try (AudioInputStream pcm = AudioSystem.getAudioInputStream(target, src)) {
                 long maxBytes = (long) MAX_SECONDS * rate * channels * 2;
                 byte[] bytes = pcm.readNBytes((int) Math.min(Integer.MAX_VALUE - 16, maxBytes));
@@ -70,11 +79,10 @@ public final class SoundDecoder {
                 count -= count % channels;
                 if (count == 0) throw new IOException("Пустой wav");
                 short[] out = new short[count];
-                for (int i = 0; i < count; i++)
-                    out[i] = (short) ((bytes[2 * i] & 0xFF) | (bytes[2 * i + 1] << 8));
+                for (int i = 0; i < count; i++) out[i] = (short) ((bytes[2 * i] & 0xFF) | (bytes[2 * i + 1] << 8));
                 return new Clip(out, channels, rate);
             }
-        } catch (javax.sound.sampled.UnsupportedAudioFileException | IllegalArgumentException e) {
+        } catch (UnsupportedAudioFileException | IllegalArgumentException e) {
             throw new IOException("wav не поддерживается: " + e.getMessage(), e);
         }
     }
@@ -111,12 +119,14 @@ public final class SoundDecoder {
     }
 
     /** Приёмник float-сэмплов от JOrbis → short[] без лишних объектов. */
-    private static final class ShortSink implements it.unimi.dsi.fastutil.floats.FloatConsumer {
+    private static final class ShortSink implements FloatConsumer {
         private final long limit;
         private short[] buf = new short[1 << 16];
         private int size;
 
-        ShortSink(long limit) { this.limit = limit; }
+        ShortSink(long limit) {
+            this.limit = limit;
+        }
 
         @Override
         public void accept(float f) {
@@ -126,7 +136,12 @@ public final class SoundDecoder {
             buf[size++] = (short) Math.round(c * 32767f);
         }
 
-        boolean full() { return size >= limit; }
-        short[] toArray() { return Arrays.copyOf(buf, size); }
+        boolean full() {
+            return size >= limit;
+        }
+
+        short[] toArray() {
+            return Arrays.copyOf(buf, size);
+        }
     }
 }

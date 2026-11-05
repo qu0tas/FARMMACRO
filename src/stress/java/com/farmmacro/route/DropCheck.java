@@ -1,5 +1,8 @@
 package com.farmmacro.route;
 
+import com.farmmacro.macro.HumanSettings;
+import com.farmmacro.macro.Humanizer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -14,13 +17,25 @@ public final class DropCheck {
     /** Сетка блоков: верх коллизии по (x, y, z), по умолчанию воздух. */
     static final class Grid implements Terrain.Cells {
         final Map<Long, Double> m = new HashMap<>();
-        static long k(int x, int y, int z) { return ((long) (x + 1_000_000) << 40) | ((long) (y + 2048) << 24) | (z + 1_000_000L & 0xFFFFFF); }
-        Grid set(int x, int y, int z, double top) { m.put(k(x, y, z), top); return this; }
+
+        static long k(int x, int y, int z) {
+            return ((long) (x + 1_000_000) << 40) | ((long) (y + 2048) << 24) | (z + 1_000_000L & 0xFFFFFF);
+        }
+
+        Grid set(int x, int y, int z, double top) {
+            m.put(k(x, y, z), top);
+            return this;
+        }
+
         Grid fill(int x0, int x1, int y, int z0, int z1, double top) {
             for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++) set(x, y, z, top);
             return this;
         }
-        public double top(int x, int y, int z) { Double t = m.get(k(x, y, z)); return t == null ? -1 : t; }
+
+        public double top(int x, int y, int z) {
+            Double t = m.get(k(x, y, z));
+            return t == null ? -1 : t;
+        }
     }
 
     /** Верхний этаж: пол y=69 (ноги 70), x 0…9; нижний: пол y=65 (ноги 66), x −3…9; над x = −1…−3 дыра. */
@@ -32,16 +47,19 @@ public final class DropCheck {
         RoutePoint a = new RoutePoint(9.5, 70, 0.5), b = new RoutePoint(0.5, 70, 0.5), c = new RoutePoint(9.5, 66, 0.5);
         b.drop = drop;
         b.landPauseTicks = 10;
-        return new java.util.ArrayList<>(List.of(a, b, c));
+        return new ArrayList<>(List.of(a, b, c));
     }
 
     static boolean DEBUG;
+
     record Sim(int ticks, String panic, double fall, int landWait, boolean done) {}
 
     /** Простая кинематика: XZ — как в WalkSim, Y — гравитация MC (−0.08, ×0.98), опора — Terrain.floorY. */
-    static Sim sim(Terrain.Cells g, List<RoutePoint> pts, float yaw, int maxTicks) { return sim(g, pts, yaw, maxTicks, null); }
+    static Sim sim(Terrain.Cells g, List<RoutePoint> pts, float yaw, int maxTicks) {
+        return sim(g, pts, yaw, maxTicks, null);
+    }
 
-    static Sim sim(Terrain.Cells g, List<RoutePoint> pts, float yaw, int maxTicks, com.farmmacro.macro.Humanizer human) {
+    static Sim sim(Terrain.Cells g, List<RoutePoint> pts, float yaw, int maxTicks, Humanizer human) {
         PointRoute r = new PointRoute();
         for (RoutePoint p : pts) r.points.add(p.copy());
         WalkCore core = new WalkCore();
@@ -62,28 +80,55 @@ public final class DropCheck {
                 sh.tick(out, x, z, core.target(), core.dropPhase(), ss >= 0 && r.points.get(ss).airHold);
                 if (sh.idleNow) core.resetStuckWindow();
             }
-            if (DEBUG) System.out.printf(Locale.ROOT, "t%d x%.2f y%.2f g%s tgt%d ph%d keys%s%s%s%s%n", t, x, y, onGround, core.target(), core.dropPhase(),
-                    out.forward ? "W" : "", out.back ? "S" : "", out.left ? "A" : "", out.right ? "D" : "");
+            if (DEBUG)
+                System.out.printf(
+                        Locale.ROOT,
+                        "t%d x%.2f y%.2f g%s tgt%d ph%d keys%s%s%s%s%n",
+                        t,
+                        x,
+                        y,
+                        onGround,
+                        core.target(),
+                        core.dropPhase(),
+                        out.forward ? "W" : "",
+                        out.back ? "S" : "",
+                        out.left ? "A" : "",
+                        out.right ? "D" : "");
             if (core.done()) return new Sim(t, null, core.lastFall(), landWait, true);
             boolean moving = out.forward || out.back || out.left || out.right;
-            if (core.dropPhase() == WalkCore.D_LAND) { landWait++; if (moving) throw new IllegalStateException("жмёт клавиши в паузе после приземления"); }
+            if (core.dropPhase() == WalkCore.D_LAND) {
+                landWait++;
+                if (moving) throw new IllegalStateException("жмёт клавиши в паузе после приземления");
+            }
             if (!Double.isNaN(core.lastFall())) landed = true;
             double speed = moving ? (out.sneak ? WalkCore.SNEAK : out.sprint ? WalkCore.SPRINT : WalkCore.WALK) : 0;
             double[] dir = WalkCore.moveDir(out, yaw);
-            double air = onGround ? 0.45 : 0.1;                  // в воздухе управление слабее
-            vx = vx * (1 - air) + dir[0] * speed * air; vz = vz * (1 - air) + dir[1] * speed * air;
+            double air = onGround ? 0.45 : 0.1; // в воздухе управление слабее
+            vx = vx * (1 - air) + dir[0] * speed * air;
+            vz = vz * (1 - air) + dir[1] * speed * air;
             double nx = x + vx, nz = z + vz;
             if (Terrain.blockedAt(g, nx, y, nz)) {
-                vx = 0; vz = 0; nx = x; nz = z;
+                vx = 0;
+                vz = 0;
+                nx = x;
+                nz = z;
             }
-            x = nx; z = nz;
+            x = nx;
+            z = nz;
             double f = support(g, x, y, z);
-            if (!Double.isNaN(f) && y - f < 1e-6 && vy <= 0) { y = f; vy = 0; onGround = true; }
-            else {
+            if (!Double.isNaN(f) && y - f < 1e-6 && vy <= 0) {
+                y = f;
+                vy = 0;
+                onGround = true;
+            } else {
                 onGround = false;
                 vy = (vy - 0.08) * 0.98;
                 y += vy;
-                if (!Double.isNaN(f) && y <= f) { y = f; vy = 0; onGround = true; }
+                if (!Double.isNaN(f) && y <= f) {
+                    y = f;
+                    vy = 0;
+                    onGround = true;
+                }
                 if (y < -64) return new Sim(t, "упал в бездну", Double.NaN, landWait, false);
             }
         }
@@ -93,10 +138,11 @@ public final class DropCheck {
     /** Опора хитбокса 0.6×0.6: самая высокая под любым из углов (как в игре — не падаешь, пока край под ногой). */
     static double support(Terrain.Cells g, double x, double y, double z) {
         double best = Double.NaN;
-        for (double ox : new double[]{-0.299, 0.299}) for (double oz : new double[]{-0.299, 0.299}) {
-            double f = Terrain.floorY(g, x + ox, y, z + oz, 64);
-            if (!Double.isNaN(f) && (Double.isNaN(best) || f > best)) best = f;
-        }
+        for (double ox : new double[] {-0.299, 0.299})
+            for (double oz : new double[] {-0.299, 0.299}) {
+                double f = Terrain.floorY(g, x + ox, y, z + oz, 64);
+                if (!Double.isNaN(f) && (Double.isNaN(best) || f > best)) best = f;
+            }
         return best;
     }
 
@@ -109,13 +155,16 @@ public final class DropCheck {
         List<RoutePoint> pts = route(false);
 
         // Terrain
-        check(Terrain.check(g, pts, 0) == Terrain.Issue.OK, "верхний ряд должен быть OK, а " + Terrain.check(g, pts, 0));
+        check(
+                Terrain.check(g, pts, 0) == Terrain.Issue.OK,
+                "верхний ряд должен быть OK, а " + Terrain.check(g, pts, 0));
         check(Terrain.check(g, pts, 1) == Terrain.Issue.NEED_DROP, "на нижний этаж без спуска — NEED_DROP");
         pts.get(1).drop = true;
         check(Terrain.check(g, pts, 1) == Terrain.Issue.OK, "со спуском — OK, а " + Terrain.check(g, pts, 1));
         double depth = Terrain.fillDepth(g, pts, 1);
         check(Math.abs(depth - 4) < 1e-6 && Math.abs(pts.get(1).dropDepth - 4) < 1e-6, "глубина спуска 4, а " + depth);
-        // направление +z: там пол… нет — воздух сбоку и пол ниже: тоже обрыв; −x по ходу; +x — назад по полу (нет обрыва)
+        // направление +z: там пол… нет — воздух сбоку и пол ниже: тоже обрыв; −x по ходу; +x — назад по полу (нет
+        // обрыва)
         pts.get(1).dropDir = "+x";
         check(Terrain.check(g, pts, 1) == Terrain.Issue.NO_EDGE, "спуск назад по полу — NO_EDGE");
         pts.get(1).dropDir = RoutePoint.DIR_AUTO;
@@ -135,19 +184,27 @@ public final class DropCheck {
         double[] e = Terrain.edgeOnSegment(ledge, lp, 0);
         check(e != null && Math.abs(e[0] - 4.5) < 1e-6, "край уступа — блок x=4, а " + (e == null ? "null" : e[0]));
         check(Terrain.edgeOnSegment(g, route(false), 1) == null, "этажи друг под другом — края на линии нет");
-        System.out.printf(Locale.ROOT, "%nTerrain: препятствие, плита, грядки, дыра, «нужен спуск», глубина %.1f, край уступа x=%.1f — OK%n", depth, e[0]);
+        System.out.printf(
+                Locale.ROOT,
+                "%nTerrain: препятствие, плита, грядки, дыра, «нужен спуск», глубина %.1f, край уступа x=%.1f — OK%n",
+                depth,
+                e[0]);
 
         // симуляция: yaw 90 — смотрим на −X, ряд верхнего этажа — W, нижнего — S
         Sim ok = sim(g, route(true), 90f, 3000);
-        System.out.printf(Locale.ROOT, "  спуск: %s за %d тиков, упал на %.2f бл, ждал после приземления %d т%n",
-                ok.panic == null ? "пройдено" : "ПАНИКА " + ok.panic, ok.ticks, ok.fall, ok.landWait);
+        System.out.printf(
+                Locale.ROOT,
+                "  спуск: %s за %d тиков, упал на %.2f бл, ждал после приземления %d т%n",
+                ok.panic == null ? "пройдено" : "ПАНИКА " + ok.panic,
+                ok.ticks,
+                ok.fall,
+                ok.landWait);
         check(ok.done && ok.panic == null, "двухэтажная ферма не пройдена: " + ok);
         check(Math.abs(ok.fall - 4) < 0.05, "падение 4 бл, а " + ok.fall);
         check(ok.landWait >= 9 && ok.landWait <= 11, "пауза после приземления 10 т, а " + ok.landWait);
 
         Sim air = sim(g, withAirHold(route(true)), 90f, 3000);
         check(air.done && air.panic == null, "спуск с «держать в полёте» не пройден: " + air);
-
 
         Sim noDrop = sim(g, route(false), 90f, 3000);
 
@@ -168,30 +225,49 @@ public final class DropCheck {
 
         // два этажа из точек: два ряда сверху, спуск, те же ряды снизу в обратном порядке
         Grid two = new Grid().fill(0, 9, 69, 0, 3, 1).fill(-3, 12, 65, 0, 3, 1);
-        var top = List.of(TestRoutes.pt(9, 70, 0, RoutePoint.ATTACK), TestRoutes.pt(0, 70, 0, RoutePoint.NONE),
-                TestRoutes.pt(0, 70, 3, RoutePoint.ATTACK), TestRoutes.pt(9, 70, 3, RoutePoint.NONE));
-        var all = new java.util.ArrayList<>(top);
+        var top = List.of(
+                TestRoutes.pt(9, 70, 0, RoutePoint.ATTACK),
+                TestRoutes.pt(0, 70, 0, RoutePoint.NONE),
+                TestRoutes.pt(0, 70, 3, RoutePoint.ATTACK),
+                TestRoutes.pt(9, 70, 3, RoutePoint.NONE));
+        var all = new ArrayList<>(top);
         all.get(all.size() - 1).drop = true;
-        for (int j = top.size() - 1; j >= 0; j--) { RoutePoint s = top.get(j); all.add(new RoutePoint(s.x, 66, s.z)); }
+        for (int j = top.size() - 1; j >= 0; j--) {
+            RoutePoint s = top.get(j);
+            all.add(new RoutePoint(s.x, 66, s.z));
+        }
         int dropAt = top.size() - 1;
         Terrain.fillDepth(two, all, dropAt);
         Sim sn = sim(two, all, 90f, 20_000);
-        System.out.printf(Locale.ROOT, "  2 этажа из точек (%d точек): %s за %d тиков, упал на %.2f%n",
-                all.size(), sn.panic == null ? "пройдена" : "ПАНИКА " + sn.panic, sn.ticks, sn.fall);
+        System.out.printf(
+                Locale.ROOT,
+                "  2 этажа из точек (%d точек): %s за %d тиков, упал на %.2f%n",
+                all.size(),
+                sn.panic == null ? "пройдена" : "ПАНИКА " + sn.panic,
+                sn.ticks,
+                sn.fall);
         check(sn.done && sn.panic == null, "2 этажа: " + sn);
         // то же со «Случайностью»: 100 сидов — без паники, падение то же, длина прохода разная
-        var hs = new com.farmmacro.macro.HumanSettings();
-        hs.enabled = true; hs.hesitateChance = 15; hs.landDelayMax = 12;
+        var hs = new HumanSettings();
+        hs.enabled = true;
+        hs.hesitateChance = 15;
+        hs.landDelayMax = 12;
         int mn = Integer.MAX_VALUE, mx = 0;
         for (int i = 0; i < 100; i++) {
-            Sim hr = sim(two, all, 90f, 20_000, new com.farmmacro.macro.Humanizer(hs, 500 + i));
-            check(hr.done && hr.panic == null && Math.abs(hr.fall - 4) < 0.05, "2 этажа со случайностью, сид " + (500 + i) + ": " + hr);
-            mn = Math.min(mn, hr.ticks); mx = Math.max(mx, hr.ticks);
+            Sim hr = sim(two, all, 90f, 20_000, new Humanizer(hs, 500 + i));
+            check(
+                    hr.done && hr.panic == null && Math.abs(hr.fall - 4) < 0.05,
+                    "2 этажа со случайностью, сид " + (500 + i) + ": " + hr);
+            mn = Math.min(mn, hr.ticks);
+            mx = Math.max(mx, hr.ticks);
         }
         check(mx > mn, "со случайностью длина не различается");
         System.out.printf(Locale.ROOT, "  со «Случайностью» × 100 сидов: без паники, %d…%d тиков%n", mn, mx);
         System.out.println("Этажи и спуск — OK");
     }
 
-    private static List<RoutePoint> withAirHold(List<RoutePoint> p) { p.get(1).airHold = true; return p; }
+    private static List<RoutePoint> withAirHold(List<RoutePoint> p) {
+        p.get(1).airHold = true;
+        return p;
+    }
 }

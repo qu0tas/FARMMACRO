@@ -1,22 +1,33 @@
 package com.farmmacro.visual;
 
+import com.farmmacro.FarmMacroMod;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroFrame;
 import com.farmmacro.macro.MacroManager;
+import com.farmmacro.route.PointRoute;
+import com.farmmacro.route.ReturnWalker;
+import com.farmmacro.route.RouteBuffer;
+import com.farmmacro.route.RoutePoint;
+import com.farmmacro.route.RouteVariants;
+import com.farmmacro.route.RouteWalker;
+import com.farmmacro.route.Terrain;
+import com.farmmacro.route.TerrainLevel;
+import com.farmmacro.util.Clock;
 import com.farmmacro.util.Guard;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.ArrayList;
+import java.util.List;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
-import com.farmmacro.route.RouteBuffer;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
-
-import java.util.List;
 
 /**
  * Маршрут текущего макроса в мире: светящаяся лента по кадрам, стрелки, маркеры старта/остановки/текущей позиции,
@@ -36,7 +47,7 @@ public final class RouteRenderer {
     private RouteRenderer() {}
 
     private static final String GUARD = "visual/route";
-    private static final float LIFT = 0.06f;            // над землёй
+    private static final float LIFT = 0.06f; // над землёй
     private static final int FULL_LIGHT = 0xF000F0;
     private static final int MAX_SEGMENTS = 12_000;
 
@@ -58,58 +69,85 @@ public final class RouteRenderer {
     }
 
     /** Текущая упрощённая геометрия (для отладки/статистики). */
-    public static RoutePath currentPath() { return path; }
+    public static RoutePath currentPath() {
+        return path;
+    }
 
     private static void updateCache(MacroManager m, Minecraft mc, ModConfig c) {
         List<MacroFrame> frames = m.getFrames();
         int n = frames.size();
         boolean live = m.isRecording();
-        if (n == 0) { path = null; keySize = 0; keyFirst = keyLast = null; return; }
+        if (n == 0) {
+            path = null;
+            keySize = 0;
+            keyFirst = keyLast = null;
+            return;
+        }
         MacroFrame first = frames.get(0), last = frames.get(n - 1);
         boolean sameMacro = first == keyFirst;
-        boolean unchanged = sameMacro && n == keySize && last == keyLast && live == keyLive
+        boolean unchanged = sameMacro
+                && n == keySize
+                && last == keyLast
+                && live == keyLive
                 && keyArrowSpacing == c.routeArrowSpacing;
         if (unchanged) return;
-        if (live && sameMacro && System.currentTimeMillis() - lastLiveBuildMs < 500) return;   // запись: не чаще 2 раз/с
+        if (live && sameMacro && Clock.millis() - lastLiveBuildMs < 500) return; // запись: не чаще 2 раз/с
         if (!sameMacro && mc.level != null) routeDim = mc.level.dimension();
         long t0 = System.nanoTime();
         path = RoutePath.build(frames, 0.25, 0.08, 4.0, c.routeArrowSpacing, !live);
-        lastLiveBuildMs = System.currentTimeMillis();
-        keyFirst = first; keyLast = last; keySize = n; keyLive = live; keyArrowSpacing = c.routeArrowSpacing;
-        if (!live) com.farmmacro.FarmMacroMod.LOGGER.info("Маршрут: {} кадров → {} точек, {} стрелок, {} отметок за {} мс",
-                n, path.size, path.arrows, path.marks, (System.nanoTime() - t0) / 1_000_000);
+        lastLiveBuildMs = Clock.millis();
+        keyFirst = first;
+        keyLast = last;
+        keySize = n;
+        keyLive = live;
+        keyArrowSpacing = c.routeArrowSpacing;
+        if (!live)
+            FarmMacroMod.LOGGER.info(
+                    "Маршрут: {} кадров → {} точек, {} стрелок, {} отметок за {} мс",
+                    n,
+                    path.size,
+                    path.arrows,
+                    path.marks,
+                    (System.nanoTime() - t0) / 1_000_000);
     }
 
     // ── маршрут по точкам: кеш и состояние редактора ──
     private static RoutePath pointPath, playingPointPath, previewPath;
-    private static int playingKey=-1;
-    private static double playingSpacing=-1,previewSpacing=-1;
-    private static com.farmmacro.route.PointRoute previewKey;
+    private static int playingKey = -1;
+    private static double playingSpacing = -1, previewSpacing = -1;
+    private static PointRoute previewKey;
+
     private static RoutePath playingPath(ModConfig c) {
-        var rw=com.farmmacro.route.RouteWalker.INSTANCE;
-        if(playingKey!=rw.pathRevision() || playingSpacing!=c.routeArrowSpacing) {
-            playingPointPath=RoutePath.fromPoints(rw.activePoints(),4.0,c.routeArrowSpacing);
-            playingKey=rw.pathRevision();playingSpacing=c.routeArrowSpacing;
+        var rw = RouteWalker.INSTANCE;
+        if (playingKey != rw.pathRevision() || playingSpacing != c.routeArrowSpacing) {
+            playingPointPath = RoutePath.fromPoints(rw.activePoints(), 4.0, c.routeArrowSpacing);
+            playingKey = rw.pathRevision();
+            playingSpacing = c.routeArrowSpacing;
         }
         return playingPointPath;
     }
+
     private static RoutePath previewPath(ModConfig c) {
-        var preview=com.farmmacro.route.RouteVariants.preview();
-        if(preview!=previewKey || previewSpacing!=c.routeArrowSpacing) {
-            previewPath=preview==null ? null : RoutePath.fromPoints(preview.points,4.0,c.routeArrowSpacing);
-            previewKey=preview;previewSpacing=c.routeArrowSpacing;
+        var preview = RouteVariants.preview();
+        if (preview != previewKey || previewSpacing != c.routeArrowSpacing) {
+            previewPath = preview == null ? null : RoutePath.fromPoints(preview.points, 4.0, c.routeArrowSpacing);
+            previewKey = preview;
+            previewSpacing = c.routeArrowSpacing;
         }
         return previewPath;
     }
+
     private static int pointKeyRev = -1;
     private static double pointKeySpacing = -1;
 
     /** Что показывает редактор (ставит route.RouteEditor каждый тик). */
     public static int editorHover = -1;
+
     public static boolean editorActive;
 
     /** Проблемы отрезков (Terrain) — только в редакторе; пересчёт при правке маршрута и раз в секунду (мир меняется). */
     private static byte[] issues;
+
     private static boolean issuesFor;
     private static long issuesMs;
     /** Первая проблема маршрута для HUD редактора («Отрезок 3→4: препятствие») или null. */
@@ -121,11 +159,20 @@ public final class RouteRenderer {
 
     private static RoutePath pointPath(ModConfig c) {
         RouteBuffer rb = RouteBuffer.INSTANCE;
-        long now = System.currentTimeMillis();
+        long now = Clock.millis();
         boolean refreshIssues = editorActive && (!issuesFor || now - issuesMs > 1000);
-        if (rb.revision() != pointKeyRev || c.routeArrowSpacing != pointKeySpacing || refreshIssues || (issuesFor && !editorActive)) {
+        if (rb.revision() != pointKeyRev
+                || c.routeArrowSpacing != pointKeySpacing
+                || refreshIssues
+                || (issuesFor && !editorActive)) {
             if (editorActive) recomputeIssues(rb);
-            else { issues = null; issuesFor = false; editorIssue = null; editorIssueIndex = -1; editorIssueCount = 0; }
+            else {
+                issues = null;
+                issuesFor = false;
+                editorIssue = null;
+                editorIssueIndex = -1;
+                editorIssueCount = 0;
+            }
             pointPath = RoutePath.fromPoints(rb.points(), 4.0, c.routeArrowSpacing, issues);
             pointKeyRev = rb.revision();
             pointKeySpacing = c.routeArrowSpacing;
@@ -136,27 +183,35 @@ public final class RouteRenderer {
     private static void recomputeIssues(RouteBuffer rb) {
         Minecraft mc = Minecraft.getInstance();
         issuesFor = true;
-        issuesMs = System.currentTimeMillis();
-        editorIssue = null; editorIssueIndex = -1; editorIssueCount = 0;
+        issuesMs = Clock.millis();
+        editorIssue = null;
+        editorIssueIndex = -1;
+        editorIssueCount = 0;
         var pts = rb.points();
-        if (mc.level == null || pts.size() < 2) { issues = null; return; }
-        var w = new com.farmmacro.route.TerrainLevel(mc.level);
+        if (mc.level == null || pts.size() < 2) {
+            issues = null;
+            return;
+        }
+        var w = new TerrainLevel(mc.level);
         byte[] out = new byte[pts.size() - 1];
         for (int i = 0; i + 1 < pts.size(); i++) {
-            var is = com.farmmacro.route.Terrain.check(w, pts, i);
-            if (is == com.farmmacro.route.Terrain.Issue.OK) continue;
+            var is = Terrain.check(w, pts, i);
+            if (is == Terrain.Issue.OK) continue;
             out[i] = (byte) (is.ordinal());
             editorIssueCount++;
-            if (editorIssue == null) { editorIssue = "Отрезок " + (i + 1) + "→" + (i + 2) + ": " + is.text; editorIssueIndex = i; }
+            if (editorIssue == null) {
+                editorIssue = "Отрезок " + (i + 1) + "→" + (i + 2) + ": " + is.text;
+                editorIssueIndex = i;
+            }
         }
         issues = out;
     }
 
     /** Проблема отрезка i → i+1 (по последнему пересчёту) или OK. */
-    public static com.farmmacro.route.Terrain.Issue issueAt(int i) {
+    public static Terrain.Issue issueAt(int i) {
         byte[] is = issues;
-        if (is == null || i < 0 || i >= is.length) return com.farmmacro.route.Terrain.Issue.OK;
-        return com.farmmacro.route.Terrain.Issue.values()[is[i]];
+        if (is == null || i < 0 || i >= is.length) return Terrain.Issue.OK;
+        return Terrain.Issue.values()[is[i]];
     }
 
     private static void collect(LevelRenderContext ctx) {
@@ -165,9 +220,10 @@ public final class RouteRenderer {
         LocalPlayer player = mc.player;
         if (player == null || mc.level == null) return;
         MacroManager m = MacroManager.INSTANCE;
-        if((c.returnPathVisible||c.pathDebug)&&m.isReturning())collectNavigation(ctx,mc,m.returnWalker());
+        if ((c.returnPathVisible || c.pathDebug) && m.isReturning()) collectNavigation(ctx, mc, m.returnWalker());
         boolean playing = m.isPlaying() || m.isCountingDown();
-        boolean points = editorActive || (m.getSourceKind() == MacroManager.SourceKind.ROUTE && !RouteBuffer.INSTANCE.isEmpty());
+        boolean points =
+                editorActive || (m.getSourceKind() == MacroManager.SourceKind.ROUTE && !RouteBuffer.INSTANCE.isEmpty());
         if (!editorActive) {
             if (!c.routeEnabled) return;
             if ("playing".equals(c.routeMode) && !playing) return;
@@ -175,8 +231,7 @@ public final class RouteRenderer {
 
         RoutePath p;
         if (points) {
-            p = m.isRoutePlaying() && !editorActive
-                    ? playingPath(c) : pointPath(c);
+            p = m.isRoutePlaying() && !editorActive ? playingPath(c) : pointPath(c);
             String dim = RouteBuffer.INSTANCE.route().dimension;
             if (dim != null && !RouteBuffer.INSTANCE.isEmpty() && !dim.equals(RouteBuffer.dimensionId(mc))) return;
         } else {
@@ -192,7 +247,11 @@ public final class RouteRenderer {
 
         // сдвиг «относительно точки запуска» (как у детектора схода с маршрута); у точек — всегда мир
         double ox = 0, oy = 0, oz = 0;
-        if (!points && c.routeRelative && m.isPlaying()) { ox = m.getOffsetX(); oy = m.getOffsetY(); oz = m.getOffsetZ(); }
+        if (!points && c.routeRelative && m.isPlaying()) {
+            ox = m.getOffsetX();
+            oy = m.getOffsetY();
+            oz = m.getOffsetZ();
+        }
         final float sx = (float) (ox - cam.x), sy = (float) (oy - cam.y) + LIFT, sz = (float) (oz - cam.z);
         final float px0 = (float) (me.x - ox), pz0 = (float) (me.z - oz), py0 = (float) (me.y - oy);
         final float r2 = (float) (c.routeRadius * c.routeRadius);
@@ -211,33 +270,123 @@ public final class RouteRenderer {
         arrowRgb = HatColors.rgbOr(c.routeArrowColor, 0xFFFFFF);
         opacity = c.routeOpacity / 100f;
         glow = c.routeGlow;
-        long ms = System.currentTimeMillis();
+        long ms = Clock.millis();
         final float pulse = (float) (0.65 + 0.35 * Math.sin(ms / 220.0));
         final boolean pts = points;
-        final RoutePath variant=editorActive ? previewPath(c) : null;
-        final var endSettings=com.farmmacro.route.RouteBuffer.INSTANCE.settings().routeEnd.copy();
-        final var exitPoints=com.farmmacro.route.RouteBuffer.INSTANCE.points().stream().map(com.farmmacro.route.RoutePoint::copy).toList();
+        final RoutePath variant = editorActive ? previewPath(c) : null;
+        final var endSettings = RouteBuffer.INSTANCE.settings().routeEnd.copy();
+        final var exitPoints =
+                RouteBuffer.INSTANCE.points().stream().map(RoutePoint::copy).toList();
 
         PoseStack ps = ctx.poseStack();
         ps.pushPose();
         try {
             ps.translate(sx, sy, sz);
             Builder normal = new Builder(false, 1f);
-            ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.debugQuads(), (pose, vc) -> Guard.runOrDisable(GUARD, () ->
-                    emitAll(normal.with(pose, vc), p, c, px0, py0, pz0, r2, cx, cy, cz, cur, recording, w, actions, pulse, m, pts)));
-            if(editorActive&&endSettings.walks()&&!exitPoints.isEmpty()){var last=exitPoints.getLast();var d=endSettings.vector(exitPoints);ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc)->Guard.runOrDisable(GUARD,()->{Builder b=new Builder(false,1f).with(pose,vc);for(double t=0;t<endSettings.distance;t+=.5){double to=Math.min(t+.25,endSettings.distance);ribbon(b,(float)(last.x+d[0]*t),(float)last.y+.04f,(float)(last.z+d[1]*t),(float)(last.x+d[0]*to),(float)last.y+.04f,(float)(last.z+d[1]*to),cx,cy,cz,w,0xFFAA44,.9f);}}));}
-            if(variant!=null) ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc) -> Guard.runOrDisable(GUARD,() -> {
-                Builder b=new Builder(false,1f).with(pose,vc);
-                for(int i=1;i<variant.size && i<MAX_SEGMENTS;i++) {
-                    float dx=variant.x[i]-px0,dz=variant.z[i]-pz0;
-                    if(dx*dx+dz*dz<=r2) ribbon(b,variant.x[i-1],variant.y[i-1]+.025f,variant.z[i-1],
-                            variant.x[i],variant.y[i]+.025f,variant.z[i],cx,cy,cz,w,0xC77DFF,.95f);
-                }
-            }));
+            ctx.submitNodeCollector()
+                    .submitCustomGeometry(
+                            ps,
+                            RenderTypes.debugQuads(),
+                            (pose, vc) -> Guard.runOrDisable(
+                                    GUARD,
+                                    () -> emitAll(
+                                            normal.with(pose, vc),
+                                            p,
+                                            c,
+                                            px0,
+                                            py0,
+                                            pz0,
+                                            r2,
+                                            cx,
+                                            cy,
+                                            cz,
+                                            cur,
+                                            recording,
+                                            w,
+                                            actions,
+                                            pulse,
+                                            m,
+                                            pts)));
+            if (editorActive && endSettings.walks() && !exitPoints.isEmpty()) {
+                var last = exitPoints.getLast();
+                var d = endSettings.vector(exitPoints);
+                ctx.submitNodeCollector()
+                        .submitCustomGeometry(
+                                ps,
+                                RenderTypes.debugQuads(),
+                                (pose, vc) -> Guard.runOrDisable(GUARD, () -> {
+                                    Builder b = new Builder(false, 1f).with(pose, vc);
+                                    for (double t = 0; t < endSettings.distance; t += .5) {
+                                        double to = Math.min(t + .25, endSettings.distance);
+                                        ribbon(
+                                                b,
+                                                (float) (last.x + d[0] * t),
+                                                (float) last.y + .04f,
+                                                (float) (last.z + d[1] * t),
+                                                (float) (last.x + d[0] * to),
+                                                (float) last.y + .04f,
+                                                (float) (last.z + d[1] * to),
+                                                cx,
+                                                cy,
+                                                cz,
+                                                w,
+                                                0xFFAA44,
+                                                .9f);
+                                    }
+                                }));
+            }
+            if (variant != null)
+                ctx.submitNodeCollector()
+                        .submitCustomGeometry(
+                                ps,
+                                RenderTypes.debugQuads(),
+                                (pose, vc) -> Guard.runOrDisable(GUARD, () -> {
+                                    Builder b = new Builder(false, 1f).with(pose, vc);
+                                    for (int i = 1; i < variant.size && i < MAX_SEGMENTS; i++) {
+                                        float dx = variant.x[i] - px0, dz = variant.z[i] - pz0;
+                                        if (dx * dx + dz * dz <= r2)
+                                            ribbon(
+                                                    b,
+                                                    variant.x[i - 1],
+                                                    variant.y[i - 1] + .025f,
+                                                    variant.z[i - 1],
+                                                    variant.x[i],
+                                                    variant.y[i] + .025f,
+                                                    variant.z[i],
+                                                    cx,
+                                                    cy,
+                                                    cz,
+                                                    w,
+                                                    0xC77DFF,
+                                                    .95f);
+                                    }
+                                }));
             if (!"off".equals(xray)) {
                 Builder see = new Builder(true, "full".equals(xray) ? 0.9f : 0.42f);
-                ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.textBackgroundSeeThrough(), (pose, vc) -> Guard.runOrDisable(GUARD, () ->
-                        emitAll(see.with(pose, vc), p, c, px0, py0, pz0, r2, cx, cy, cz, cur, recording, w, actions, pulse, m, pts)));
+                ctx.submitNodeCollector()
+                        .submitCustomGeometry(
+                                ps,
+                                RenderTypes.textBackgroundSeeThrough(),
+                                (pose, vc) -> Guard.runOrDisable(
+                                        GUARD,
+                                        () -> emitAll(
+                                                see.with(pose, vc),
+                                                p,
+                                                c,
+                                                px0,
+                                                py0,
+                                                pz0,
+                                                r2,
+                                                cx,
+                                                cy,
+                                                cz,
+                                                cur,
+                                                recording,
+                                                w,
+                                                actions,
+                                                pulse,
+                                                m,
+                                                pts)));
             }
         } finally {
             ps.popPose();
@@ -246,54 +395,130 @@ public final class RouteRenderer {
     }
 
     /** Bounded, opt-in live navigation diagnostics. No text or render-state shared with the farm route. */
-    public static void collectNavigation(LevelRenderContext ctx,Minecraft mc,com.farmmacro.route.ReturnWalker rw){
-        var pts=List.copyOf(rw.path());int index=Math.min(rw.pathIndex(),pts.size());
-        var rays=ModConfig.INSTANCE.pathDebug?rw.debugRays():List.<double[]>of();
-        var aim=ModConfig.INSTANCE.pathDebug?rw.steeringPoint():null;
-        Vec3 cam=ctx.levelState().cameraRenderState.pos;
-        double x=mc.player.getX(),y=mc.player.getY()+.09,z=mc.player.getZ();
-        PoseStack ps=ctx.poseStack();ps.pushPose();
-        try{
-            ps.translate(-cam.x,-cam.y,-cam.z);
-            ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc)->Guard.runOrDisable("visual/navigation",()->{
-                Builder b=new Builder(false,1f).with(pose,vc);
-                double ax=x,ay=y,az=z;
-                for(int i=index;i<pts.size()&&i<index+64;i++){
-                    var p=pts.get(i);ribbon(b,(float)ax,(float)ay,(float)az,(float)p.x,(float)p.y+.09f,(float)p.z,(float)cam.x,(float)cam.y,(float)cam.z,.025f,0x69B7FF,.7f);
-                    ax=p.x;ay=p.y+.09;az=p.z;
-                }
-                for(var ray:rays)ribbon(b,(float)x,(float)y,(float)z,(float)ray[0],(float)y,(float)ray[1],(float)cam.x,(float)cam.y,(float)cam.z,.012f,ray[2]>0?0x70BAAA:0xCF956B,.45f);
-                if(aim!=null)ribbon(b,(float)x,(float)y+.03f,(float)z,(float)aim[0],(float)y+.03f,(float)aim[1],(float)cam.x,(float)cam.y,(float)cam.z,.04f,0x83E6A4,.9f);
-            }));
-        }finally{ps.popPose();}
+    public static void collectNavigation(LevelRenderContext ctx, Minecraft mc, ReturnWalker rw) {
+        var pts = List.copyOf(rw.path());
+        int index = Math.min(rw.pathIndex(), pts.size());
+        var rays = ModConfig.INSTANCE.pathDebug ? rw.debugRays() : List.<double[]>of();
+        var aim = ModConfig.INSTANCE.pathDebug ? rw.steeringPoint() : null;
+        Vec3 cam = ctx.levelState().cameraRenderState.pos;
+        double x = mc.player.getX(), y = mc.player.getY() + .09, z = mc.player.getZ();
+        PoseStack ps = ctx.poseStack();
+        ps.pushPose();
+        try {
+            ps.translate(-cam.x, -cam.y, -cam.z);
+            ctx.submitNodeCollector()
+                    .submitCustomGeometry(
+                            ps,
+                            RenderTypes.debugQuads(),
+                            (pose, vc) -> Guard.runOrDisable("visual/navigation", () -> {
+                                Builder b = new Builder(false, 1f).with(pose, vc);
+                                double ax = x, ay = y, az = z;
+                                for (int i = index; i < pts.size() && i < index + 64; i++) {
+                                    var p = pts.get(i);
+                                    ribbon(
+                                            b,
+                                            (float) ax,
+                                            (float) ay,
+                                            (float) az,
+                                            (float) p.x,
+                                            (float) p.y + .09f,
+                                            (float) p.z,
+                                            (float) cam.x,
+                                            (float) cam.y,
+                                            (float) cam.z,
+                                            .025f,
+                                            0x69B7FF,
+                                            .7f);
+                                    ax = p.x;
+                                    ay = p.y + .09;
+                                    az = p.z;
+                                }
+                                for (var ray : rays)
+                                    ribbon(
+                                            b,
+                                            (float) x,
+                                            (float) y,
+                                            (float) z,
+                                            (float) ray[0],
+                                            (float) y,
+                                            (float) ray[1],
+                                            (float) cam.x,
+                                            (float) cam.y,
+                                            (float) cam.z,
+                                            .012f,
+                                            ray[2] > 0 ? 0x70BAAA : 0xCF956B,
+                                            .45f);
+                                if (aim != null)
+                                    ribbon(
+                                            b,
+                                            (float) x,
+                                            (float) y + .03f,
+                                            (float) z,
+                                            (float) aim[0],
+                                            (float) y + .03f,
+                                            (float) aim[1],
+                                            (float) cam.x,
+                                            (float) cam.y,
+                                            (float) cam.z,
+                                            .04f,
+                                            0x83E6A4,
+                                            .9f);
+                            }));
+        } finally {
+            ps.popPose();
+        }
     }
 
     /** Actual finite service path, same depth-tested ribbon as shared return navigation. No predicted path. */
-    public static void collectServicePath(LevelRenderContext ctx,Minecraft mc,List<Vec3> path){
-        if(mc.player==null||mc.level==null||path.isEmpty())return;
-        var checked=new java.util.ArrayList<Vec3>();
-        for(var v:path){if(checked.size()>=64||!mc.level.hasChunk(((int)Math.floor(v.x))>>4,((int)Math.floor(v.z))>>4))break;checked.add(v);}
-        var copy=List.copyOf(checked);Vec3 camera=ctx.levelState().cameraRenderState.pos,feet=mc.player.position();
-        PoseStack ps=ctx.poseStack();ps.pushPose();
-        try{ps.translate(-camera.x,-camera.y,-camera.z);
-            ctx.submitNodeCollector().submitCustomGeometry(ps,RenderTypes.debugQuads(),(pose,vc)->{
-                Builder b=new Builder(false,1f).with(pose,vc);Vec3 last=feet.add(0,.15,0);
-                for(Vec3 v:copy){
-                    ribbon(b,(float)last.x,(float)last.y,(float)last.z,(float)v.x,(float)v.y+.15f,(float)v.z,
-                        (float)camera.x,(float)camera.y,(float)camera.z,.045f,0x7AD899,.9f);last=v.add(0,.15,0);
+    public static void collectServicePath(LevelRenderContext ctx, Minecraft mc, List<Vec3> path) {
+        if (mc.player == null || mc.level == null || path.isEmpty()) return;
+        var checked = new ArrayList<Vec3>();
+        for (var v : path) {
+            if (checked.size() >= 64 || !mc.level.hasChunk(((int) Math.floor(v.x)) >> 4, ((int) Math.floor(v.z)) >> 4))
+                break;
+            checked.add(v);
+        }
+        var copy = List.copyOf(checked);
+        Vec3 camera = ctx.levelState().cameraRenderState.pos, feet = mc.player.position();
+        PoseStack ps = ctx.poseStack();
+        ps.pushPose();
+        try {
+            ps.translate(-camera.x, -camera.y, -camera.z);
+            ctx.submitNodeCollector().submitCustomGeometry(ps, RenderTypes.debugQuads(), (pose, vc) -> {
+                Builder b = new Builder(false, 1f).with(pose, vc);
+                Vec3 last = feet.add(0, .15, 0);
+                for (Vec3 v : copy) {
+                    ribbon(
+                            b,
+                            (float) last.x,
+                            (float) last.y,
+                            (float) last.z,
+                            (float) v.x,
+                            (float) v.y + .15f,
+                            (float) v.z,
+                            (float) camera.x,
+                            (float) camera.y,
+                            (float) camera.z,
+                            .045f,
+                            0x7AD899,
+                            .9f);
+                    last = v.add(0, .15, 0);
                 }
             });
-        }finally{ps.popPose();}
+        } finally {
+            ps.popPose();
+        }
     }
 
     /** Номера точек над ними (как таблички имён: видно и сквозь блоки). */
     private static void labels(LevelRenderContext ctx, Minecraft mc, Vec3 cam, Vec3 me, ModConfig c) {
-        List<com.farmmacro.route.RoutePoint> pts = MacroManager.INSTANCE.isRoutePlaying() && !editorActive
-                ? com.farmmacro.route.RouteWalker.INSTANCE.activePoints() : RouteBuffer.INSTANCE.points();
+        List<RoutePoint> pts = MacroManager.INSTANCE.isRoutePlaying() && !editorActive
+                ? RouteWalker.INSTANCE.activePoints()
+                : RouteBuffer.INSTANCE.points();
         double r = Math.min(c.routeRadius, 48);
         double r2 = r * r;
         int sel = editorActive ? RouteBuffer.INSTANCE.selected() : -1, shown = 0;
-        int lrgb = HatColors.rgbOr(c.routeLabelColor, 0xAAAAAA);   // по умолчанию серый, как §7
+        int lrgb = HatColors.rgbOr(c.routeLabelColor, 0xAAAAAA); // по умолчанию серый, как §7
         var camState = ctx.levelState().cameraRenderState;
         for (int i = 0; i < pts.size() && shown < 160; i++) {
             var q = pts.get(i);
@@ -302,15 +527,22 @@ public final class RouteRenderer {
             shown++;
             // номер: выбранная — жёлтый, наведённая — белый, остальные — цвет из настроек
             int numRgb = i == sel ? 0xFFFF55 : editorActive && i == editorHover ? 0xFFFFFF : lrgb;
-            var text = net.minecraft.network.chat.Component.literal(String.valueOf(i + 1)).withColor(numRgb);
+            var text = Component.literal(String.valueOf(i + 1)).withColor(numRgb);
             StringBuilder t = new StringBuilder();
             if (q.pauseTicks > 0) t.append(" §6⏸").append(q.pauseTicks);
             if (q.slot > 0) t.append(" §b[").append(q.slot).append(']');
-            if (!t.isEmpty()) text.append(net.minecraft.network.chat.Component.literal(t.toString()));
+            if (!t.isEmpty()) text.append(Component.literal(t.toString()));
             Vec3 rel = new Vec3(q.x - cam.x, q.y + 0.25 - cam.y, q.z - cam.z);
-            ctx.submitNodeCollector().submitNameTag(ctx.poseStack(), rel, 0,
-                    text, true,
-                    net.minecraft.util.LightCoordsUtil.FULL_BRIGHT, rel.lengthSqr(), camState);
+            ctx.submitNodeCollector()
+                    .submitNameTag(
+                            ctx.poseStack(),
+                            rel,
+                            0,
+                            text,
+                            true,
+                            LightCoordsUtil.FULL_BRIGHT,
+                            rel.lengthSqr(),
+                            camState);
         }
     }
 
@@ -318,17 +550,34 @@ public final class RouteRenderer {
     private static final int C_REC = 0xFF4545;
     /** Цвет и непрозрачность «впереди» из настроек (ставятся в начале кадра, рисование — в том же потоке). */
     private static int aheadRgb = 0x38D6FF;
+
     private static float opacity = 0.9f;
     private static boolean glow = true;
     /** Цвета из настроек «Визуал» (по умолчанию — константы ниже). */
     private static int pointRgb = 0xD8F4FF, startRgb = 0x4DFF88, stopRgb = 0xFF4D4D, arrowRgb = 0xFFFFFF;
+
     private static final int C_ATTACK = 0xFFA23A, C_USE = 0xC77DFF;
     private static final int C_START = 0x4DFF88, C_STOP = 0xFF4D4D, C_CUR = 0xFFF6B0;
     private static final int C_JUMP = 0xFFE14D, C_SNEAK = 0xFF6FCF, C_DROP = 0x4DD2FF, C_ISSUE = 0xFF2A2A;
 
-    private static void emitAll(Builder b, RoutePath p, ModConfig c, float px, float py, float pz, float r2,
-                                float cx, float cy, float cz, int cur, boolean rec, float w, boolean actions,
-                                float pulse, MacroManager m, boolean pts) {
+    private static void emitAll(
+            Builder b,
+            RoutePath p,
+            ModConfig c,
+            float px,
+            float py,
+            float pz,
+            float r2,
+            float cx,
+            float cy,
+            float cz,
+            int cur,
+            boolean rec,
+            float w,
+            boolean actions,
+            float pulse,
+            MacroManager m,
+            boolean pts) {
         // лента (не больше MAX_SEGMENTS за кадр — защита от огромных хаотичных маршрутов)
         int drawn = 0;
         for (int i = 1; i < p.size && drawn < MAX_SEGMENTS; i++) {
@@ -339,14 +588,27 @@ public final class RouteRenderer {
             int base = segColor(p.flags[i], rec, actions);
             if (cur < 0 || f1 <= cur) {
                 boolean passed = cur >= 0 && !rec;
-                seg(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], p.x[i], p.y[i], p.z[i], cx, cy, cz, w,
-                        passed ? dim(base) : base, passed ? 0.40f : opacity);
+                seg(
+                        b,
+                        p.x[i - 1],
+                        p.y[i - 1],
+                        p.z[i - 1],
+                        p.x[i],
+                        p.y[i],
+                        p.z[i],
+                        cx,
+                        cy,
+                        cz,
+                        w,
+                        passed ? dim(base) : base,
+                        passed ? 0.40f : opacity);
             } else if (f0 >= cur) {
                 seg(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], p.x[i], p.y[i], p.z[i], cx, cy, cz, w, base, opacity);
             } else {
                 // отрезок, на котором сейчас воспроизведение: делим
                 float t = (float) (cur - f0) / Math.max(1, f1 - f0);
-                float qx = p.x[i - 1] + (p.x[i] - p.x[i - 1]) * t, qy = p.y[i - 1] + (p.y[i] - p.y[i - 1]) * t,
+                float qx = p.x[i - 1] + (p.x[i] - p.x[i - 1]) * t,
+                        qy = p.y[i - 1] + (p.y[i] - p.y[i - 1]) * t,
                         qz = p.z[i - 1] + (p.z[i] - p.z[i - 1]) * t;
                 seg(b, p.x[i - 1], p.y[i - 1], p.z[i - 1], qx, qy, qz, cx, cy, cz, w, dim(base), 0.40f);
                 seg(b, qx, qy, qz, p.x[i], p.y[i], p.z[i], cx, cy, cz, w, base, opacity);
@@ -359,8 +621,16 @@ public final class RouteRenderer {
                 float dx = p.ax[i] - px, dz = p.az[i] - pz;
                 if (dx * dx + dz * dz > r2) continue;
                 boolean passed = cur >= 0 && p.aFrame[i] <= cur;
-                chevron(b, p.ax[i], p.ay[i] + 0.01f, p.az[i], p.adx[i], p.adz[i], s,
-                        passed ? dim(aheadRgb) : arrowRgb, passed ? 0.35f : Math.max(0.5f, opacity));
+                chevron(
+                        b,
+                        p.ax[i],
+                        p.ay[i] + 0.01f,
+                        p.az[i],
+                        p.adx[i],
+                        p.adz[i],
+                        s,
+                        passed ? dim(aheadRgb) : arrowRgb,
+                        passed ? 0.35f : Math.max(0.5f, opacity));
             }
         }
         // прыжок / приседание (по настройке действий) и спуск (всегда)
@@ -370,8 +640,17 @@ public final class RouteRenderer {
                 float dx = p.mx[i] - px, dz = p.mz[i] - pz;
                 if (dx * dx + dz * dz > r2) continue;
                 boolean passed = cur >= 0 && p.mFrame[i] <= cur;
-                billboard(b, p.mx[i], p.my[i] + 0.12f, p.mz[i], cx, cy, cz, 0.07f,
-                        p.mType[i] == RoutePath.M_JUMP ? C_JUMP : p.mType[i] == RoutePath.M_DROP ? C_DROP : C_SNEAK, passed ? 0.35f : 0.9f);
+                billboard(
+                        b,
+                        p.mx[i],
+                        p.my[i] + 0.12f,
+                        p.mz[i],
+                        cx,
+                        cy,
+                        cz,
+                        0.07f,
+                        p.mType[i] == RoutePath.M_JUMP ? C_JUMP : p.mType[i] == RoutePath.M_DROP ? C_DROP : C_SNEAK,
+                        passed ? 0.35f : 0.9f);
             }
         }
         // маркеры: старт, точка остановки, текущая позиция
@@ -384,12 +663,21 @@ public final class RouteRenderer {
             float ox = (float) (rel ? m.getOffsetX() : 0);
             float oy = (float) (rel ? m.getOffsetY() : 0);
             float oz = (float) (rel ? m.getOffsetZ() : 0);
-            beacon(b, (float) m.getSavedX() - ox, (float) m.getSavedY() - oy, (float) m.getSavedZ() - oz,
-                    cx, cy, cz, stopRgb, 0.9f);
+            beacon(
+                    b,
+                    (float) m.getSavedX() - ox,
+                    (float) m.getSavedY() - oy,
+                    (float) m.getSavedZ() - oz,
+                    cx,
+                    cy,
+                    cz,
+                    stopRgb,
+                    0.9f);
         }
         if (!pts && cur >= 0 && cur < m.getFrameCount()) {
             MacroFrame f = m.getFrames().get(cur);
-            billboard(b, (float) f.x, (float) f.y + 0.15f, (float) f.z, cx, cy, cz, 0.14f + 0.04f * pulse, C_CUR, 0.95f);
+            billboard(
+                    b, (float) f.x, (float) f.y + 0.15f, (float) f.z, cx, cy, cz, 0.14f + 0.04f * pulse, C_CUR, 0.95f);
         }
         if (pts) emitPoints(b, c, px, pz, r2, cx, cy, cz, cur, pulse);
     }
@@ -397,11 +685,13 @@ public final class RouteRenderer {
     private static final int C_POINT = 0xD8F4FF, C_SEL = 0xFFE14D, C_HOVER = 0xFFFFFF, C_TARGET = 0xFFF6B0;
 
     /** Точки маршрута, выбранная/наведённая, цель автохода. */
-    private static void emitPoints(Builder b, ModConfig c, float px, float pz, float r2,
-                                   float cx, float cy, float cz, int cur, float pulse) {
-        List<com.farmmacro.route.RoutePoint> pts = MacroManager.INSTANCE.isRoutePlaying() && !editorActive
-                ? com.farmmacro.route.RouteWalker.INSTANCE.activePoints() : RouteBuffer.INSTANCE.points();
-        // выбранная/наведённая точка — только в редакторе (раньше жёлтый столб оставался на последней точке после стопа)
+    private static void emitPoints(
+            Builder b, ModConfig c, float px, float pz, float r2, float cx, float cy, float cz, int cur, float pulse) {
+        List<RoutePoint> pts = MacroManager.INSTANCE.isRoutePlaying() && !editorActive
+                ? RouteWalker.INSTANCE.activePoints()
+                : RouteBuffer.INSTANCE.points();
+        // выбранная/наведённая точка — только в редакторе (раньше жёлтый столб оставался на последней точке после
+        // стопа)
         int sel = editorActive ? RouteBuffer.INSTANCE.selected() : -1;
         int hov = editorActive ? editorHover : -1;
         int target = cur >= 0 ? (cur + RoutePath.FRAME_SCALE - 1) / RoutePath.FRAME_SCALE : -1;
@@ -455,8 +745,20 @@ public final class RouteRenderer {
     // ── примитивы ──
 
     /** Отрезок ленты; со «свечением» — под ним вторая лента в 2.6 раза шире и прозрачнее, и светлая середина. */
-    private static void seg(Builder b, float x0, float y0, float z0, float x1, float y1, float z1,
-                            float cx, float cy, float cz, float w, int rgb, float a) {
+    private static void seg(
+            Builder b,
+            float x0,
+            float y0,
+            float z0,
+            float x1,
+            float y1,
+            float z1,
+            float cx,
+            float cy,
+            float cz,
+            float w,
+            int rgb,
+            float a) {
         if (glow) {
             ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w * 2.6f, rgb, a * 0.22f);
             ribbon(b, x0, y0, z0, x1, y1, z1, cx, cy, cz, w, rgb, a);
@@ -469,50 +771,120 @@ public final class RouteRenderer {
     }
 
     /** Лента из одного квада, повёрнутого к камере. */
-    private static void ribbon(Builder b, float x0, float y0, float z0, float x1, float y1, float z1,
-                               float cx, float cy, float cz, float w, int rgb, float a) {
+    private static void ribbon(
+            Builder b,
+            float x0,
+            float y0,
+            float z0,
+            float x1,
+            float y1,
+            float z1,
+            float cx,
+            float cy,
+            float cz,
+            float w,
+            int rgb,
+            float a) {
         float dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
         float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f, mz = (z0 + z1) * 0.5f;
         float vx = cx - mx, vy = cy - my, vz = cz - mz;
         // side = d × v
         float sx = dy * vz - dz * vy, sy = dz * vx - dx * vz, sz = dx * vy - dy * vx;
         float sl = (float) Math.sqrt(sx * sx + sy * sy + sz * sz);
-        if (sl < 1e-5f) { sx = -dz; sy = 0; sz = dx; sl = (float) Math.sqrt(sx * sx + sz * sz); if (sl < 1e-6f) return; }
-        sx = sx / sl * w; sy = sy / sl * w; sz = sz / sl * w;
-        b.quad(x0 - sx, y0 - sy, z0 - sz, x0 + sx, y0 + sy, z0 + sz,
-               x1 + sx, y1 + sy, z1 + sz, x1 - sx, y1 - sy, z1 - sz, rgb, a);
+        if (sl < 1e-5f) {
+            sx = -dz;
+            sy = 0;
+            sz = dx;
+            sl = (float) Math.sqrt(sx * sx + sz * sz);
+            if (sl < 1e-6f) return;
+        }
+        sx = sx / sl * w;
+        sy = sy / sl * w;
+        sz = sz / sl * w;
+        b.quad(
+                x0 - sx, y0 - sy, z0 - sz, x0 + sx, y0 + sy, z0 + sz, x1 + sx, y1 + sy, z1 + sz, x1 - sx, y1 - sy,
+                z1 - sz, rgb, a);
     }
 
     /** Плоская «галочка» на земле по направлению движения. */
     private static void chevron(Builder b, float x, float y, float z, float dx, float dz, float s, int rgb, float a) {
-        float lx = -dz, lz = dx;               // влево
+        float lx = -dz, lz = dx; // влево
         float tipX = x + dx * s * 0.6f, tipZ = z + dz * s * 0.6f;
         float bx = x - dx * s * 0.4f, bz = z - dz * s * 0.4f;
-        float t = s * 0.22f;                    // толщина
+        float t = s * 0.22f; // толщина
         // левое крыло
-        b.quad(bx + lx * s * 0.6f, y, bz + lz * s * 0.6f, tipX, y, tipZ,
-               tipX - dx * t, y, tipZ - dz * t, bx + lx * s * 0.6f - dx * t, y, bz + lz * s * 0.6f - dz * t, rgb, a);
+        b.quad(
+                bx + lx * s * 0.6f,
+                y,
+                bz + lz * s * 0.6f,
+                tipX,
+                y,
+                tipZ,
+                tipX - dx * t,
+                y,
+                tipZ - dz * t,
+                bx + lx * s * 0.6f - dx * t,
+                y,
+                bz + lz * s * 0.6f - dz * t,
+                rgb,
+                a);
         // правое крыло
-        b.quad(tipX, y, tipZ, bx - lx * s * 0.6f, y, bz - lz * s * 0.6f,
-               bx - lx * s * 0.6f - dx * t, y, bz - lz * s * 0.6f - dz * t, tipX - dx * t, y, tipZ - dz * t, rgb, a);
+        b.quad(
+                tipX,
+                y,
+                tipZ,
+                bx - lx * s * 0.6f,
+                y,
+                bz - lz * s * 0.6f,
+                bx - lx * s * 0.6f - dx * t,
+                y,
+                bz - lz * s * 0.6f - dz * t,
+                tipX - dx * t,
+                y,
+                tipZ - dz * t,
+                rgb,
+                a);
     }
 
     /** Квадрат, повёрнутый к камере. */
-    private static void billboard(Builder b, float x, float y, float z, float cx, float cy, float cz, float r, int rgb, float a) {
+    private static void billboard(
+            Builder b, float x, float y, float z, float cx, float cy, float cz, float r, int rgb, float a) {
         float vx = cx - x, vy = cy - y, vz = cz - z;
         float l = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
         if (l < 1e-4f) return;
-        vx /= l; vy /= l; vz /= l;
+        vx /= l;
+        vy /= l;
+        vz /= l;
         // right = up × v, up' = v × right
         float rx = vz, ry = 0, rz = -vx;
         float rl = (float) Math.sqrt(rx * rx + rz * rz);
-        if (rl < 1e-4f) { rx = 1; rz = 0; rl = 1; }
-        rx = rx / rl * r; rz = rz / rl * r;
+        if (rl < 1e-4f) {
+            rx = 1;
+            rz = 0;
+            rl = 1;
+        }
+        rx = rx / rl * r;
+        rz = rz / rl * r;
         float ux = vy * rz - vz * ry, uy = vz * rx - vx * rz, uz = vx * ry - vy * rx;
         float ul = (float) Math.sqrt(ux * ux + uy * uy + uz * uz);
-        ux = ux / ul * r; uy = uy / ul * r; uz = uz / ul * r;
-        b.quad(x - rx - ux, y - ry - uy, z - rz - uz, x + rx - ux, y + ry - uy, z + rz - uz,
-               x + rx + ux, y + ry + uy, z + rz + uz, x - rx + ux, y - ry + uy, z - rz + uz, rgb, a);
+        ux = ux / ul * r;
+        uy = uy / ul * r;
+        uz = uz / ul * r;
+        b.quad(
+                x - rx - ux,
+                y - ry - uy,
+                z - rz - uz,
+                x + rx - ux,
+                y + ry - uy,
+                z + rz - uz,
+                x + rx + ux,
+                y + ry + uy,
+                z + rz + uz,
+                x - rx + ux,
+                y - ry + uy,
+                z - rz + uz,
+                rgb,
+                a);
     }
 
     /** Маркер: вертикальный столбик + ромб сверху. */
@@ -529,17 +901,45 @@ public final class RouteRenderer {
         private PoseStack.Pose pose;
         private VertexConsumer vc;
 
-        Builder(boolean seeThrough, float alphaMul) { this.seeThrough = seeThrough; this.alphaMul = alphaMul; }
+        Builder(boolean seeThrough, float alphaMul) {
+            this.seeThrough = seeThrough;
+            this.alphaMul = alphaMul;
+        }
 
-        Builder with(PoseStack.Pose pose, VertexConsumer vc) { this.pose = pose; this.vc = vc; return this; }
+        Builder with(PoseStack.Pose pose, VertexConsumer vc) {
+            this.pose = pose;
+            this.vc = vc;
+            return this;
+        }
 
-        void quad(float x0, float y0, float z0, float x1, float y1, float z1,
-                  float x2, float y2, float z2, float x3, float y3, float z3, int rgb, float a) {
+        void quad(
+                float x0,
+                float y0,
+                float z0,
+                float x1,
+                float y1,
+                float z1,
+                float x2,
+                float y2,
+                float z2,
+                float x3,
+                float y3,
+                float z3,
+                int rgb,
+                float a) {
             float al = a * alphaMul;
-            if (seeThrough) al = Math.max(0.11f, al);       // шейдер отбрасывает alpha < 0.1
+            if (seeThrough) al = Math.max(0.11f, al); // шейдер отбрасывает alpha < 0.1
             int argb = (Math.min(255, Math.round(al * 255)) << 24) | (rgb & 0xFFFFFF);
-            v(x0, y0, z0, argb); v(x1, y1, z1, argb); v(x2, y2, z2, argb); v(x3, y3, z3, argb);
-            if (seeThrough) { v(x3, y3, z3, argb); v(x2, y2, z2, argb); v(x1, y1, z1, argb); v(x0, y0, z0, argb); }
+            v(x0, y0, z0, argb);
+            v(x1, y1, z1, argb);
+            v(x2, y2, z2, argb);
+            v(x3, y3, z3, argb);
+            if (seeThrough) {
+                v(x3, y3, z3, argb);
+                v(x2, y2, z2, argb);
+                v(x1, y1, z1, argb);
+                v(x0, y0, z0, argb);
+            }
         }
 
         private void v(float x, float y, float z, int argb) {

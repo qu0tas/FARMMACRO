@@ -28,7 +28,7 @@ This is NOT a wholesale port of Aether, PestManager, flight, pathfinding,
 or any staff-detection/evasion subsystem. Combat remains independent.
 
 No warranty. The full corresponding Kaelix source and Gradle build scripts
-accompany the binary in kaelix-2.0.1-github-files.zip. Keep that source
+accompany the binary in kaelix-2.1.0-github-files.zip. Keep that source
 and these notices with redistribution of this GPL-covered combined binary.
 The original upstream project is a reference, not a binary dependency.
 

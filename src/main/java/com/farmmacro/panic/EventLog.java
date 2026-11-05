@@ -2,10 +2,7 @@ package com.farmmacro.panic;
 
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroManager;
-import net.minecraft.client.Minecraft;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import com.farmmacro.notify.PrivateText;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -16,6 +13,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
+import net.minecraft.client.Minecraft;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * v1.11 «Журнал событий»: {@code config/farmmacro/logs/events-ГГГГ-ММ-ДД.log}.
@@ -30,12 +30,12 @@ import java.util.concurrent.locks.LockSupport;
 public final class EventLog {
     private EventLog() {}
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/EventLog");
+    private static final Logger LOGGER = LoggerFactory.getLogger("Kaelix/EventLog");
     public static final long MAX_BYTES = 5L * 1024 * 1024;
     private static final int QUEUE_MAX = 20_000;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
 
-    private static final ConcurrentLinkedQueue<String[]> QUEUE = new ConcurrentLinkedQueue<>();  // {день, строка}
+    private static final ConcurrentLinkedQueue<String[]> QUEUE = new ConcurrentLinkedQueue<>(); // {день, строка}
     private static final AtomicInteger SIZE = new AtomicInteger();
     private static final AtomicInteger DROPPED = new AtomicInteger();
     private static final AtomicBoolean STARTED = new AtomicBoolean();
@@ -51,11 +51,16 @@ public final class EventLog {
             String lap = "-";
             Minecraft mc = Minecraft.getInstance();
             if (mc != null && mc.player != null)
-                pos = String.format(Locale.ROOT, "%.2f %.2f %.2f", mc.player.getX(), mc.player.getY(), mc.player.getZ());
+                pos = String.format(
+                        Locale.ROOT, "%.2f %.2f %.2f", mc.player.getX(), mc.player.getY(), mc.player.getZ());
             if (MacroManager.INSTANCE.isPlaying()) lap = Integer.toString(MacroManager.INSTANCE.getLoopsDone() + 1);
-            String line = TIME.format(now) + " | " + ms + " | " + type + " | " + clean(data) + " | pos " + pos + " | круг " + lap;
-            if (SIZE.get() >= QUEUE_MAX) { DROPPED.incrementAndGet(); return; }
-            QUEUE.add(new String[]{now.toLocalDate().toString(), line});
+            String line = TIME.format(now) + " | " + ms + " | " + type + " | " + clean(data) + " | pos " + pos
+                    + " | круг " + lap;
+            if (SIZE.get() >= QUEUE_MAX) {
+                DROPPED.incrementAndGet();
+                return;
+            }
+            QUEUE.add(new String[] {now.toLocalDate().toString(), line});
             SIZE.incrementAndGet();
             ensureWriter();
             Thread w = writer;
@@ -66,24 +71,26 @@ public final class EventLog {
     }
 
     private static String clean(String s) {
-        return s == null ? "" : com.farmmacro.notify.PrivateText.secrets(s).replace('\n', ' ').replace('\r', ' ').replace('|', '/');
+        return s == null
+                ? ""
+                : PrivateText.secrets(s).replace('\n', ' ').replace('\r', ' ').replace('|', '/');
     }
 
     private static void ensureWriter() {
         if (!STARTED.compareAndSet(false, true)) return;
-        Thread t = new Thread(EventLog::run, "farmmacro-event-log");
+        Thread t = new Thread(EventLog::run, "kaelix-event-log");
         t.setDaemon(true);
         t.setPriority(Thread.MIN_PRIORITY);
         writer = t;
         t.start();
-        Runtime.getRuntime().addShutdownHook(new Thread(EventLog::drain, "farmmacro-event-log-flush"));
+        Runtime.getRuntime().addShutdownHook(new Thread(EventLog::drain, "kaelix-event-log-flush"));
     }
 
     private static void run() {
         while (true) {
             try {
                 drain();
-                LockSupport.parkNanos(500_000_000L);       // будит log(); иначе раз в полсекунды
+                LockSupport.parkNanos(500_000_000L); // будит log(); иначе раз в полсекунды
             } catch (Throwable t) {
                 LOGGER.warn("Журнал событий: ошибка записи", t);
                 LockSupport.parkNanos(5_000_000_000L);
@@ -102,7 +109,10 @@ public final class EventLog {
             String[] e;
             while ((e = QUEUE.poll()) != null) {
                 SIZE.decrementAndGet();
-                if (day != null && !day.equals(e[0])) { write(w, batch, day); batch.clear(); }
+                if (day != null && !day.equals(e[0])) {
+                    write(w, batch, day);
+                    batch.clear();
+                }
                 day = e[0];
                 batch.add(e[1]);
             }

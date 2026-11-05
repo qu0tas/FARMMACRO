@@ -12,7 +12,9 @@ public final class Terrain {
 
     /** Верх коллизии блока (x, y, z) в долях блока (0…1.5) или −1, если коллизии нет (воздух, трава, пшеница). */
     @FunctionalInterface
-    public interface Cells { double top(int x, int y, int z); }
+    public interface Cells {
+        double top(int x, int y, int z);
+    }
 
     /** На сколько игрок поднимается шагом без прыжка. */
     public static final double STEP = 0.6;
@@ -28,10 +30,15 @@ public final class Terrain {
         NEED_DROP("следующая точка ниже — отметь «Спуск» (Ctrl+D)"),
         NO_EDGE("спуск: по направлению нет обрыва");
         public final String text;
-        Issue(String t) { text = t; }
+
+        Issue(String t) {
+            text = t;
+        }
     }
 
-    private static int fl(double v) { return (int) Math.floor(v); }
+    private static int fl(double v) {
+        return (int) Math.floor(v);
+    }
 
     /** Верх ближайшей опоры не выше {@code fromY} (+0.01) в колонке (x, z), не глубже maxDepth блоков; NaN — нет. */
     public static double floorY(Cells w, double x, double fromY, double z, int maxDepth) {
@@ -46,7 +53,7 @@ public final class Terrain {
     /** Упирается ли игрок (ноги на высоте y) в блок в этой колонке: коллизия выше шага на уровне ног, тела или головы. */
     public static boolean blockedAt(Cells w, double x, double y, double z) {
         int cx = fl(x), cz = fl(z);
-        for (double dy : new double[]{0.2, 1.0, 1.7}) {
+        for (double dy : new double[] {0.2, 1.0, 1.7}) {
             int cy = fl(y + dy);
             double t = w.top(cx, cy, cz);
             if (t >= 0 && cy + t > y + STEP) return true;
@@ -72,7 +79,9 @@ public final class Terrain {
 
     /** Направление спуска точки i маршрута. */
     public static double[] dropDir(List<RoutePoint> pts, int i) {
-        RoutePoint p = pts.get(i), prev = i > 0 ? pts.get(i - 1) : null, next = i + 1 < pts.size() ? pts.get(i + 1) : null;
+        RoutePoint p = pts.get(i),
+                prev = i > 0 ? pts.get(i - 1) : null,
+                next = i + 1 < pts.size() ? pts.get(i + 1) : null;
         return p.dropVector(prev != null ? prev.x : 0, prev != null ? prev.z : 0, prev != null, next);
     }
 
@@ -92,15 +101,15 @@ public final class Terrain {
             double[] d = dropDir(pts, i);
             return Double.isNaN(dropDepth(w, a, d[0], d[1])) ? Issue.NO_EDGE : Issue.OK;
         }
-        if (a.y - b.y > STEP_DOWN + 1e-9) return Issue.NEED_DROP;     // до блока вниз — просто сходим (в канал с водой)
+        if (a.y - b.y > STEP_DOWN + 1e-9) return Issue.NEED_DROP; // до блока вниз — просто сходим (в канал с водой)
         double dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
         int n = (int) Math.min(2000, Math.ceil(len / 0.1));
         for (int k = 1; k < n; k++) {
             double t = (double) k / n, x = a.x + dx * t, z = a.z + dz * t;
-            double y = a.y + Math.max(0, b.y - a.y) * t;      // подъём — постепенно (ступеньки/прыжок)
+            double y = a.y + Math.max(0, b.y - a.y) * t; // подъём — постепенно (ступеньки/прыжок)
             if (blockedAt(w, x, y, z)) return Issue.BLOCKED;
             double f = floorY(w, x, y, z, 3);
-            if (Double.isNaN(f) || f < Math.min(a.y, b.y) - FLOOR_GAP) return Issue.CLIFF;   // не ниже нижнего конца
+            if (Double.isNaN(f) || f < Math.min(a.y, b.y) - FLOOR_GAP) return Issue.CLIFF; // не ниже нижнего конца
         }
         return Issue.OK;
     }
@@ -120,9 +129,10 @@ public final class Terrain {
             if (blockedAt(w, x, a.y, z)) return null;
             double f = floorY(w, x, a.y, z, 64);
             if (Double.isNaN(f) || f < a.y - FLOOR_GAP) {
-                return new double[]{Math.floor(lastX) + 0.5, a.y, Math.floor(lastZ) + 0.5};
+                return new double[] {Math.floor(lastX) + 0.5, a.y, Math.floor(lastZ) + 0.5};
             }
-            lastX = x; lastZ = z;
+            lastX = x;
+            lastZ = z;
         }
         return null;
     }

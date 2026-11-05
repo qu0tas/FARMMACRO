@@ -1,3 +1,58 @@
+## [2.1.0] — надёжность, инструменты проверки, история запусков
+
+Поведение маршрутов, Motion, Combat/Hunting, AutoFish и проверок паники **не менялось** (пороги, задержки и реакции те же). Старый `farmmacro.json` загружается сам; перед первой миграцией создаётся копия `farmmacro.json.schema0.bak`.
+
+### Added
+- **История запусков** (Экономика → «История запусков»): старт, длительность, культура, маршрут, чистые монеты, опыт, круги и чем закончился запуск; сводка монет/ч по культурам, «Копировать CSV», очистка с подтверждением. Файл `config/farmmacro/sessions.csv` пишется только при включённом сохранении статистики. CSV защищён от формул (`=`, `+`, `-`, `@` в начале ячейки).
+- **Код маршрута** (Маршруты → «Буфер обмена»): `KAELIX-ROUTE1:…` — скопировать/вставить маршрут без файлов; мир и измерение в код не попадают.
+- **Повтор в редакторе маршрута**: Ctrl+Y и Ctrl+Shift+Z (раньше была только отмена).
+- **Discord-события**: «паника» (вкл по умолчанию, как раньше) и «запуск завершён» (выкл по умолчанию; лимит времени, конец маршрута, Jacob's — ручной стоп не отправляется). При ошибке соединения — ещё 2 попытки (через 3 и 10 с); ответы сервера Discord не повторяются, ограничение частоты осталось.
+- **Отчёт об ошибке одним ZIP** (Производительность → «Собрать отчёт об ошибке»): диагностика, список модов, конфиг без webhook и хвост `latest.log` (до 2 МБ). Ник, домашняя папка, IP, e-mail, UUID, ссылки и токены маскируются. Папка `config/farmmacro/bugreports`.
+- **Диагностика**: «Самые медленные шаги» (время каждого шага мода за тик, кнопка сброса), «Файлы» (очередь записи, ошибки), «Миксины» — какие из 25 применились (проверка один раз, через ~30 с в мире).
+- **Язык интерфейса** (Тема → «Язык интерфейса» → «Язык как в Minecraft», по умолчанию выкл): названия модулей и категорий берутся из `lang/en_us.json` / `ru_ru.json`. Остальной интерфейс пока на русском, поэтому по умолчанию всё по-русски, как раньше.
+
+### Changed
+- Конфиг сохраняется в отдельном потоке `Kaelix-IO`: снимок JSON делается в игровом потоке, запись не тормозит кадр; частые сохранения склеиваются, при ошибке — повтор через 0,1/0,5/2 с; при выходе из игры очередь дописывается.
+- У конфига появилась версия схемы (`schemaVersion`) и миграции; конфиг новее мода не перезаписывается старой версией.
+- Интервалы (HUD, статистика, кулдауны) считаются по монотонным часам — перевод системного времени больше не ломает таймеры. Паника, задержки рук и сохранённые отметки времени не тронуты.
+- Состояния макроса проверяются по таблице переходов: неожиданный переход пишется в журнал один раз (поведение не блокируется).
+- Тик мода описан списками фаз (службы → визуал) — порядок и изоляция ошибок (`Guard`) те же, зато время каждой фазы видно в диагностике.
+- Меню: панель паники, запуска и визуала вынесены из `FarmMacroScreen` в `PanicTab`/`LaunchTab`/`VisualTab` (−≈2,5 тыс. строк в одном файле), внешний вид тот же.
+- Встроенные PNG пережаты без потерь (zopfli, пиксели те же): JAR 5,7 → 5,1 МБ.
+
+### Fixed
+- Отчёт диагностики падал с `ArrayIndexOutOfBoundsException`, когда в нём была ошибка домена «паника» (ошибка 2.0.2).
+- Резервный звук паники (`PanicSound`, звук игры) игнорировал громкость и тон из настроек (присваивание самому себе).
+- Время в таблице детекторов и HUD форматируется через `DateTimeFormatter` (общий статический `SimpleDateFormat` не потокобезопасен).
+- Найдено Error Prone: возможное (на практике недостижимое) переполнение `int` в расчёте расстояний (`LowRenderMath`) и задержки точки (`PointActionCore`); мёртвые ветки и неиспользуемый код в меню.
+
+### Для разработки
+- Тесты: **JUnit 6** (`./gradlew test`, входит в `build`) — 10 новых классов тестов + старые проверки `quickCheck` как динамические тесты; JaCoCo-отчёт `build/reports/jacoco`.
+- **Клиентские game-тесты Fabric** (`src/gametest`): `./gradlew runClientGameTest` запускает настоящий Minecraft, открывает приветствие, «Что нового», все 19 модулей, мир с HUD, редактор HUD и маршрута, Crop Fever, панику и сброс, проверяет миксины и диагностику, делает скриншоты (`build/run/clientGameTest/screenshots`). `runProductionClientGameTest` — то же на собранном JAR.
+- **Error Prone + NullAway** при компиляции (0 предупреждений), `@NullMarked`/JSpecify.
+- **Spotless + palantir-java-format**: весь Java-код отформатирован, полные имена классов заменены импортами; `spotlessCheck` входит в `check`. Локальные ветки перед слиянием: `./gradlew spotlessApply`.
+- CI: `build.yml` (сборка, тесты, game-тесты под Xvfb со скриншотами, отчёты при падении), `release.yml` (тег `vX.Y.Z` → проверка версии `verifyReleaseVersion`, раздел CHANGELOG, JAR + исходники + SHA256SUMS в GitHub Release). Actions закреплены по SHA, обновления — `renovate.json`.
+- Новые классы: `util/Clock`, `util/StepProfiler`, `util/IoWorker`, `util/BugReport`, `util/mixin/MixinAudit` + `KaelixMixinPlugin`, `config/ConfigMigrator`, `macro/MacroStates`, `stats/SessionHistory`, `route/RouteCode`, `gui/Tr`.
+
+## [2.0.2] — cleanup & reliability
+
+**Для игрока**
+- Поведение маршрутов, Motion, HUD, Combat/Hunting, AutoFish и паники не менялось.
+- Удалены последние заглушки выведенных модулей: Pests, Visitors, Stash → Bazaar, Loadouts, Sessions/расписание, автореконнект, «человеческая реакция». Их ключи в старом `farmmacro.json` игнорируются.
+- Убраны 10 клавиш, которые нигде не регистрировались (запись/очистка, пестов, визитёров, лоадаутов, стеша, «взять управление»), и их переводы; у Freecam/AutoFish в списке управления появился префикс «Kaelix:».
+- Конфиг, профили, маршруты и макросы пишутся атомарно (`.tmp` → move): падение игры во время сохранения не оставит пустой/обрезанный JSON.
+- Ошибки в миксинах ввода и скрытия ника пишутся в журнал (`Kaelix/Guard`, с ограничением частоты), а не глотаются молча. Фатальные ошибки JVM (OutOfMemoryError и т.п.) больше не перехватываются.
+
+**Для разработки**
+- Удалены пакеты `pest/`, `visitor/`, `market/`, `loadout/`, `session/`, классы `Scheduler`, `Reconnect`, `ReconnectScreenHook`, `HumanReaction`, `ReactionPlan`, шаблон `src/client` и все вызовы к ним (всегда false/no-op). Логика, которая реально работала, сохранена: проверка `PanicHandoff` перед запуском, чтение id/lore/имени предметов → новый `util/SkyblockItems`.
+- Новые `util/AtomicFiles`, `Guard.report`; `Guard` пробрасывает `VirtualMachineError` (кроме `StackOverflowError`).
+- Навигация (`route/PathLevel`): проверка «чанк загружен» теперь через `ChunkSource.hasChunk` (`util/Chunks`). Устаревший `LevelReader.hasChunkAt` у `ClientLevel` всегда возвращал `true`, т.е. ничего не проверял; на практике незагруженные чанки ловила проверка `VOID_AIR`, так что маршруты ведут себя так же, но проверка теперь честная.
+- Gradle: foojay toolchain resolver (JDK 25 скачивается сам), `layout.buildDirectory` вместо `$buildDir`, `check` зависит от `quickCheck`. CI: `./gradlew build compileStressJava` с кешем Gradle.
+- Логгеры `FarmMacro/*` → `Kaelix/*`, потоки `farmmacro-*` → `kaelix-*` (mod id, пакет и пути конфига не менялись).
+- Stress-проверки обновлены: `ModuleRetirementCheck` проверяет загрузку старого конфига и отсутствие удалённых классов; тесты удалённых `ReactionPlan`/`Scheduler`/`Reconnect` убраны.
+- Репозиторий: JAR-ы и патчи удалены из git (`*.jar` в `.gitignore`, кроме wrapper) — релизы на GitHub Releases. `VALIDATION-*`, старые `RELEASE*`, логи сборки и журнал из `CONTEXT.md` перенесены в `docs/history/`. `CLAUDE.md` и `.claude/skills/...` — ссылки на `AGENTS.md` и `.agents/skills/...` вместо копий.
+- Проверено: `./gradlew build` (включая `checkRemovedFiles`, `quickCheck`), `compileStressJava`, `routeStress`. Minecraft не запускался.
+
 ## 2.0.1 — release
 - Retain Hunting/manual projectile lead; searchable explicit lists replace cycling selectors for Combat control, manual target, key mode and automatic mob group.
 - Remove tree aim/Sweep feature, runtime hooks, configuration/UI and tree-specific check sources. Keep Hunting-only offline check source without running it. Old foraging selections migrate to hunting:nearby without activating automation.

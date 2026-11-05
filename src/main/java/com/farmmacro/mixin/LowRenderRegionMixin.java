@@ -20,14 +20,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(RenderSectionRegion.class)
 public class LowRenderRegionMixin {
 
-    @Inject(method = "getBlockState(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/block/state/BlockState;",
-            at = @At("HEAD"), cancellable = true)
+    @Inject(
+            method = "getBlockState(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/block/state/BlockState;",
+            at = @At("HEAD"),
+            cancellable = true)
     private void farmmacro$lowRenderBlock(BlockPos pos, CallbackInfoReturnable<BlockState> cir) {
         if (LowRender.hides(pos.getX(), pos.getY(), pos.getZ())) cir.setReturnValue(Blocks.AIR.defaultBlockState());
     }
 
-    @Inject(method = "getFluidState(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/material/FluidState;",
-            at = @At("HEAD"), cancellable = true)
+    @Inject(
+            method = "getFluidState(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/material/FluidState;",
+            at = @At("HEAD"),
+            cancellable = true)
     private void farmmacro$lowRenderFluid(BlockPos pos, CallbackInfoReturnable<FluidState> cir) {
         if (LowRender.hides(pos.getX(), pos.getY(), pos.getZ())) cir.setReturnValue(Fluids.EMPTY.defaultFluidState());
     }

@@ -3,7 +3,8 @@ package com.farmmacro.macro;
 import com.farmmacro.route.PointRoute;
 import com.farmmacro.route.RoutePoint;
 import com.farmmacro.route.WalkCore;
-
+import java.util.List;
+import java.util.Locale;
 import java.util.SplittableRandom;
 
 /**
@@ -59,7 +60,10 @@ public final class Humanizer {
      */
     public int lapTail(int ticks) {
         int tail = 0;
-        if (s.noRepeat && ticks == prevLapTicks) { tail = range(1, 3); lapTails++; }
+        if (s.noRepeat && ticks == prevLapTicks) {
+            tail = range(1, 3);
+            lapTails++;
+        }
         prevLapTicks = ticks + tail;
         return tail;
     }
@@ -72,8 +76,10 @@ public final class Humanizer {
     public boolean beginLap() {
         laps++;
         boolean p;
-        if (perfectLeft > 0) { perfectLeft--; p = true; }
-        else if (chance(s.perfectLapChance)) {
+        if (perfectLeft > 0) {
+            perfectLeft--;
+            p = true;
+        } else if (chance(s.perfectLapChance)) {
             p = true;
             if (chance(s.perfectStreakChance)) perfectLeft = range(s.streakMin, s.streakMax) - 1;
         } else p = false;
@@ -83,9 +89,13 @@ public final class Humanizer {
         return p;
     }
 
-    public boolean lapPerfect() { return lapPerfect; }
+    public boolean lapPerfect() {
+        return lapPerfect;
+    }
     /** Сколько ещё идеальных кругов в серии после текущего. */
-    public int perfectLeft() { return perfectLeft; }
+    public int perfectLeft() {
+        return perfectLeft;
+    }
 
     /** Humanizer для «формы» текущего круга: null — случайность выкл или круг идеальный. */
     public static Humanizer lap() {
@@ -96,23 +106,35 @@ public final class Humanizer {
     /** Строка для HUD. */
     public String status() {
         int st = stopLeftTicks;
-        if (st > 0) return String.format(java.util.Locale.ROOT, "стоит %.1f с", st / 20.0);
+        if (st > 0) return String.format(Locale.ROOT, "стоит %.1f с", st / 20.0);
         if (lapPerfect) return "идеальный круг" + (perfectLeft > 0 ? " (+" + perfectLeft + ")" : "");
         return "круг " + laps;
     }
 
     // ── генератор ──
     /** Равномерно lo…hi включительно. */
-    public int range(int lo, int hi) { return hi <= lo ? lo : lo + rnd.nextInt(hi - lo + 1); }
-    public double uni(double lo, double hi) { return hi <= lo ? lo : lo + rnd.nextDouble() * (hi - lo); }
-    public boolean chance(int pct) { return pct > 0 && (pct >= 100 || rnd.nextInt(100) < pct); }
+    public int range(int lo, int hi) {
+        return hi <= lo ? lo : lo + rnd.nextInt(hi - lo + 1);
+    }
+
+    public double uni(double lo, double hi) {
+        return hi <= lo ? lo : lo + rnd.nextDouble() * (hi - lo);
+    }
+
+    public boolean chance(int pct) {
+        return pct > 0 && (pct >= 100 || rnd.nextInt(100) < pct);
+    }
 
     /**
      * v1.11.1: усечённое нормальное распределение — mean ± sd, только внутри min…max (выборка с отбрасыванием,
      * до 64 попыток; потом — равномерно внутри пределов). sd ≤ 0 — всегда mean (в пределах).
      */
     public double gauss(double mean, double sd, double min, double max) {
-        if (max < min) { double t = min; min = max; max = t; }
+        if (max < min) {
+            double t = min;
+            min = max;
+            max = t;
+        }
         if (!(sd > 0)) return Math.max(min, Math.min(max, mean));
         for (int i = 0; i < 64; i++) {
             double v = mean + sd * rnd.nextGaussian();
@@ -132,7 +154,9 @@ public final class Humanizer {
         if (d == null && v == HumanSettings.Var.MICRO) return MICRO_DEFAULT;
         return s.dist(v);
     }
-    private static final HumanSettings.Dist MICRO_DEFAULT = HumanSettings.Var.MICRO.defaults().gauss();
+
+    private static final HumanSettings.Dist MICRO_DEFAULT =
+            HumanSettings.Var.MICRO.defaults().gauss();
 
     /**
      * Значение случайной величины v: равномерно lo…hi (как до 1.11.1) или гаусс из настроек; «без повторов подряд» —
@@ -143,7 +167,10 @@ public final class Humanizer {
         int o = v.ordinal();
         int x = sample(d, lo, hi);
         if (s.noRepeat && hasDraw[o]) {
-            for (int i = 0; i < 3 && x == lastDraw[o]; i++) { x = sample(d, lo, hi); rerolls++; }
+            for (int i = 0; i < 3 && x == lastDraw[o]; i++) {
+                x = sample(d, lo, hi);
+                rerolls++;
+            }
             // всё ещё то же — соседнее значение (только если вариантов ≥ 3: при двух это было бы строгое чередование)
             long a = d.isGauss() ? Math.round(d.min) : lo, b = d.isGauss() ? Math.round(d.max) : hi;
             if (x == lastDraw[o] && b - a >= 2) {
@@ -152,7 +179,8 @@ public final class Humanizer {
                 x = canUp && (!canDn || rnd.nextBoolean()) ? up : dn;
             }
         }
-        lastDraw[o] = x; hasDraw[o] = true;
+        lastDraw[o] = x;
+        hasDraw[o] = true;
         return x;
     }
 
@@ -167,8 +195,8 @@ public final class Humanizer {
         for (RoutePoint p : r.points) {
             if (p.pauseTicks > 0) {
                 int delta;
-                if (distOf(HumanSettings.Var.PAUSE).isGauss())                  // гаусс — в % от паузы точки
-                    delta = (int) Math.round(p.pauseTicks * draw(HumanSettings.Var.PAUSE, 0, 0) / 100.0);
+                if (distOf(HumanSettings.Var.PAUSE).isGauss()) // гаусс — в % от паузы точки
+                delta = (int) Math.round(p.pauseTicks * draw(HumanSettings.Var.PAUSE, 0, 0) / 100.0);
                 else {
                     int d = (int) Math.round(p.pauseTicks * s.pauseJitterPct / 100.0) + s.pauseJitterTicks;
                     delta = draw(HumanSettings.Var.PAUSE, -d, d);
@@ -202,7 +230,7 @@ public final class Humanizer {
     /** Разброс установки пресета (привязка камеры): {dyaw, dpitch}. */
     public float[] cameraJitter() {
         double d = lapPerfect || s.cameraExact ? 0 : s.bindJitterDeg;
-        return d <= 0 ? new float[]{0, 0} : new float[]{(float) uni(-d, d), (float) uni(-d, d)};
+        return d <= 0 ? new float[] {0, 0} : new float[] {(float) uni(-d, d), (float) uni(-d, d)};
     }
 
     // ── маршрут: клавиши ─────────────────────────────────────────────────────
@@ -218,6 +246,7 @@ public final class Humanizer {
         private int stepMask, stepLeft;
         /** Точка, на подходе к которой уже был угол «по весам» (−1 — нет). */
         private int cornerTarget = -1;
+
         private double cornerX, cornerZ;
         private boolean prevSprintWant, prevJumpWant;
         private int sprintDelay, jumpDelay, jumpHold;
@@ -241,18 +270,26 @@ public final class Humanizer {
         private int pendingStop;
         /** Остановки этого круга: к какой точке идём, через сколько тиков на отрезке, сколько стоять (−1 — нет). */
         private int midTarget = -1, midDelay, midLen, afkTarget = -1, afkDelay, afkLen;
+
         private int ticksOnTarget, lastStopTarget = -1;
         /** v1.11.2: тиков с прихода в точку (смена цели); угол — только первые CORNER_WINDOW тиков, не поправки к линии. */
         private int sinceTarget = 1 << 20;
+
         public static final int CORNER_WINDOW = 10;
         /** Точки маршрута (если заданы — угол только там, где маршрут поворачивает ≥ 30°). */
-        private java.util.List<com.farmmacro.route.RoutePoint> pts;
-        public RouteShaper route(java.util.List<com.farmmacro.route.RoutePoint> points) { pts = points; return this; }
+        private List<RoutePoint> pts;
+
+        public RouteShaper route(List<RoutePoint> points) {
+            pts = points;
+            return this;
+        }
 
         private boolean realTurn(int target) {
             if (pts == null) return true;
             if (target < 2 || target >= pts.size()) return false;
-            var a = pts.get(target - 2); var b = pts.get(target - 1); var c = pts.get(target);
+            var a = pts.get(target - 2);
+            var b = pts.get(target - 1);
+            var c = pts.get(target);
             double ux = b.x - a.x, uz = b.z - a.z, wx = c.x - b.x, wz = c.z - b.z;
             double lu = Math.hypot(ux, uz), lw = Math.hypot(wx, wz);
             if (lu < 1e-6 || lw < 1e-6) return false;
@@ -261,48 +298,81 @@ public final class Humanizer {
 
         /** Начало прохода: пауза 0…startDelayMax; n — точек в маршруте (для остановок посреди пути). */
         public void start(int n) {
-            prevMask = -1; prevTarget = -1; prevDrop = WalkCore.D_NONE;
-            cornerTarget = -1; sinceTarget = 1 << 20;
-            overlapLeft = 0; stepLeft = 0; gapLeft = draw(HumanSettings.Var.START, 0, s.startDelayMax);
-            prevSprintWant = prevJumpWant = false; sprintDelay = jumpDelay = jumpHold = 0;
-            pendingStop = 0; ticksOnTarget = 0; lastStopTarget = -1;
+            prevMask = -1;
+            prevTarget = -1;
+            prevDrop = WalkCore.D_NONE;
+            cornerTarget = -1;
+            sinceTarget = 1 << 20;
+            overlapLeft = 0;
+            stepLeft = 0;
+            gapLeft = draw(HumanSettings.Var.START, 0, s.startDelayMax);
+            prevSprintWant = prevJumpWant = false;
+            sprintDelay = jumpDelay = jumpHold = 0;
+            pendingStop = 0;
+            ticksOnTarget = 0;
+            lastStopTarget = -1;
             midTarget = afkTarget = -1;
             if (n >= 2 && chance(s.midStopChance)) {
-                midTarget = range(1, n - 1); midDelay = range(4, 30); midLen = Math.max(1, draw(HumanSettings.Var.STOP, s.midStopMin, s.midStopMax));
+                midTarget = range(1, n - 1);
+                midDelay = range(4, 30);
+                midLen = Math.max(1, draw(HumanSettings.Var.STOP, s.midStopMin, s.midStopMax));
             }
             if (n >= 2 && chance(s.afkChance)) {
-                afkTarget = range(1, n - 1); afkDelay = range(4, 30); afkLen = Math.max(1, draw(HumanSettings.Var.AFK, s.afkMin, s.afkMax));
+                afkTarget = range(1, n - 1);
+                afkDelay = range(4, 30);
+                afkLen = Math.max(1, draw(HumanSettings.Var.AFK, s.afkMin, s.afkMax));
             }
         }
 
-        public void start() { start(0); }
+        public void start() {
+            start(0);
+        }
 
         /** Есть ли в этом круге запланированная остановка / «протупить» (для проверок). */
-        public boolean plannedStop() { return midTarget >= 0; }
-        public boolean plannedAfk()  { return afkTarget >= 0; }
+        public boolean plannedStop() {
+            return midTarget >= 0;
+        }
+
+        public boolean plannedAfk() {
+            return afkTarget >= 0;
+        }
 
         /**
          * Каждый тик ДО WalkCore.tick: пора ли встать. Встаём только на земле, не в спуске и не на паузе точки.
          * @return сколько тиков стоять (0 — идём) — передать в WalkCore.pauseExternal
          */
         public int stopNow(int target, int dropPhase, boolean onGround, boolean pausing) {
-            if (target != lastStopTarget) { lastStopTarget = target; ticksOnTarget = 0; } else ticksOnTarget++;
+            if (target != lastStopTarget) {
+                lastStopTarget = target;
+                ticksOnTarget = 0;
+            } else ticksOnTarget++;
             if (dropPhase != WalkCore.D_NONE || !onGround || pausing || target <= 0) return 0;
-            if (pendingStop > 0) { int n = pendingStop; pendingStop = 0; return n; }
+            if (pendingStop > 0) {
+                int n = pendingStop;
+                pendingStop = 0;
+                return n;
+            }
             if (afkTarget >= 0 && (target > afkTarget || target == afkTarget && ticksOnTarget >= afkDelay)) {
-                afkTarget = -1; afkStops++; afks++;
+                afkTarget = -1;
+                afkStops++;
+                afks++;
                 return afkLen;
             }
             if (midTarget >= 0 && (target > midTarget || target == midTarget && ticksOnTarget >= midDelay)) {
-                midTarget = -1; stops++; midStops++;
+                midTarget = -1;
+                stops++;
+                midStops++;
                 return midLen;
             }
             return 0;
         }
 
         private void startOverlap(int old, double x, double z) {
-            overlapMask = old; overlapLeft = draw(HumanSettings.Var.OVERLAP, 1, s.overlapMax); overlapAnyDist = false;
-            cornerX = x; cornerZ = z;
+            overlapMask = old;
+            overlapLeft = draw(HumanSettings.Var.OVERLAP, 1, s.overlapMax);
+            overlapAnyDist = false;
+            cornerX = x;
+            cornerZ = z;
             overlaps++;
         }
 
@@ -325,11 +395,12 @@ public final class Humanizer {
             if (r < wo) startOverlap(old, x, z);
             else if (r < wo + wg) startGap();
             else {
-                boolean single = Integer.bitCount(prevMask) == 1;      // назад — только по одной оси, не по диагонали
+                boolean single = Integer.bitCount(prevMask) == 1; // назад — только по одной оси, не по диагонали
                 boolean back = single && rnd.nextBoolean();
                 stepMask = back ? opposite(prevMask) : prevMask;
                 stepLeft = Math.max(1, draw(HumanSettings.Var.STEP, 1, s.stepMax));
-                cornerX = x; cornerZ = z;
+                cornerX = x;
+                cornerZ = z;
                 steps++;
             }
         }
@@ -344,7 +415,10 @@ public final class Humanizer {
         }
 
         private void setMask(WalkCore.Out o, int m) {
-            o.forward = (m & 1) != 0; o.back = (m & 2) != 0; o.left = (m & 4) != 0; o.right = (m & 8) != 0;
+            o.forward = (m & 1) != 0;
+            o.back = (m & 2) != 0;
+            o.left = (m & 4) != 0;
+            o.right = (m & 8) != 0;
             // вперёд и назад (влево и вправо) одновременно не жмём — побеждает новая клавиша
         }
 
@@ -355,7 +429,8 @@ public final class Humanizer {
         public void tick(WalkCore.Out out, double x, double z, int target, int dropPhase, boolean airHold) {
             int want = mask(out);
             double v = Double.isNaN(lastX) ? 0 : Math.hypot(x - lastX, z - lastZ);
-            lastX = x; lastZ = z;
+            lastX = x;
+            lastZ = z;
             boolean dropping = dropPhase == WalkCore.D_EDGE || dropPhase == WalkCore.D_AIR;
 
             // новая цель → иногда заминка
@@ -365,32 +440,58 @@ public final class Humanizer {
                 hesitations++;
             }
             // v1.11.1: микропауза после каждого отрезка (шанс + гаусс 0…6 т), тоже через pauseExternal — не «Застрял»
-            if (prevTarget >= 0 && target != prevTarget && !dropping && prevDrop == WalkCore.D_NONE && chance(s.microPauseChance)) {
+            if (prevTarget >= 0
+                    && target != prevTarget
+                    && !dropping
+                    && prevDrop == WalkCore.D_NONE
+                    && chance(s.microPauseChance)) {
                 int m = draw(HumanSettings.Var.MICRO, 0, 6);
-                if (m > 0) { pendingStop = Math.max(pendingStop, m); micros++; }
+                if (m > 0) {
+                    pendingStop = Math.max(pendingStop, m);
+                    micros++;
+                }
             }
-            if (prevTarget >= 1 && target != prevTarget && realTurn(target)) sinceTarget = 0;   // подход к 1-й точке — не угол
+            if (prevTarget >= 1 && target != prevTarget && realTurn(target))
+                sinceTarget = 0; // подход к 1-й точке — не угол
             else if (prevTarget >= 0 && target != prevTarget) sinceTarget = 1 << 20;
             else if (sinceTarget < (1 << 20)) sinceTarget++;
             // смена направления на земле у только что пройденной точки → перекрытие/зазор/шаг.
             // v1.11.2: смена клавиш посреди отрезка или на старте (A/D-поправка к линии) — не угол: раньше «шаг назад»
             // жал противоположную поправке клавишу и уводил игрока за линию к другому краю блока
-            if (prevMask > 0 && want > 0 && want != prevMask && !dropping && prevDrop == WalkCore.D_NONE && sinceTarget <= CORNER_WINDOW) {
+            if (prevMask > 0
+                    && want > 0
+                    && want != prevMask
+                    && !dropping
+                    && prevDrop == WalkCore.D_NONE
+                    && sinceTarget <= CORNER_WINDOW) {
                 int old = prevMask & ~want;
                 if (s.cornerWeighted) {
                     // по весам — один раз на точку: поправки к линии (A/D у самой линии) — не новый угол, иначе
                     // шаг назад → поправка → снова «угол» раскачивал бы игрока на месте
-                    if (target != cornerTarget) { cornerTarget = target; corner(old, x, z); }
-                }
-                else if (old != 0 && chance(s.overlapChance)) startOverlap(old, x, z);
+                    if (target != cornerTarget) {
+                        cornerTarget = target;
+                        corner(old, x, z);
+                    }
+                } else if (old != 0 && chance(s.overlapChance)) startOverlap(old, x, z);
                 else if (chance(s.gapChance)) startGap();
             }
             // оторвался от края спуска → клавиша ещё 0…edgeReleaseMax тиков (если в полёте не держим)
-            if (prevDrop == WalkCore.D_EDGE && dropPhase == WalkCore.D_AIR && !airHold && prevMask > 0
-                    && (pts == null || target <= 0 || target - 1 >= pts.size() || pts.get(target - 1).edgeReleaseTicks < 0)) {
-                overlapMask = prevMask; overlapLeft = range(0, s.edgeReleaseMax); overlapAnyDist = true;
+            if (prevDrop == WalkCore.D_EDGE
+                    && dropPhase == WalkCore.D_AIR
+                    && !airHold
+                    && prevMask > 0
+                    && (pts == null
+                            || target <= 0
+                            || target - 1 >= pts.size()
+                            || pts.get(target - 1).edgeReleaseTicks < 0)) {
+                overlapMask = prevMask;
+                overlapLeft = range(0, s.edgeReleaseMax);
+                overlapAnyDist = true;
             }
-            if (dropPhase == WalkCore.D_LAND) { overlapLeft = 0; stepLeft = 0; }
+            if (dropPhase == WalkCore.D_LAND) {
+                overlapLeft = 0;
+                stepLeft = 0;
+            }
             if (dropping) stepLeft = 0;
 
             int outMask = want;
@@ -398,8 +499,11 @@ public final class Humanizer {
             if (stepLeft > 0 && !dropping) {
                 // шаг назад/«проскочить»: только пока с инерцией не дальше cornerSlop от угла
                 // запас ×2 на инерцию: после шага автоход ещё возвращается к линии
-                if (Math.hypot(x - cornerX, z - cornerZ) + v * CARRY * 2 <= s.cornerSlop * STEP_SLOP) { outMask = stepMask; out.sprint = false; stepLeft--; }
-                else stepLeft = 0;
+                if (Math.hypot(x - cornerX, z - cornerZ) + v * CARRY * 2 <= s.cornerSlop * STEP_SLOP) {
+                    outMask = stepMask;
+                    out.sprint = false;
+                    stepLeft--;
+                } else stepLeft = 0;
             } else if (gapLeft > 0 && !dropping) {
                 gapLeft--;
                 outMask = 0;
@@ -409,7 +513,7 @@ public final class Humanizer {
                 // держим, только если с инерцией не уйдём от угла дальше cornerSlop
                 if (overlapAnyDist || Math.hypot(x - cornerX, z - cornerZ) + v * CARRY <= s.cornerSlop) {
                     int add = overlapMask;
-                    if ((outMask & 3) != 0) add &= ~3;            // уже есть вперёд/назад — не жмём противоположную
+                    if ((outMask & 3) != 0) add &= ~3; // уже есть вперёд/назад — не жмём противоположную
                     if ((outMask & 12) != 0) add &= ~12;
                     outMask |= add;
                     overlapLeft--;
@@ -421,16 +525,26 @@ public final class Humanizer {
             boolean sprintWant = out.sprint;
             if (sprintWant && !prevSprintWant) sprintDelay = range(0, s.sprintDelayMax);
             prevSprintWant = sprintWant;
-            if (sprintDelay > 0) { sprintDelay--; out.sprint = false; }
+            if (sprintDelay > 0) {
+                sprintDelay--;
+                out.sprint = false;
+            }
             if (!out.forward) out.sprint = false;
 
             // прыжок — позже (WalkCore даёт 2 тика прыжка)
             boolean jumpWant = out.jump;
-            if (jumpWant && !prevJumpWant) { jumpDelay = range(0, s.jumpDelayMax); jumpHold = 2; }
+            if (jumpWant && !prevJumpWant) {
+                jumpDelay = range(0, s.jumpDelayMax);
+                jumpHold = 2;
+            }
             prevJumpWant = jumpWant;
-            if (jumpDelay > 0) { jumpDelay--; out.jump = false; }
-            else if (jumpHold > 0) { jumpHold--; out.jump = true; }
-            else out.jump = false;
+            if (jumpDelay > 0) {
+                jumpDelay--;
+                out.jump = false;
+            } else if (jumpHold > 0) {
+                jumpHold--;
+                out.jump = true;
+            } else out.jump = false;
 
             prevMask = want;
             prevTarget = target;
@@ -438,9 +552,15 @@ public final class Humanizer {
         }
     }
 
-    public RouteShaper routeShaper() { return routeShaper(0); }
+    public RouteShaper routeShaper() {
+        return routeShaper(0);
+    }
     /** n — точек в маршруте (0 — без остановок посреди пути). */
-    public RouteShaper routeShaper(int n) { RouteShaper r = new RouteShaper(); r.start(n); return r; }
+    public RouteShaper routeShaper(int n) {
+        RouteShaper r = new RouteShaper();
+        r.start(n);
+        return r;
+    }
 
     // ── запись ───────────────────────────────────────────────────────────────
 
@@ -456,22 +576,48 @@ public final class Humanizer {
         private int midFrom = -1, midLen, afkFrom = -1, afkLen, stopLeft;
 
         RecShaper(int length) {
-            if (length >= 2 && chance(s.midStopChance)) { midFrom = range(0, length - 1); midLen = Math.max(1, draw(HumanSettings.Var.STOP, s.midStopMin, s.midStopMax)); }
-            if (length >= 2 && chance(s.afkChance)) { afkFrom = range(0, length - 1); afkLen = Math.max(1, draw(HumanSettings.Var.AFK, s.afkMin, s.afkMax)); }
+            if (length >= 2 && chance(s.midStopChance)) {
+                midFrom = range(0, length - 1);
+                midLen = Math.max(1, draw(HumanSettings.Var.STOP, s.midStopMin, s.midStopMax));
+            }
+            if (length >= 2 && chance(s.afkChance)) {
+                afkFrom = range(0, length - 1);
+                afkLen = Math.max(1, draw(HumanSettings.Var.AFK, s.afkMin, s.afkMax));
+            }
         }
 
         /** Стоим (остановка/«протупить»): ЛКМ/ПКМ и зажим отпущены. */
-        public boolean stopping() { return stopLeft > 0; }
-        public int stopLeft() { return stopLeft; }
+        public boolean stopping() {
+            return stopLeft > 0;
+        }
+
+        public int stopLeft() {
+            return stopLeft;
+        }
 
         /**
          * С остановками: на стоячем кадре не раньше запланированного — стоим (кадр повторяется) N тиков.
          * Встаём только на стоячих кадрах: запись идёт «вслепую», остановка на ходу сбила бы позицию.
          */
         public int advance(boolean idle, boolean nextIdle, int index) {
-            if (stopLeft > 0) { stopLeft--; return stopLeft > 0 ? 0 : 1; }
-            if (idle && afkFrom >= 0 && index >= afkFrom) { afkFrom = -1; afkStops++; afks++; stopLeft = afkLen; return 0; }
-            if (idle && midFrom >= 0 && index >= midFrom) { midFrom = -1; stops++; midStops++; stopLeft = midLen; return 0; }
+            if (stopLeft > 0) {
+                stopLeft--;
+                return stopLeft > 0 ? 0 : 1;
+            }
+            if (idle && afkFrom >= 0 && index >= afkFrom) {
+                afkFrom = -1;
+                afkStops++;
+                afks++;
+                stopLeft = afkLen;
+                return 0;
+            }
+            if (idle && midFrom >= 0 && index >= midFrom) {
+                midFrom = -1;
+                stops++;
+                midStops++;
+                stopLeft = midLen;
+                return 0;
+            }
             return advance(idle, nextIdle);
         }
 
@@ -481,40 +627,66 @@ public final class Humanizer {
          * @param nextIdle следующий тоже стоячий
          */
         public int advance(boolean idle, boolean nextIdle) {
-            if (!idle || s.idleStretchPct <= 0) { repeatsInRow = 0; return 1; }
-            int roll = rnd.nextInt(200);                       // pct/2 — повтор, pct/2 — пропуск
-            if (roll < s.idleStretchPct && repeatsInRow < 3) { repeatsInRow++; repeats++; return 0; }
+            if (!idle || s.idleStretchPct <= 0) {
+                repeatsInRow = 0;
+                return 1;
+            }
+            int roll = rnd.nextInt(200); // pct/2 — повтор, pct/2 — пропуск
+            if (roll < s.idleStretchPct && repeatsInRow < 3) {
+                repeatsInRow++;
+                repeats++;
+                return 0;
+            }
             repeatsInRow = 0;
-            if (roll >= 200 - s.idleStretchPct && nextIdle) { skips++; return 2; }
+            if (roll >= 200 - s.idleStretchPct && nextIdle) {
+                skips++;
+                return 2;
+            }
             return 1;
         }
 
         public boolean attack(boolean want) {
-            if (want != wantAttack) { wantAttack = want; attackDelay = draw(HumanSettings.Var.ACTION, 0, s.actionDelayMax); }
-            if (attackDelay > 0) attackDelay--; else outAttack = wantAttack;
+            if (want != wantAttack) {
+                wantAttack = want;
+                attackDelay = draw(HumanSettings.Var.ACTION, 0, s.actionDelayMax);
+            }
+            if (attackDelay > 0) attackDelay--;
+            else outAttack = wantAttack;
             return outAttack;
         }
 
         public boolean use(boolean want) {
-            if (want != wantUse) { wantUse = want; useDelay = draw(HumanSettings.Var.ACTION, 0, s.actionDelayMax); }
-            if (useDelay > 0) useDelay--; else outUse = wantUse;
+            if (want != wantUse) {
+                wantUse = want;
+                useDelay = draw(HumanSettings.Var.ACTION, 0, s.actionDelayMax);
+            }
+            if (useDelay > 0) useDelay--;
+            else outUse = wantUse;
             return outUse;
         }
 
         /** Плавный шум камеры: {dyaw, dpitch}, новая цель каждые 20…40 тиков, догоняем по 10 % за тик. */
         public float[] camNoise() {
             double d = s.cameraExact ? 0 : s.camNoiseDeg;
-            if (d <= 0) return new float[]{0, 0};
-            if (--noiseLeft <= 0) { goalYaw = uni(-d, d); goalPitch = uni(-d, d) * 0.6; noiseLeft = range(20, 40); }
+            if (d <= 0) return new float[] {0, 0};
+            if (--noiseLeft <= 0) {
+                goalYaw = uni(-d, d);
+                goalPitch = uni(-d, d) * 0.6;
+                noiseLeft = range(20, 40);
+            }
             noiseYaw += (goalYaw - noiseYaw) * 0.1;
             noisePitch += (goalPitch - noisePitch) * 0.1;
-            return new float[]{(float) noiseYaw, (float) noisePitch};
+            return new float[] {(float) noiseYaw, (float) noisePitch};
         }
     }
 
-    public RecShaper recShaper() { return new RecShaper(0); }
+    public RecShaper recShaper() {
+        return new RecShaper(0);
+    }
     /** length — кадров в записи (0 — без остановок). */
-    public RecShaper recShaper(int length) { return new RecShaper(length); }
+    public RecShaper recShaper(int length) {
+        return new RecShaper(length);
+    }
 
     // ── камера: «оглядеться» ─────────────────────────────────────────────────
 
@@ -531,33 +703,52 @@ public final class Humanizer {
         /** @param stopLeft сколько ещё стоять (0 — идём); perfect — идеальный круг: всё плавно в 0. @return {dYaw, dPitch} */
         public float[] tick(int stopLeft, boolean perfect) {
             double rate;
-            if (s.cameraExact) perfect = true;                 // «Камера точно» — всё плавно в 0 и дальше ничего
+            if (s.cameraExact) perfect = true; // «Камера точно» — всё плавно в 0 и дальше ничего
             boolean stop = stopLeft > 0 && s.stopLookDeg > 0 && !perfect;
-            if (stop != wasStop) { left = 0; wasStop = stop; }
+            if (stop != wasStop) {
+                left = 0;
+                wasStop = stop;
+            }
             if (stop) {
-                if (stopLeft <= 14) { goalYaw = 0; goalPitch = 0; }
-                else if (--left <= 0) {
+                if (stopLeft <= 14) {
+                    goalYaw = 0;
+                    goalPitch = 0;
+                } else if (--left <= 0) {
                     double d = s.stopLookDeg;
-                    goalYaw = uni(-d, d); goalPitch = uni(-d, d) * 0.6; left = range(15, 45);
+                    goalYaw = uni(-d, d);
+                    goalPitch = uni(-d, d) * 0.6;
+                    left = range(15, 45);
                 }
                 rate = stopLeft <= 14 ? 0.3 : 0.12;
             } else {
                 goalYaw = 0;
                 if (perfect || s.lookPitchDeg <= 0) goalPitch = 0;
-                else if (--left <= 0) { goalPitch = uni(-s.lookPitchDeg, s.lookPitchDeg); left = range(25, 60); }
+                else if (--left <= 0) {
+                    goalPitch = uni(-s.lookPitchDeg, s.lookPitchDeg);
+                    left = range(25, 60);
+                }
                 rate = 0.08;
             }
             double ny = yawOff + (goalYaw - yawOff) * (stop ? rate : 0.35);
             double np = pitchOff + (goalPitch - pitchOff) * rate;
-            if (Math.abs(np) < 1e-4 && goalPitch == 0) np = 0;      // v1.11.2: раньше pitch стремился к 0 вечно
+            if (Math.abs(np) < 1e-4 && goalPitch == 0) np = 0; // v1.11.2: раньше pitch стремился к 0 вечно
             if (Math.abs(ny) < 1e-4 && goalYaw == 0) ny = 0;
             float[] d = {(float) (ny - yawOff), (float) (np - pitchOff)};
-            yawOff = ny; pitchOff = np;
+            yawOff = ny;
+            pitchOff = np;
             return d;
         }
 
-        public boolean atZero() { return yawOff == 0 && pitchOff == 0; }
-        public double yawOff() { return yawOff; }
-        public double pitchOff() { return pitchOff; }
+        public boolean atZero() {
+            return yawOff == 0 && pitchOff == 0;
+        }
+
+        public double yawOff() {
+            return yawOff;
+        }
+
+        public double pitchOff() {
+            return pitchOff;
+        }
     }
 }

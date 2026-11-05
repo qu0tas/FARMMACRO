@@ -34,6 +34,7 @@ public final class MouseTurn {
     public final double step;
     /** Сколько шагов по yaw/pitch в итоге и в точке перелёта. */
     public final long totalYaw, totalPitch, aimYaw, aimPitch;
+
     public final double overshoot;
     private final double t1, t2;
     private double t;
@@ -45,13 +46,21 @@ public final class MouseTurn {
      * @param degPerSec средняя скорость; ≤ 0 — за один кадр
      * @param overshootMax доля 0…0.03
      */
-    public MouseTurn(double yaw0, double pitch0, double dYaw, double dPitch, double sens, double degPerSec,
-                     double overshootMax, SplittableRandom rnd) {
+    public MouseTurn(
+            double yaw0,
+            double pitch0,
+            double dYaw,
+            double dPitch,
+            double sens,
+            double degPerSec,
+            double overshootMax,
+            SplittableRandom rnd) {
         step = stepDeg(sens);
         long ny = Math.round(dYaw / step), np = Math.round(dPitch / step);
         ny = avoidRound(yaw0, ny, dYaw);
         np = avoidRound(pitch0, np, dPitch);
-        totalYaw = ny; totalPitch = np;
+        totalYaw = ny;
+        totalPitch = np;
         double len = Math.hypot(ny, np) * step;
         double ov = 0;
         if (len > 0 && overshootMax > 0) {
@@ -62,8 +71,10 @@ public final class MouseTurn {
         overshoot = ov;
         aimYaw = Math.round(ny * (1 + ov));
         aimPitch = Math.round(np * (1 + ov));
-        if (degPerSec <= 0 || len == 0) { t1 = 0; t2 = 0; }
-        else {
+        if (degPerSec <= 0 || len == 0) {
+            t1 = 0;
+            t2 = 0;
+        } else {
             t1 = Math.max(0.05, len * (1 + ov) / degPerSec);
             t2 = ov > 0 ? Math.max(0.06, Math.min(0.35, len * ov / (degPerSec * 0.35))) : 0;
         }
@@ -85,21 +96,33 @@ public final class MouseTurn {
 
     /** Кадр: сколько шагов повернуть сейчас {yaw, pitch}. dt — секунд с прошлого кадра. */
     public long[] frame(double dt) {
-        if (finished) return new long[]{0, 0};
+        if (finished) return new long[] {0, 0};
         t += Math.max(0, dt);
         long wy, wp;
-        if (t1 <= 0 || t >= t1 + t2) { wy = totalYaw; wp = totalPitch; finished = true; }
-        else if (t < t1) { double e = ease(t / t1); wy = Math.round(aimYaw * e); wp = Math.round(aimPitch * e); }
-        else {
+        if (t1 <= 0 || t >= t1 + t2) {
+            wy = totalYaw;
+            wp = totalPitch;
+            finished = true;
+        } else if (t < t1) {
+            double e = ease(t / t1);
+            wy = Math.round(aimYaw * e);
+            wp = Math.round(aimPitch * e);
+        } else {
             double e = ease((t - t1) / t2);
-            wy = Math.round(aimYaw + (totalYaw - aimYaw) * e); wp = Math.round(aimPitch + (totalPitch - aimPitch) * e);
+            wy = Math.round(aimYaw + (totalYaw - aimYaw) * e);
+            wp = Math.round(aimPitch + (totalPitch - aimPitch) * e);
         }
         long[] d = {wy - doneYaw, wp - donePitch};
-        doneYaw = wy; donePitch = wp;
+        doneYaw = wy;
+        donePitch = wp;
         return d;
     }
 
-    public boolean finished() { return finished; }
+    public boolean finished() {
+        return finished;
+    }
     /** Длительность всего поворота, секунд. */
-    public double duration() { return t1 + t2; }
+    public double duration() {
+        return t1 + t2;
+    }
 }

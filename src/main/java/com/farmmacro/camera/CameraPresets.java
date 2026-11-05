@@ -1,15 +1,17 @@
 package com.farmmacro.camera;
 
+import com.farmmacro.FarmMacroMod;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.config.ModConfig.CamPreset;
 import com.farmmacro.macro.MacroManager;
+import com.farmmacro.route.NavigationInput;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.Mth;
-
-import java.util.List;
-import java.util.Locale;
 
 /**
  * Пресеты камеры: имя, yaw/pitch (точность 0.1°) и культура; панель — вкладка «Камера» меню.
@@ -24,17 +26,23 @@ public final class CameraPresets {
 
     public static final List<CropPresets.Crop> CROPS = CropPresets.CROPS;
 
-    public static String cropLabel(String id) { return CropPresets.label(id); }
+    public static String cropLabel(String id) {
+        return CropPresets.label(id);
+    }
 
-    public static String describe(CamPreset p) { return CropPresets.describe(p); }
+    public static String describe(CamPreset p) {
+        return CropPresets.describe(p);
+    }
 
     /** Индекс пресета культуры (см. {@link CropPresets#indexFor}), -1 — нет. */
-    public static int indexForCrop(String crop) { return CropPresets.indexFor(list(), crop); }
+    public static int indexForCrop(String crop) {
+        return CropPresets.indexFor(list(), crop);
+    }
 
     /** «Сбросить к стандартным»: 7 стандартных пресетов вместо текущих (id совпавших по имени сохраняются). */
     public static void resetToStandard() {
         ModConfig c = ModConfig.INSTANCE;
-        c.camPresets = new java.util.ArrayList<>(CropPresets.resetToStandard(c.camPresets, () -> c.camNextId++));
+        c.camPresets = new ArrayList<>(CropPresets.resetToStandard(c.camPresets, () -> c.camNextId++));
         c.camSelected = 0;
         c.camDefaultsRev = CropPresets.DEFAULTS_REV;
         ModConfig.save();
@@ -42,7 +50,7 @@ public final class CameraPresets {
 
     /** Угол без потери введённой точности: 90 → «90.0», 12.345 → «12.345» (кратчайшая запись float). */
     public static String deg(float v) {
-        String s = new java.math.BigDecimal(Float.toString(v)).stripTrailingZeros().toPlainString();
+        String s = new BigDecimal(Float.toString(v)).stripTrailingZeros().toPlainString();
         if (s.equals("-0")) s = "0";
         return s.contains(".") ? s : s + ".0";
     }
@@ -72,7 +80,9 @@ public final class CameraPresets {
         return -1;
     }
 
-    private static List<CamPreset> list() { return ModConfig.INSTANCE.camPresets; }
+    private static List<CamPreset> list() {
+        return ModConfig.INSTANCE.camPresets;
+    }
 
     public static CamPreset selected() {
         List<CamPreset> l = list();
@@ -84,25 +94,40 @@ public final class CameraPresets {
     /** Повернуть к выбранному пресету. */
     public static void applySelected(Minecraft mc) {
         CamPreset p = selected();
-        if (p == null) { msg(mc, "§7Нет пресетов камеры — сохрани текущий взгляд (" + key(com.farmmacro.FarmMacroMod.keyCamSave) + ")"); return; }
+        if (p == null) {
+            msg(mc, "§7Нет пресетов камеры — сохрани текущий взгляд (" + key(FarmMacroMod.keyCamSave) + ")");
+            return;
+        }
         apply(mc, ModConfig.INSTANCE.camSelected);
     }
 
     /** Выбрать следующий пресет и повернуть к нему. */
     public static void next(Minecraft mc) {
         List<CamPreset> l = list();
-        if (l.isEmpty()) { applySelected(mc); return; }
+        if (l.isEmpty()) {
+            applySelected(mc);
+            return;
+        }
         ModConfig.INSTANCE.camSelected = (ModConfig.INSTANCE.camSelected + 1) % l.size();
         ModConfig.save();
         apply(mc, ModConfig.INSTANCE.camSelected);
     }
 
     public static void apply(Minecraft mc, int index) {
-        if(SmoothTurn.bindingBusy()){msg(mc,"§cКамерой сейчас управляет привязка маршрута");return;}
-        if(com.farmmacro.route.NavigationInput.busy()){msg(mc,"§cКамерой сейчас управляет навигация");return;}
+        if (SmoothTurn.bindingBusy()) {
+            msg(mc, "§cКамерой сейчас управляет привязка маршрута");
+            return;
+        }
+        if (NavigationInput.busy()) {
+            msg(mc, "§cКамерой сейчас управляет навигация");
+            return;
+        }
         List<CamPreset> l = list();
         if (index < 0 || index >= l.size() || mc.player == null) return;
-        if (MacroManager.INSTANCE.controlsCamera()) { msg(mc, "§cКамерой сейчас управляет макрос"); return; }
+        if (MacroManager.INSTANCE.controlsCamera()) {
+            msg(mc, "§cКамерой сейчас управляет макрос");
+            return;
+        }
         ModConfig c = ModConfig.INSTANCE;
         c.camSelected = index;
         CamPreset p = l.get(index);
@@ -112,20 +137,30 @@ public final class CameraPresets {
                 msg(mc, "§b◎ Камера " + (index + 1) + "/" + l.size() + ": §f" + describe(p) + " §7(Squeaky Mousemat)");
                 return;
             }
-            if (!c.mousematFallback) { msg(mc, "§6Нет Squeaky Mousemat в хотбаре" + (p.matSlot > 0 ? " (слот " + p.matSlot + ")" : "")); return; }
+            if (!c.mousematFallback) {
+                msg(mc, "§6Нет Squeaky Mousemat в хотбаре" + (p.matSlot > 0 ? " (слот " + p.matSlot + ")" : ""));
+                return;
+            }
             msg(mc, "§6Нет Squeaky Mousemat в хотбаре — поворачиваю сам");
         }
         Mousemat.cancel();
         SmoothTurn.turnTo(p.yaw, p.pitch, c.camSmooth ? c.camTurnSpeed : 0);
-        msg(mc, "§b◎ Камера " + (index + 1) + "/" + l.size() + ": §f" + describe(p)
-                + (c.camSmooth ? "" : " §7(мгновенно)"));
+        msg(
+                mc,
+                "§b◎ Камера " + (index + 1) + "/" + l.size() + ": §f" + describe(p)
+                        + (c.camSmooth ? "" : " §7(мгновенно)"));
     }
 
     /** v1.16.3: камера ещё встаёт в пресет (плавный поворот или Mousemat). */
-    public static boolean turning() { return SmoothTurn.isActive() || Mousemat.busy(); }
+    public static boolean turning() {
+        return SmoothTurn.isActive() || Mousemat.busy();
+    }
 
     /** v1.16.3: прекратить установку пресета (поворот и Mousemat). */
-    public static void stopTurning() { SmoothTurn.stop(); Mousemat.cancel(); }
+    public static void stopTurning() {
+        SmoothTurn.stop();
+        Mousemat.cancel();
+    }
 
     /** Записать текущий взгляд в выбранный пресет (или создать первый). */
     public static void saveCurrent(Minecraft mc) {
@@ -133,7 +168,11 @@ public final class CameraPresets {
         if (pl == null) return;
         ModConfig c = ModConfig.INSTANCE;
         CamPreset p = selected();
-        if (p == null) { p = c.newCamPreset("other", 0, 0); c.camPresets.add(p); c.camSelected = 0; }
+        if (p == null) {
+            p = c.newCamPreset("other", 0, 0);
+            c.camPresets.add(p);
+            c.camSelected = 0;
+        }
         p.yaw = CropPresets.yaw(pl.getYRot());
         p.pitch = CropPresets.pitch(pl.getXRot());
         ModConfig.save();
@@ -145,13 +184,18 @@ public final class CameraPresets {
         ModConfig c = ModConfig.INSTANCE;
         if (c.camPresets.size() >= MAX) return -1;
         LocalPlayer pl = mc.player;
-        c.camPresets.add(c.newCamPreset("other", pl != null ? CropPresets.yaw(pl.getYRot()) : 0, pl != null ? CropPresets.pitch(pl.getXRot()) : 0));
+        c.camPresets.add(c.newCamPreset(
+                "other",
+                pl != null ? CropPresets.yaw(pl.getYRot()) : 0,
+                pl != null ? CropPresets.pitch(pl.getXRot()) : 0));
         c.camSelected = c.camPresets.size() - 1;
         ModConfig.save();
         return c.camSelected;
     }
 
-    private static String key(net.minecraft.client.KeyMapping k) { return MacroManager.keyName(k); }
+    private static String key(KeyMapping k) {
+        return MacroManager.keyName(k);
+    }
 
     private static void msg(Minecraft mc, String text) {
         if (mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));

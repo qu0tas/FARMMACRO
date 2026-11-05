@@ -17,12 +17,24 @@ public final class ArrivalWatch {
     public static final long SELF_GRACE_MS = 3000;
 
     private Map<Integer, Double> prev = new HashMap<>();
-    private final ArrayDeque<long[]> arrivals = new ArrayDeque<>();   // {ms, id}
+    private final ArrayDeque<long[]> arrivals = new ArrayDeque<>(); // {ms, id}
     private long worldSinceMs = -1, selfMoveMs = Long.MIN_VALUE / 2;
 
-    public void onWorld(long nowMs) { worldSinceMs = nowMs; prev.clear(); arrivals.clear(); }
-    public void onSelfTeleport(long nowMs) { selfMoveMs = nowMs; arrivals.clear(); }
-    public void reset() { prev.clear(); arrivals.clear(); }
+    public void onWorld(long nowMs) {
+        worldSinceMs = nowMs;
+        prev.clear();
+        arrivals.clear();
+    }
+
+    public void onSelfTeleport(long nowMs) {
+        selfMoveMs = nowMs;
+        arrivals.clear();
+    }
+
+    public void reset() {
+        prev.clear();
+        arrivals.clear();
+    }
 
     /**
      * Один тик. dist — расстояние до каждого видимого игрока (id сущности → блоки), без себя (и без друзей, если надо).
@@ -32,7 +44,7 @@ public final class ArrivalWatch {
         for (var e : dist.entrySet()) {
             if (e.getValue() > near) continue;
             Double was = prev.get(e.getKey());
-            if (was == null || was > FAR) arrivals.addLast(new long[]{nowMs, e.getKey()});
+            if (was == null || was > FAR) arrivals.addLast(new long[] {nowMs, e.getKey()});
         }
         prev = new HashMap<>(dist);
         while (!arrivals.isEmpty() && nowMs - arrivals.peekFirst()[0] > windowMs) arrivals.pollFirst();

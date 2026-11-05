@@ -1,12 +1,14 @@
 package com.farmmacro.route;
 
 import com.farmmacro.macro.MacroManager;
-import net.minecraft.client.Minecraft;
-
+import com.farmmacro.macro.MacroSettings;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.TreeSet;
+import net.minecraft.client.Minecraft;
 
 /**
  * Текущий маршрут по точкам в памяти (то, что видно в мире, правит редактор и проходит автоход).
@@ -24,27 +26,66 @@ public final class RouteBuffer {
     private int revision;
     private int selected = -1;
     /** Дополнительно выделенные точки (Alt+ЛКМ, Ctrl+A) — для группового смещения. Сбрасываются при изменении состава. */
-    private final java.util.TreeSet<Integer> marked = new java.util.TreeSet<>();
+    private final TreeSet<Integer> marked = new TreeSet<>();
+
     private final Deque<PointRoute> undo = new ArrayDeque<>();
+    /** 2.1.0: повтор отменённого (Ctrl+Y / Ctrl+Shift+Z). Любое новое изменение его очищает. */
+    private final Deque<PointRoute> redo = new ArrayDeque<>();
     /** v1.12.1: новому (не загруженному) маршруту уже выданы настройки «по умолчанию для новых». */
     private boolean defaultsApplied;
 
     private RouteBuffer() {}
 
-    public PointRoute route()         { return route; }
-    public List<RoutePoint> points()  { return Collections.unmodifiableList(route.points); }
-    public int  size()                { return route.points.size(); }
-    public boolean isEmpty()          { return route.points.isEmpty(); }
-    public RoutePoint get(int i)      { return i >= 0 && i < size() ? route.points.get(i) : null; }
-    public int  revision()            { return revision; }
-    public String loadedName()        { return loadedName; }
-    public boolean isDirty()          { return dirty; }
-    public int  selected()            { return selected < size() ? selected : -1; }
-    public void select(int i)         { selected = i >= 0 && i < size() ? i : -1; if (selected < 0) marked.clear(); revision++; }
+    public PointRoute route() {
+        return route;
+    }
+
+    public List<RoutePoint> points() {
+        return Collections.unmodifiableList(route.points);
+    }
+
+    public int size() {
+        return route.points.size();
+    }
+
+    public boolean isEmpty() {
+        return route.points.isEmpty();
+    }
+
+    public RoutePoint get(int i) {
+        return i >= 0 && i < size() ? route.points.get(i) : null;
+    }
+
+    public int revision() {
+        return revision;
+    }
+
+    public String loadedName() {
+        return loadedName;
+    }
+
+    public boolean isDirty() {
+        return dirty;
+    }
+
+    public int selected() {
+        return selected < size() ? selected : -1;
+    }
+
+    public void select(int i) {
+        selected = i >= 0 && i < size() ? i : -1;
+        if (selected < 0) marked.clear();
+        revision++;
+    }
 
     // ── Выделение нескольких точек ──
-    public boolean isMarked(int i)    { return marked.contains(i); }
-    public int markedCount()          { return marked.size(); }
+    public boolean isMarked(int i) {
+        return marked.contains(i);
+    }
+
+    public int markedCount() {
+        return marked.size();
+    }
     /** Alt+ЛКМ: добавить/убрать точку из выделения (выбранная тоже считается выделенной). */
     public void toggleMark(int i) {
         if (get(i) == null) return;
@@ -52,14 +93,24 @@ public final class RouteBuffer {
         if (selected < 0) selected = i;
         revision++;
     }
-    public void markAll() { marked.clear(); for (int i = 0; i < size(); i++) marked.add(i); if (selected < 0 && size() > 0) selected = 0; revision++; }
-    public void clearMarks() { marked.clear(); revision++; }
+
+    public void markAll() {
+        marked.clear();
+        for (int i = 0; i < size(); i++) marked.add(i);
+        if (selected < 0 && size() > 0) selected = 0;
+        revision++;
+    }
+
+    public void clearMarks() {
+        marked.clear();
+        revision++;
+    }
     /** Выделенные точки: отмеченные + выбранная, по порядку. */
     public List<Integer> selection() {
-        java.util.TreeSet<Integer> all = new java.util.TreeSet<>();
+        TreeSet<Integer> all = new TreeSet<>();
         for (int i : marked) if (i < size()) all.add(i);
         if (selected() >= 0) all.add(selected());
-        return new java.util.ArrayList<>(all);
+        return new ArrayList<>(all);
     }
 
     /** Сдвинуть смещение выделенных точек на (dx, dz), каждая обрезается до ±0.5. snapshot — сделать снимок для Ctrl+Z. */
@@ -81,34 +132,84 @@ public final class RouteBuffer {
     public void setOffset(List<Integer> which, double ox, double oz) {
         if (which.isEmpty()) return;
         snapshot();
-        for (int i : which) { RoutePoint p = get(i); if (p != null) p.setOffset(ox, oz); }
+        for (int i : which) {
+            RoutePoint p = get(i);
+            if (p != null) p.setOffset(ox, oz);
+        }
         changed();
     }
 
     public List<Integer> all() {
-        List<Integer> l = new java.util.ArrayList<>(size());
+        List<Integer> l = new ArrayList<>(size());
         for (int i = 0; i < size(); i++) l.add(i);
         return l;
     }
-    public boolean canUndo()          { return !undo.isEmpty(); }
+
+    public boolean canUndo() {
+        return !undo.isEmpty();
+    }
 
     /** Снимок для отмены. Вызывать перед изменением (перетаскивание — один раз в начале). */
     public void snapshot() {
         undo.push(route.copy());
         while (undo.size() > UNDO_MAX) undo.removeLast();
+        redo.clear();
     }
 
     /** Убрать последний снимок (окно точки закрыли без изменений). */
-    public void undoDrop() { undo.poll(); }
+    public void undoDrop() {
+        undo.poll();
+    }
 
     public boolean undo() {
         marked.clear();
         PointRoute prev = undo.poll();
         if (prev == null) return false;
+        redo.push(route.copy());
+        while (redo.size() > UNDO_MAX) redo.removeLast();
         route = prev;
         if (selected >= size()) selected = size() - 1;
         changed();
         return true;
+    }
+
+    /** 2.1.0: вернуть последнее отменённое изменение. */
+    public boolean redo() {
+        marked.clear();
+        PointRoute next = redo.poll();
+        if (next == null) return false;
+        undo.push(route.copy());
+        while (undo.size() > UNDO_MAX) undo.removeLast();
+        route = next;
+        if (selected >= size()) selected = size() - 1;
+        changed();
+        return true;
+    }
+
+    public int undoDepth() {
+        return undo.size();
+    }
+
+    public int redoDepth() {
+        return redo.size();
+    }
+
+    /**
+     * 2.1.0: вставить маршрут из буфера обмена — как несохранённый (имя файла сброшено), с отменой.
+     * Мир/измерение — текущие: строка маршрута их не переносит.
+     */
+    public void importRoute(Minecraft mc, PointRoute r) {
+        snapshot();
+        marked.clear();
+        MacroManager.INSTANCE.routeUnloaded();
+        route = r;
+        if (mc.level != null)
+            route.dimension = mc.level.dimension().identifier().toString();
+        route.world = worldId(mc);
+        defaultsApplied = true;
+        loadedName = null;
+        selected = -1;
+        changed();
     }
 
     /** Что-то поменялось в точках (в т.ч. параметры из окна точки). */
@@ -122,18 +223,20 @@ public final class RouteBuffer {
     /** Измерение и мир берутся при первой точке. */
     private void stamp(Minecraft mc) {
         if (!defaultsApplied && loadedName == null && route.points.isEmpty()) {
-            route.settings = com.farmmacro.macro.MacroSettings.forNew();   // первая точка нового маршрута
-            PointRoute top = undo.peek();                                    // Ctrl+Z первой точки не сбросит настройки
+            route.settings = MacroSettings.forNew(); // первая точка нового маршрута
+            PointRoute top = undo.peek(); // Ctrl+Z первой точки не сбросит настройки
             if (top != null && top.points.isEmpty()) top.settings = route.settings.copy();
             defaultsApplied = true;
         }
         if (!route.points.isEmpty() && route.dimension != null) return;
-        if (mc.level != null) route.dimension = mc.level.dimension().identifier().toString();
+        if (mc.level != null)
+            route.dimension = mc.level.dimension().identifier().toString();
         route.world = worldId(mc);
     }
 
     public static String worldId(Minecraft mc) {
-        if (mc.getSingleplayerServer() != null) return "singleplayer:" + mc.getSingleplayerServer().getWorldData().getLevelName();
+        if (mc.getSingleplayerServer() != null)
+            return "singleplayer:" + mc.getSingleplayerServer().getWorldData().getLevelName();
         if (mc.getCurrentServer() != null) return mc.getCurrentServer().ip;
         return null;
     }
@@ -149,7 +252,12 @@ public final class RouteBuffer {
         stamp(mc);
         RoutePoint last = get(size() - 1);
         RoutePoint p = last != null ? last.withPos(x, y, z) : new RoutePoint(x, y, z);
-        if (last != null) { p.pauseTicks = 0; p.jump = false; p.drop = false; p.dropDepth = 0; }
+        if (last != null) {
+            p.pauseTicks = 0;
+            p.jump = false;
+            p.drop = false;
+            p.dropDepth = 0;
+        }
         route.points.add(p);
         marked.clear();
         selected = size() - 1;
@@ -161,16 +269,23 @@ public final class RouteBuffer {
     public int insertNearest(Minecraft mc, double x, double y, double z) {
         if (size() < 2) return add(mc, x, y, z);
         if (size() >= MAX_POINTS) return -1;
-        int best = 0; double bd = Double.MAX_VALUE;
+        int best = 0;
+        double bd = Double.MAX_VALUE;
         for (int i = 0; i + 1 < size(); i++) {
             RoutePoint a = route.points.get(i), b = route.points.get(i + 1);
             double d = distToSegmentXZ(x, z, a.x, a.z, b.x, b.z);
-            if (d < bd) { bd = d; best = i; }
+            if (d < bd) {
+                bd = d;
+                best = i;
+            }
         }
         snapshot();
         RoutePoint a = route.points.get(best);
         RoutePoint p = a.withPos(x, y, z);
-        p.pauseTicks = 0; p.jump = false; p.drop = false; p.dropDepth = 0;
+        p.pauseTicks = 0;
+        p.jump = false;
+        p.drop = false;
+        p.dropDepth = 0;
         route.points.add(best + 1, p);
         marked.clear();
         selected = best + 1;
@@ -203,7 +318,7 @@ public final class RouteBuffer {
     public void moveNoUndo(int i, double x, double y, double z) {
         RoutePoint p = get(i);
         if (p == null) return;
-        p.moveCenter(x, y, z);              // x/z — центр блока под прицелом, смещение остаётся
+        p.moveCenter(x, y, z); // x/z — центр блока под прицелом, смещение остаётся
         changed();
     }
 
@@ -213,19 +328,22 @@ public final class RouteBuffer {
         stamp(mc);
         route.points.clear();
         route.points.addAll(pts);
-        if (!pts.isEmpty() && mc.level != null) { route.dimension = dimensionId(mc); route.world = worldId(mc); }
+        if (!pts.isEmpty() && mc.level != null) {
+            route.dimension = dimensionId(mc);
+            route.world = worldId(mc);
+        }
         selected = -1;
         changed();
     }
 
     /** Настройки текущего маршрута (окно «Настройки макроса»). */
-    public com.farmmacro.macro.MacroSettings settings() {
-        if (route.settings == null) route.settings = new com.farmmacro.macro.MacroSettings();
+    public MacroSettings settings() {
+        if (route.settings == null) route.settings = new MacroSettings();
         return route.settings;
     }
 
     /** Настройки уже записаны в файл загруженного маршрута (⚙ у карточки) — взять копию, «изменён» не ставить. */
-    public void replaceSettings(com.farmmacro.macro.MacroSettings s) {
+    public void replaceSettings(MacroSettings s) {
         if (s == null) return;
         route.settings = s;
         revision++;
@@ -236,12 +354,13 @@ public final class RouteBuffer {
         marked.clear();
         MacroManager.INSTANCE.routeUnloaded();
         route = new PointRoute();
-        route.settings = com.farmmacro.macro.MacroSettings.forNew();
+        route.settings = MacroSettings.forNew();
         defaultsApplied = true;
         loadedName = null;
         dirty = false;
         selected = -1;
         undo.clear();
+        redo.clear();
         revision++;
     }
 
@@ -256,6 +375,7 @@ public final class RouteBuffer {
         dirty = false;
         selected = -1;
         undo.clear();
+        redo.clear();
         revision++;
         MacroManager.INSTANCE.useRouteSource();
     }

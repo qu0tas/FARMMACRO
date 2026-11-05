@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "GitHub Actions: одним PR, закреплены по SHA",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    },
+    {
+      "description": "Minecraft, Fabric Loader/API и Loom обновляем только вручную (зависят от версии игры)",
+      "matchPackageNames": ["/^net\\.fabricmc/", "/^com\\.mojang/", "net.fabricmc.fabric-loom"],
+      "enabled": false
+    },
+    {
+      "description": "Инструменты проверки (JUnit, Error Prone, NullAway, Spotless, Palantir) — одним PR",
+      "matchPackageNames": ["/^org\\.junit/", "/^com\\.google\\.errorprone/", "/^com\\.uber\\.nullaway/", "/^com\\.diffplug/", "/palantir/", "/jacoco/"],
+      "groupName": "build tooling"
+    }
+  ]
+}

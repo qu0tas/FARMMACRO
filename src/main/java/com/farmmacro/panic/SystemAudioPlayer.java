@@ -1,13 +1,13 @@
 package com.farmmacro.panic;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeoutException;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.SourceDataLine;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Системный вывод звука (javax.sound) в ОДНОМ фоновом потоке с очередью.
@@ -21,7 +21,7 @@ import java.util.concurrent.BlockingQueue;
 final class SystemAudioPlayer {
     private SystemAudioPlayer() {}
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Sound");
+    private static final Logger LOGGER = LoggerFactory.getLogger("Kaelix/Sound");
 
     /** fallback вызывается из потока проигрывателя, он сам должен перекинуть работу в главный поток. */
     record Job(SoundDecoder.Clip clip, float volume, float pitch, String id, Runnable fallback) {}
@@ -34,7 +34,9 @@ final class SystemAudioPlayer {
     /** Когда текущее задание обязано закончиться (0 — ничего не играет). */
     private static volatile long busyDeadlineMs;
 
-    static boolean isBroken() { return broken; }
+    static boolean isBroken() {
+        return broken;
+    }
 
     /** @return false — задание не принято, играй через движок игры. */
     static boolean submit(Job job) {
@@ -51,7 +53,7 @@ final class SystemAudioPlayer {
     private static void ensureThread() {
         synchronized (LOCK) {
             if (thread != null && thread.isAlive()) return;
-            thread = new Thread(SystemAudioPlayer::loop, "farmmacro-sound-player");
+            thread = new Thread(SystemAudioPlayer::loop, "kaelix-sound-player");
             thread.setDaemon(true);
             thread.setPriority(Thread.NORM_PRIORITY);
             thread.start();
@@ -66,7 +68,10 @@ final class SystemAudioPlayer {
             } catch (InterruptedException e) {
                 return;
             }
-            if (broken) { runFallback(job); continue; }
+            if (broken) {
+                runFallback(job);
+                continue;
+            }
             try {
                 playBlocking(job);
             } catch (Throwable t) {
@@ -79,7 +84,11 @@ final class SystemAudioPlayer {
     }
 
     private static void runFallback(Job job) {
-        try { job.fallback().run(); } catch (Throwable t) { LOGGER.error("Запасной звук не сработал", t); }
+        try {
+            job.fallback().run();
+        } catch (Throwable t) {
+            LOGGER.error("Запасной звук не сработал", t);
+        }
     }
 
     private static void markBroken(String why, Throwable t) {
@@ -95,7 +104,7 @@ final class SystemAudioPlayer {
     private static void playBlocking(Job job) throws Exception {
         SoundDecoder.Clip clip = job.clip();
         byte[] data = SoundDecoder.render(clip, job.volume(), job.pitch());
-        int rate = clip.sampleRate();                 // целая частота
+        int rate = clip.sampleRate(); // целая частота
         int frameSize = clip.channels() * 2;
         long frames = data.length / frameSize;
         long durationMs = frames * 1000L / rate;
@@ -105,14 +114,13 @@ final class SystemAudioPlayer {
         SourceDataLine line = null;
         try {
             line = AudioSystem.getSourceDataLine(fmt);
-            int bufBytes = Math.max(frameSize, (rate / 5) * frameSize);   // ~200 мс
+            int bufBytes = Math.max(frameSize, (rate / 5) * frameSize); // ~200 мс
             line.open(fmt, bufBytes);
             line.start();
             int chunk = Math.max(frameSize, bufBytes / 2 / frameSize * frameSize);
             int off = 0;
             while (off < data.length) {
-                if (System.currentTimeMillis() > busyDeadlineMs)
-                    throw new java.util.concurrent.TimeoutException("запись в линию не успела");
+                if (System.currentTimeMillis() > busyDeadlineMs) throw new TimeoutException("запись в линию не успела");
                 int n = line.write(data, off, Math.min(chunk, data.length - off));
                 if (n <= 0) Thread.sleep(5);
                 off += Math.max(0, n);
@@ -127,8 +135,15 @@ final class SystemAudioPlayer {
             }
         } finally {
             if (line != null) {
-                try { line.stop(); line.flush(); } catch (Throwable ignored) {}
-                try { line.close(); } catch (Throwable ignored) {}
+                try {
+                    line.stop();
+                    line.flush();
+                } catch (Throwable ignored) {
+                }
+                try {
+                    line.close();
+                } catch (Throwable ignored) {
+                }
             }
         }
     }

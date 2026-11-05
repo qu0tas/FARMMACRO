@@ -16,8 +16,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(Connection.class)
 public class ConnectionSilenceMixin {
-    @Inject(method = "channelRead0(Lio/netty/channel/ChannelHandlerContext;Lnet/minecraft/network/protocol/Packet;)V", at = @At("HEAD"))
+    @Inject(
+            method = "channelRead0(Lio/netty/channel/ChannelHandlerContext;Lnet/minecraft/network/protocol/Packet;)V",
+            at = @At("HEAD"))
     private void farmmacro$onRead(ChannelHandlerContext ctx, Packet<?> packet, CallbackInfo ci) {
-        if (((Connection) (Object) this).getReceiving() == PacketFlow.CLIENTBOUND) SilenceWatch.INSTANCE.onPacket(System.currentTimeMillis());
+        if (((Connection) (Object) this).getReceiving() == PacketFlow.CLIENTBOUND)
+            SilenceWatch.INSTANCE.onPacket(System.currentTimeMillis());
     }
 }

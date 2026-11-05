@@ -20,9 +20,15 @@ import java.util.SplittableRandom;
  */
 public final class DelayModel {
     public enum Kind {
-        PRESS("нажать", "↓"), RELEASE("отпустить", "↑"), SLOT("слот", "⇄");
+        PRESS("нажать", "↓"),
+        RELEASE("отпустить", "↑"),
+        SLOT("слот", "⇄");
         public final String label, mark;
-        Kind(String label, String mark) { this.label = label; this.mark = mark; }
+
+        Kind(String label, String mark) {
+            this.label = label;
+            this.mark = mark;
+        }
     }
 
     /** Настройки (из ModConfig). Миллисекунды, проценты, минуты. */
@@ -33,10 +39,26 @@ public final class DelayModel {
     }
 
     /** Одна задержка: слои и итог. */
-    public record Sample(Kind kind, String what, double baseMs, double fatigue, double distractMs, double totalMs, int ticks, long atMs) {
+    public record Sample(
+            Kind kind,
+            String what,
+            double baseMs,
+            double fatigue,
+            double distractMs,
+            double totalMs,
+            int ticks,
+            long atMs) {
         public String line() {
-            return String.format(Locale.ROOT, "%s %s %.0f мс = %.0f×%.2f%s → %d т", what, kind.mark, totalMs, baseMs, fatigue,
-                    distractMs > 0 ? String.format(Locale.ROOT, " +%.0f отвл.", distractMs) : "", ticks);
+            return String.format(
+                    Locale.ROOT,
+                    "%s %s %.0f мс = %.0f×%.2f%s → %d т",
+                    what,
+                    kind.mark,
+                    totalMs,
+                    baseMs,
+                    fatigue,
+                    distractMs > 0 ? String.format(Locale.ROOT, " +%.0f отвл.", distractMs) : "",
+                    ticks);
         }
     }
 
@@ -47,14 +69,22 @@ public final class DelayModel {
 
     private final SplittableRandom rnd;
     private long sessionStartMs = -1, lastMs = -1;
-    private double drift;               // ln(множителя дрейфа)
+    private double drift; // ln(множителя дрейфа)
     private final ArrayDeque<Sample> history = new ArrayDeque<>();
     private int distracts;
 
-    public DelayModel(long seed) { rnd = new SplittableRandom(seed); }
+    public DelayModel(long seed) {
+        rnd = new SplittableRandom(seed);
+    }
 
     /** Начать сессию заново (сброс статистики сессии в «Запуске»). */
-    public synchronized void resetSession() { sessionStartMs = -1; lastMs = -1; drift = 0; history.clear(); distracts = 0; }
+    public synchronized void resetSession() {
+        sessionStartMs = -1;
+        lastMs = -1;
+        drift = 0;
+        history.clear();
+        distracts = 0;
+    }
 
     /** Множитель усталости в момент now (без изменения состояния). */
     public synchronized double fatigue(long nowMs, Params p) {
@@ -70,7 +100,11 @@ public final class DelayModel {
 
     /** Следующая задержка вида k (what — для журнала/оверлея: «ЛКМ», «ПКМ», «слот 3»). */
     public synchronized Sample next(Kind k, String what, long nowMs, Params p) {
-        if (sessionStartMs < 0) { sessionStartMs = nowMs; lastMs = nowMs; drift = 0; }
+        if (sessionStartMs < 0) {
+            sessionStartMs = nowMs;
+            lastMs = nowMs;
+            drift = 0;
+        }
         // дрейф: Орнштейн — Уленбек по прошедшему времени
         double dtMin = Math.max(0, nowMs - lastMs) / 60_000.0;
         lastMs = nowMs;
@@ -85,7 +119,8 @@ public final class DelayModel {
         double dist = 0;
         if (p.distractChance > 0 && rnd.nextDouble() * 100 < p.distractChance) {
             double u = rnd.nextDouble();
-            dist = p.distractMinMs + (Math.max(p.distractMinMs, p.distractMaxMs) - p.distractMinMs) * u * u;   // чаще короткие
+            dist = p.distractMinMs
+                    + (Math.max(p.distractMinMs, p.distractMaxMs) - p.distractMinMs) * u * u; // чаще короткие
             distracts++;
         }
         double total = base * f + dist;
@@ -99,7 +134,11 @@ public final class DelayModel {
     }
 
     private double gauss(double mean, double sd, double lo, double hi) {
-        if (hi < lo) { double t = lo; lo = hi; hi = t; }
+        if (hi < lo) {
+            double t = lo;
+            lo = hi;
+            hi = t;
+        }
         if (!(sd > 0)) return Math.max(lo, Math.min(hi, mean));
         for (int i = 0; i < 64; i++) {
             double v = mean + sd * rnd.nextGaussian();
@@ -114,7 +153,9 @@ public final class DelayModel {
         return all.subList(Math.max(0, all.size() - n), all.size());
     }
 
-    public synchronized int distracts() { return distracts; }
+    public synchronized int distracts() {
+        return distracts;
+    }
 
     /** Сводка по последним (до {@link #HISTORY}) задержкам вида k; k == null — все. */
     public synchronized Stats stats(Kind k) {
@@ -122,8 +163,11 @@ public final class DelayModel {
         double s = 0, s2 = 0, mn = Double.MAX_VALUE, mx = 0;
         for (Sample x : history) {
             if (k != null && x.kind != k) continue;
-            n++; s += x.totalMs; s2 += x.totalMs * x.totalMs;
-            mn = Math.min(mn, x.totalMs); mx = Math.max(mx, x.totalMs);
+            n++;
+            s += x.totalMs;
+            s2 += x.totalMs * x.totalMs;
+            mn = Math.min(mn, x.totalMs);
+            mx = Math.max(mx, x.totalMs);
             if (x.distractMs > 0) d++;
         }
         if (n == 0) return new Stats(0, 0, 0, 0, 0, 0);

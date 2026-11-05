@@ -1,5 +1,9 @@
 package com.farmmacro.macro;
 
+import com.farmmacro.FarmMacroMod;
+import com.farmmacro.panic.PanicHandoff;
+import com.farmmacro.route.NavigationInput;
+import com.farmmacro.route.RouteEditor;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -22,36 +26,46 @@ public final class MouseHold {
     private boolean manual;
     /** Настройки играющего макроса (копия) или null. */
     private HoldSettings run;
+
     private boolean runRoute;
     private int runTicks;
     /** Запись: текущий кадр; маршрут: отрезок от точки с галочкой. */
     private int frame;
+
     private boolean pointHold;
     /** Ручной зажим нажал ЛКМ сам (вне воспроизведения) — значит, и отпустить должен сам. */
     private boolean pressedByUs;
 
     private MouseHold() {}
 
-    public boolean isManual() { return manual; }
+    public boolean isManual() {
+        return manual;
+    }
 
     /** Клавиша «Зажим ЛКМ». */
     public void toggleManual(Minecraft mc) {
-        if(!manual&&!com.farmmacro.panic.PanicHandoff.allowStart(mc))return;
-        if (!manual && com.farmmacro.route.RouteEditor.isActive()) {
+        if (!manual && !PanicHandoff.allowStart(mc)) return;
+        if (!manual && RouteEditor.isActive()) {
             msg(mc, "§cЗажим ЛКМ: сначала закрой редактор маршрута");
             return;
         }
         manual = !manual;
         if (!manual) releaseOwn(mc);
-        msg(mc, manual ? "§a● Зажим ЛКМ включён §7(" + MacroManager.keyName(com.farmmacro.FarmMacroMod.keyHold) + " — выключить)"
-                : "§7○ Зажим ЛКМ выключен");
+        msg(
+                mc,
+                manual
+                        ? "§a● Зажим ЛКМ включён §7(" + MacroManager.keyName(FarmMacroMod.keyHold) + " — выключить)"
+                        : "§7○ Зажим ЛКМ выключен");
     }
 
     // ── от макроса ───────────────────────────────────────────────────────────
 
     /** «Случайность»: стоим посреди пути — зажим макроса на это время отпущен. */
     private boolean suspended;
-    public void suspend(boolean s) { suspended = s; }
+
+    public void suspend(boolean s) {
+        suspended = s;
+    }
 
     public void begin(HoldSettings s, boolean route) {
         suspended = false;
@@ -63,13 +77,20 @@ public final class MouseHold {
     }
 
     /** Каждый тик воспроизведения, до кадра источника. */
-    public void tickRun() { if (run != null) runTicks++; }
+    public void tickRun() {
+        if (run != null) runTicks++;
+    }
 
     /** Где сейчас источник: кадр записи / галочка точки текущего отрезка маршрута. */
-    public void position(int frameIndex, boolean pointHoldFlag) { frame = frameIndex; pointHold = pointHoldFlag; }
+    public void position(int frameIndex, boolean pointHoldFlag) {
+        frame = frameIndex;
+        pointHold = pointHoldFlag;
+    }
 
     /** Зажато ли от макроса прямо сейчас (для HUD). */
-    public HoldSettings running() { return run; }
+    public HoldSettings running() {
+        return run;
+    }
 
     private boolean runWants(boolean attack) {
         HoldSettings s = run;
@@ -78,7 +99,7 @@ public final class MouseHold {
 
     /** Нужно ли держать эту клавишу (keyAttack / keyUse) сейчас. */
     public boolean wants(Minecraft mc, KeyMapping key) {
-        if(com.farmmacro.panic.PanicHandoff.pending()||com.farmmacro.route.NavigationInput.busy())return false;
+        if (PanicHandoff.pending() || NavigationInput.busy()) return false;
         if (suspended || mc == null || mc.options == null || mc.screen != null || mc.player == null) return false;
         Options o = mc.options;
         if (key == o.keyAttack) return manual || runWants(true);
@@ -90,11 +111,14 @@ public final class MouseHold {
 
     /** Конец тика: ручной зажим вне воспроизведения; без игрока — всё сбросить. */
     public void tick(Minecraft mc) {
-        if (mc.player == null || mc.level == null) {        // вышли из мира
-            if (manual || pressedByUs) { manual = false; releaseOwn(mc); }
+        if (mc.player == null || mc.level == null) { // вышли из мира
+            if (manual || pressedByUs) {
+                manual = false;
+                releaseOwn(mc);
+            }
             return;
         }
-        if (manual && com.farmmacro.route.RouteEditor.isActive()) {
+        if (manual && RouteEditor.isActive()) {
             manual = false;
             releaseOwn(mc);
             msg(mc, "§7○ Зажим ЛКМ выключен: открыт редактор маршрута");
@@ -106,8 +130,10 @@ public final class MouseHold {
             return;
         }
         boolean want = wants(mc, mc.options.keyAttack);
-        if (want) { set(mc.options.keyAttack, true); pressedByUs = true; }
-        else if (pressedByUs) releaseOwn(mc);
+        if (want) {
+            set(mc.options.keyAttack, true);
+            pressedByUs = true;
+        } else if (pressedByUs) releaseOwn(mc);
     }
 
     /** Открывается окно (любое, кроме закрытия): ручной зажим выключается, кнопки отпускаются. */
@@ -119,7 +145,10 @@ public final class MouseHold {
             msg(mc, "§7○ Зажим ЛКМ выключен: открыто окно");
         }
         if (pressedByUs) releaseOwn(mc);
-        if (run != null && mc.options != null) { set(mc.options.keyAttack, false); set(mc.options.keyUse, false); }
+        if (run != null && mc.options != null) {
+            set(mc.options.keyAttack, false);
+            set(mc.options.keyUse, false);
+        }
     }
 
     /** Стоп, паника, выход из мира: выключить всё. Клавиши отпускает вызывающий (releaseAll) — и здесь на всякий случай. */
@@ -128,7 +157,10 @@ public final class MouseHold {
         run = null;
         manual = false;
         pressedByUs = false;
-        if (had && mc != null && mc.options != null) { set(mc.options.keyAttack, false); set(mc.options.keyUse, false); }
+        if (had && mc != null && mc.options != null) {
+            set(mc.options.keyAttack, false);
+            set(mc.options.keyUse, false);
+        }
     }
 
     private void releaseOwn(Minecraft mc) {
@@ -141,6 +173,7 @@ public final class MouseHold {
     }
 
     private static void msg(Minecraft mc, String text) {
-        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
+        if (mc != null && mc.player != null)
+            mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
     }
 }

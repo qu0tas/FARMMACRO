@@ -19,7 +19,9 @@ public final class HandDelays {
     private static long tick;
 
     /** Каждый тик воспроизведения (MacroManager). */
-    public static void tick() { tick++; }
+    public static void tick() {
+        tick++;
+    }
 
     public static boolean active() {
         return ModConfig.INSTANCE.delayLayers && MacroManager.INSTANCE.isPlaying() && Humanizer.lap() != null;
@@ -28,16 +30,32 @@ public final class HandDelays {
     public static DelayModel.Params params() {
         ModConfig c = ModConfig.INSTANCE;
         DelayModel.Params p = new DelayModel.Params();
-        p.mean[0] = c.delayPressMean; p.sd[0] = c.delayPressSd; p.min[0] = c.delayPressMin; p.max[0] = c.delayPressMax;
-        p.mean[1] = c.delayReleaseMean; p.sd[1] = c.delayReleaseSd; p.min[1] = c.delayReleaseMin; p.max[1] = c.delayReleaseMax;
-        p.mean[2] = c.delaySlotMean; p.sd[2] = c.delaySlotSd; p.min[2] = c.delaySlotMin; p.max[2] = c.delaySlotMax;
-        p.fatiguePct = c.fatiguePct; p.fatigueRampMin = c.fatigueRampMin; p.driftPct = c.driftPct; p.driftMin = c.driftMin;
-        p.distractChance = c.distractChance; p.distractMinMs = c.distractMinMs; p.distractMaxMs = c.distractMaxMs;
+        p.mean[0] = c.delayPressMean;
+        p.sd[0] = c.delayPressSd;
+        p.min[0] = c.delayPressMin;
+        p.max[0] = c.delayPressMax;
+        p.mean[1] = c.delayReleaseMean;
+        p.sd[1] = c.delayReleaseSd;
+        p.min[1] = c.delayReleaseMin;
+        p.max[1] = c.delayReleaseMax;
+        p.mean[2] = c.delaySlotMean;
+        p.sd[2] = c.delaySlotSd;
+        p.min[2] = c.delaySlotMin;
+        p.max[2] = c.delaySlotMax;
+        p.fatiguePct = c.fatiguePct;
+        p.fatigueRampMin = c.fatigueRampMin;
+        p.driftPct = c.driftPct;
+        p.driftMin = c.driftMin;
+        p.distractChance = c.distractChance;
+        p.distractMinMs = c.distractMinMs;
+        p.distractMaxMs = c.distractMaxMs;
         return p;
     }
 
     /** Время сессии для «усталости»: от начала сессии MacroManager (сброс — «Сбросить статистику»). */
-    private static long now() { return System.currentTimeMillis(); }
+    private static long now() {
+        return System.currentTimeMillis();
+    }
 
     /** Для MacroManager.press: ЛКМ/ПКМ с задержкой; остальные клавиши — как есть. */
     public static boolean gate(KeyMapping key, boolean down) {
@@ -45,20 +63,42 @@ public final class HandDelays {
         if (o == null) return down;
         ActionGate.Button b = key == o.keyAttack ? ATTACK : key == o.keyUse ? USE : null;
         if (b == null) return down;
-        if (!active()) { b.reset(down); return down; }
+        if (!active()) {
+            b.reset(down);
+            return down;
+        }
         String what = b == ATTACK ? "ЛКМ" : "ПКМ";
-        return b.update(down, tick, () -> MODEL.next(down ? DelayModel.Kind.PRESS : DelayModel.Kind.RELEASE, what, now(), params()).ticks());
+        return b.update(
+                down,
+                tick,
+                () -> MODEL.next(down ? DelayModel.Kind.PRESS : DelayModel.Kind.RELEASE, what, now(), params())
+                        .ticks());
     }
 
     /** Слот, который поставить сейчас: тот же, пока не прошла задержка смены. */
     public static int slot(int current, int want) {
-        if (!active()) { SLOT.reset(); return want; }
-        return SLOT.update(current, want, tick, () -> MODEL.next(DelayModel.Kind.SLOT, "слот " + (want + 1), now(), params()).ticks());
+        if (!active()) {
+            SLOT.reset();
+            return want;
+        }
+        return SLOT.update(
+                current,
+                want,
+                tick,
+                () -> MODEL.next(DelayModel.Kind.SLOT, "слот " + (want + 1), now(), params())
+                        .ticks());
     }
 
     /** Navigation handoff: cancel button gates only; do not change slot timing/model history. */
-    public static void releaseButtons(){ATTACK.reset(false);USE.reset(false);}
+    public static void releaseButtons() {
+        ATTACK.reset(false);
+        USE.reset(false);
+    }
 
     /** Стоп/паника: сразу всё как есть. */
-    public static void reset() { ATTACK.reset(false); USE.reset(false); SLOT.reset(); }
+    public static void reset() {
+        ATTACK.reset(false);
+        USE.reset(false);
+        SLOT.reset();
+    }
 }

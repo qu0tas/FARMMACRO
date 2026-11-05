@@ -1,5 +1,6 @@
 package com.farmmacro.gui;
 
+import com.farmmacro.util.Clock;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -16,10 +17,14 @@ public final class Logo {
     static final int CELL = 64, COLS = 12, ROWS = 8, FRAMES = COLS * ROWS;
     /** Полный цикл анимации, мс (кадр ≈ 62 мс). */
     static final long LOOP_MS = 6000;
-    private static final Identifier ATLAS = Identifier.fromNamespaceAndPath("farmmacro", "textures/gui/logo/k_atlas.png");
+
+    private static final Identifier ATLAS =
+            Identifier.fromNamespaceAndPath("farmmacro", "textures/gui/logo/k_atlas.png");
 
     /** Градиент как у логотипа: тёмно-синий → синий → белый блик → голубой → синий. */
-    private static final int[] STOPS = {0xFF2A3AD0, 0xFF4C6CF0, 0xFF6F9AFF, 0xFFE1F0FF, 0xFF6AB4FF, 0xFF3456E0, 0xFF2A3AD0};
+    private static final int[] STOPS = {
+        0xFF2A3AD0, 0xFF4C6CF0, 0xFF6F9AFF, 0xFFE1F0FF, 0xFF6AB4FF, 0xFF3456E0, 0xFF2A3AD0
+    };
 
     static int frame(long ms) {
         return (int) ((ms % LOOP_MS) * FRAMES / LOOP_MS);
@@ -27,7 +32,7 @@ public final class Logo {
 
     /** Квадрат size×size с левым верхним углом (x, y). */
     public static void draw(GuiGraphicsExtractor g, int x, int y, int size) {
-        int f = frame(System.currentTimeMillis());
+        int f = frame(Clock.millis());
         int u = (f % COLS) * CELL, v = (f / COLS) * CELL;
         g.blit(RenderPipelines.GUI_TEXTURED, ATLAS, x, y, u, v, size, size, CELL, CELL, CELL * COLS, CELL * ROWS);
     }
@@ -41,11 +46,13 @@ public final class Logo {
     }
 
     /** Надпись, по которой бежит блик (слева направо, по кругу). */
-    public static void word(GuiGraphicsExtractor g, Font f, String s, int x, int y) { word(g, f, s, x, y, 0); }
+    public static void word(GuiGraphicsExtractor g, Font f, String s, int x, int y) {
+        word(g, f, s, x, y, 0);
+    }
 
     /** То же вразрядку: между буквами +gap px. */
     public static void word(GuiGraphicsExtractor g, Font f, String s, int x, int y, int gap) {
-        double phase = (System.currentTimeMillis() % 3000) / 3000.0;
+        double phase = (Clock.millis() % 3000) / 3000.0;
         int cx = x;
         for (int i = 0; i < s.length(); i++) {
             String ch = String.valueOf(s.charAt(i));
@@ -54,5 +61,7 @@ public final class Logo {
         }
     }
 
-    public static int wordWidth(Font f, String s) { return f.width(s); }
+    public static int wordWidth(Font f, String s) {
+        return f.width(s);
+    }
 }

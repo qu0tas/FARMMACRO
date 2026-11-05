@@ -17,11 +17,13 @@ public final class MouseLock {
 
     private MouseLock() {}
 
-    public static boolean isLocked() { return locked; }
+    public static boolean isLocked() {
+        return locked;
+    }
 
     /** Гасить ли поворот от мыши прямо сейчас (вызывается из миксина). */
     public static boolean shouldBlock() {
-        if (!locked || Freelook.active()) return false;   // freelook: мышь крутит камеру, игрок и так не поворачивается
+        if (!locked || Freelook.active()) return false; // freelook: мышь крутит камеру, игрок и так не поворачивается
         Minecraft mc = Minecraft.getInstance();
         return mc.player != null && mc.screen == null;
     }
@@ -35,8 +37,10 @@ public final class MouseLock {
     public static void lock(Minecraft mc, String why) {
         if (locked) return;
         locked = true;
-        msg(mc, "§b■ Мышь заблокирована" + (why != null ? ": " + why : "")
-                + " §7(" + MacroManager.keyName(FarmMacroMod.keyMouseLock) + " — снять)");
+        msg(
+                mc,
+                "§b■ Мышь заблокирована" + (why != null ? ": " + why : "") + " §7("
+                        + MacroManager.keyName(FarmMacroMod.keyMouseLock) + " — снять)");
     }
 
     /** why = null — вручную клавишей; иначе причина авторазблокировки. */
@@ -52,6 +56,7 @@ public final class MouseLock {
     }
 
     private static void msg(Minecraft mc, String text) {
-        if (mc != null && mc.player != null) mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
+        if (mc != null && mc.player != null)
+            mc.player.sendOverlayMessage(Component.literal("§8[§9Kaelix§8] §r" + text));
     }
 }

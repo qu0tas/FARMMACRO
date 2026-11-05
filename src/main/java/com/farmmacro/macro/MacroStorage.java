@@ -1,23 +1,23 @@
 package com.farmmacro.macro;
 
+import com.farmmacro.camera.CameraBinding;
+import com.farmmacro.util.AtomicFiles;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.stream.JsonReader;
-import net.fabricmc.loader.api.FabricLoader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import net.fabricmc.loader.api.FabricLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Именованные макросы: один файл .json на макрос в config/farmmacro_macros/.
@@ -31,9 +31,10 @@ import java.util.stream.Stream;
 public class MacroStorage {
 
     public static final MacroStorage INSTANCE = new MacroStorage();
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Storage");
+    private static final Logger LOGGER = LoggerFactory.getLogger("Kaelix/Storage");
     private static final Gson GSON = new GsonBuilder().create();
-    public static final Path MACRO_DIR = FabricLoader.getInstance().getConfigDir().resolve("farmmacro_macros");
+    public static final Path MACRO_DIR =
+            FabricLoader.getInstance().getConfigDir().resolve("farmmacro_macros");
 
     public static final int VERSION = 5;
 
@@ -44,7 +45,8 @@ public class MacroStorage {
         public int frameCount;
         public MacroSettings settings;
         /** Только чтение файлов v3; новые файлы это поле не пишут (null). */
-        public com.farmmacro.camera.CameraBinding camera;
+        public CameraBinding camera;
+
         public List<MacroFrame> frames;
 
         /** После чтения: перенос старого поля camera, проверка значений. */
@@ -75,7 +77,7 @@ public class MacroStorage {
         if (safe.isEmpty()) return null;
         try {
             return MACRO_DIR.resolve(safe + ".json");
-        } catch (java.nio.file.InvalidPathException e) {
+        } catch (InvalidPathException e) {
             return MACRO_DIR.resolve("macro_" + Integer.toHexString(name.trim().hashCode()) + ".json");
         }
     }
@@ -109,11 +111,7 @@ public class MacroStorage {
             m.settings = settings == null ? new MacroSettings() : settings.copy();
             m.settings.refresh();
             m.camera = null;
-            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-            try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
-                GSON.toJson(m, w);
-            }
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            AtomicFiles.writeUtf8(file, w -> GSON.toJson(m, w));
             LOGGER.info("Сохранён макрос «{}» ({} кадров) -> {}", m.name, m.frameCount, file.getFileName());
             return true;
         } catch (Exception e) {
@@ -128,7 +126,8 @@ public class MacroStorage {
         List<MacroInfo> result = new ArrayList<>();
         if (!Files.isDirectory(MACRO_DIR)) return result;
         try (Stream<Path> s = Files.list(MACRO_DIR)) {
-            for (Path f : (Iterable<Path>) s.filter(p -> p.getFileName().toString().endsWith(".json"))::iterator) {
+            for (Path f :
+                    (Iterable<Path>) s.filter(p -> p.getFileName().toString().endsWith(".json"))::iterator) {
                 String fn = f.getFileName().toString();
                 long mod = Files.getLastModifiedTime(f).toMillis();
                 MacroInfo cached = infoCache.get(fn);
@@ -157,11 +156,15 @@ public class MacroStorage {
                     case "name" -> name = r.nextString();
                     case "frameCount" -> count = r.nextInt();
                     case "frames" -> {
-                        if (count >= 0 && name != null) { r.skipValue(); }
-                        else {
+                        if (count >= 0 && name != null) {
+                            r.skipValue();
+                        } else {
                             int n = 0;
                             r.beginArray();
-                            while (r.hasNext()) { r.skipValue(); n++; }
+                            while (r.hasNext()) {
+                                r.skipValue();
+                                n++;
+                            }
                             r.endArray();
                             count = n;
                         }
@@ -187,7 +190,8 @@ public class MacroStorage {
         try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             SavedMacro m = GSON.fromJson(r, SavedMacro.class);
             if (m != null && m.frames != null && !m.frames.isEmpty()) {
-                if (m.version > VERSION) LOGGER.warn("Макрос {} новее мода (версия {}), читаю что понимаю", filename, m.version);
+                if (m.version > VERSION)
+                    LOGGER.warn("Макрос {} новее мода (версия {}), читаю что понимаю", filename, m.version);
                 m.sanitize();
                 return m;
             }

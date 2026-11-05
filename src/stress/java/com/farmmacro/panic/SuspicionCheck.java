@@ -46,7 +46,7 @@ public final class SuspicionCheck {
         check(r.indexOf("лаг-откат") < r.indexOf("толчок"), "сортировка по вкладу: " + r);
 
         s.reset();
-        for (int i = 0; i < 200; i++) {                       // раз в минуту по 2 — сумма ~4, не 10
+        for (int i = 0; i < 200; i++) { // раз в минуту по 2 — сумма ~4, не 10
             s.add("лаг-откат", "", 2, i * 60_000L, hl);
             check(s.reasonIfOver(i * 60_000L, hl, 10) == null, "редкие события не копятся до паники");
         }
@@ -80,7 +80,14 @@ public final class SuspicionCheck {
         check(Files.exists(dir.resolve("events-2026-05-01.1.log")), "имя архива");
         // строка длиннее лимита не зацикливает
         w.write(List.of("x".repeat(5000), "y"), d);
-        try (var st = Files.list(dir)) { st.forEach(p -> { try { Files.delete(p); } catch (Exception ignored) {} }); }
+        try (var st = Files.list(dir)) {
+            st.forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (Exception ignored) {
+                }
+            });
+        }
         Files.delete(dir);
         System.out.println("SuspicionCheck OK (files=" + files + ", bytes=" + total + ")");
     }

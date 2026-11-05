@@ -18,8 +18,11 @@ public class MouseLockMixin {
     @Inject(method = "turnPlayer", at = @At("HEAD"), cancellable = true)
     private void farmmacro$mouseLock(double movementTime, CallbackInfo ci) {
         boolean block;
-        try { block = MouseLock.shouldBlock(); }
-        catch (Throwable t) { block = false; }
+        try {
+            block = MouseLock.shouldBlock();
+        } catch (Throwable t) {
+            block = false;
+        }
         if (block) ci.cancel();
     }
 }

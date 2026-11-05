@@ -1,7 +1,6 @@
 package com.farmmacro.camera;
 
 import com.farmmacro.config.ModConfig.CamPreset;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -19,11 +18,20 @@ public final class CropPresets {
 
     /** Культуры для выбора в пресете и в «Запуск → Культура». Старые id (wart, cane, cocoa …) сохранены. */
     public static final List<Crop> CROPS = List.of(
-            new Crop("wart", "Nether Wart"), new Crop("wheat", "Wheat"), new Crop("potato", "Potato"),
-            new Crop("carrot", "Carrot"), new Crop("melon", "Melon"), new Crop("pumpkin", "Pumpkin"),
-            new Crop("moonflower", "Moonflower"), new Crop("cane", "Sugar Cane"), new Crop("wild_rose", "Wild Rose"),
-            new Crop("sunflower", "Sunflower"), new Crop("mushroom", "Mushroom"), new Crop("cactus", "Cactus"),
-            new Crop("cocoa", "Cocoa Beans"), new Crop("other", "Другое"));
+            new Crop("wart", "Nether Wart"),
+            new Crop("wheat", "Wheat"),
+            new Crop("potato", "Potato"),
+            new Crop("carrot", "Carrot"),
+            new Crop("melon", "Melon"),
+            new Crop("pumpkin", "Pumpkin"),
+            new Crop("moonflower", "Moonflower"),
+            new Crop("cane", "Sugar Cane"),
+            new Crop("wild_rose", "Wild Rose"),
+            new Crop("sunflower", "Sunflower"),
+            new Crop("mushroom", "Mushroom"),
+            new Crop("cactus", "Cactus"),
+            new Crop("cocoa", "Cocoa Beans"),
+            new Crop("other", "Другое"));
 
     public static final String OTHER = "other";
     /** «Запуск → Культура»: не применять пресет при старте. */
@@ -36,7 +44,11 @@ public final class CropPresets {
             new Std("Nether Wart / Wheat", "wart", 135f, 0f, List.of("wart", "wheat")),
             new Std("Potato / Carrot", "potato", 135f, 5f, List.of("potato", "carrot")),
             new Std("Melon / Pumpkin", "melon", 135f, -40f, List.of("melon", "pumpkin")),
-            new Std("Moonflower / Sugar Cane / Wild Rose / Sunflower", "moonflower", 135f, 0f,
+            new Std(
+                    "Moonflower / Sugar Cane / Wild Rose / Sunflower",
+                    "moonflower",
+                    135f,
+                    0f,
                     List.of("moonflower", "cane", "wild_rose", "sunflower")),
             new Std("Mushroom", "mushroom", 165f, 0f, List.of("mushroom")),
             new Std("Cactus", "cactus", -157.9f, -17.4f, List.of("cactus")),
@@ -66,8 +78,8 @@ public final class CropPresets {
     /** Yaw: −180…180, шаг 0.1° (как в F3: 270 → −90). */
     public static float yaw(float v) {
         if (!Float.isFinite(v)) return 0f;
-        double w = ((v % 360.0) + 360.0) % 360.0;          // 0…360
-        if (w > 180.0) w -= 360.0;                           // −180…180
+        double w = ((v % 360.0) + 360.0) % 360.0; // 0…360
+        if (w > 180.0) w -= 360.0; // −180…180
         float r = round1((float) w);
         return r < -180f ? -180f : r > 180f ? 180f : r;
     }
@@ -113,7 +125,11 @@ public final class CropPresets {
         List<CamPreset> out = new ArrayList<>();
         for (Std s : STANDARD) {
             int id = -1;
-            for (CamPreset p : old) if (p.name != null && p.name.strip().equalsIgnoreCase(s.name())) { id = p.id; break; }
+            for (CamPreset p : old)
+                if (p.name != null && p.name.strip().equalsIgnoreCase(s.name())) {
+                    id = p.id;
+                    break;
+                }
             out.add(make(s, id > 0 ? id : nextId.getAsInt()));
         }
         return out;

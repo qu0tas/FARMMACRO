@@ -1,7 +1,7 @@
 package com.farmmacro.route;
 
+import com.farmmacro.camera.CameraBinding;
 import com.farmmacro.macro.MacroSettings;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,22 +17,26 @@ import java.util.List;
 public class PointRoute {
     public static final int VERSION = 7;
 
-    public int    version = VERSION;
+    public int version = VERSION;
     public String name;
     /** Где строился: адрес сервера или «singleplayer:&lt;мир&gt;» (только для подписи и предупреждения). */
     public String world;
     /** Измерение, например minecraft:overworld. */
     public String dimension;
-    public long   createdAt;
+
+    public long createdAt;
     public List<RoutePoint> points = new ArrayList<>();
     /** Настройки маршрута (камера: from — индекс точки). */
     public MacroSettings settings = new MacroSettings();
     /** Только чтение файлов v2; после {@link #sanitize()} и в новых файлах — null. */
-    public com.farmmacro.camera.CameraBinding camera;
+    public CameraBinding camera;
 
     public PointRoute copy() {
         PointRoute r = new PointRoute();
-        r.version = version; r.name = name; r.world = world; r.dimension = dimension;
+        r.version = version;
+        r.name = name;
+        r.world = world;
+        r.dimension = dimension;
         r.createdAt = createdAt;
         for (RoutePoint p : points) r.points.add(p.copy());
         r.settings = settings == null ? new MacroSettings() : settings.copy();

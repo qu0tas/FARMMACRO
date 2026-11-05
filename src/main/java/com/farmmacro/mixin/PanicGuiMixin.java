@@ -1,6 +1,8 @@
 package com.farmmacro.mixin;
 
+import com.farmmacro.macro.MouseHold;
 import com.farmmacro.panic.PanicDetector;
+import com.farmmacro.util.Guard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import org.jetbrains.annotations.Nullable;
@@ -15,7 +17,7 @@ public class PanicGuiMixin {
 
     @Inject(method = "setScreen", at = @At("HEAD"))
     private void farmmacro$onSetScreen(@Nullable Screen screen, CallbackInfo ci) {
-        com.farmmacro.util.Guard.run("hold/screen", () -> com.farmmacro.macro.MouseHold.INSTANCE.onScreenOpening(screen));
+        Guard.run("hold/screen", () -> MouseHold.INSTANCE.onScreenOpening(screen));
         PanicDetector.INSTANCE.onScreenOpening(screen);
     }
 }

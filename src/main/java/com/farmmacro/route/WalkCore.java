@@ -36,9 +36,17 @@ public final class WalkCore {
     private FarmSchemeSettings farm;
     private int target, seg = -1, pauseLeft, jumpTicks;
     private boolean finishPause;
-    private int actionPoint=-1,actionHandled=-1;
-    public int actionPoint(){return actionPoint;}
-    public void completeAction(){actionHandled=actionPoint;actionPoint=-1;}
+    private int actionPoint = -1, actionHandled = -1;
+
+    public int actionPoint() {
+        return actionPoint;
+    }
+
+    public void completeAction() {
+        actionHandled = actionPoint;
+        actionPoint = -1;
+    }
+
     private boolean done, pausingNow;
 
     // ── спуск ──
@@ -47,29 +55,46 @@ public final class WalkCore {
     public static final int DROP_EDGE_MAX = 40, DROP_AIR_MAX = 200;
     /** «Не тот этаж»: допуск по высоте падения; «нет пути»: Δy до точки и сколько тиков подряд. */
     public static final double FLOOR_TOL = 0.6, OTHER_FLOOR_DY = 1.6;
+
     public static final int OTHER_FLOOR_TICKS = 3;
     private int dropPhase, dropTicks, landLeft, floorTicks;
     private double dropDx, dropDz, dropFromY;
     /** Начало текущего отрезка — место приземления после спуска (вместо предыдущей точки). */
     private boolean hasStart;
+
     private double startX, startZ;
     /** Радиус достижения по точкам («Случайность»); null — общий из настроек. */
     private double[] reach;
-    public void setReach(double[] r) { reach = r; }
+
+    public void setReach(double[] r) {
+        reach = r;
+    }
 
     /** Внешняя остановка («Случайность»: встать посреди пути, заминка): тиков без клавиш, «Застрял» не считается. */
     private int extPause;
+
     private boolean extNow;
-    public void pauseExternal(int ticks) { if (ticks > 0 && !done) extPause = Math.max(extPause, ticks); }
+
+    public void pauseExternal(int ticks) {
+        if (ticks > 0 && !done) extPause = Math.max(extPause, ticks);
+    }
     /** Сколько ещё стоять по внешней остановке. */
-    public int externalPause() { return extPause; }
+    public int externalPause() {
+        return extPause;
+    }
     /** В этот тик стояли по внешней остановке. */
-    public boolean stoppedNow() { return extNow; }
+    public boolean stoppedNow() {
+        return extNow;
+    }
     /** Окно «Застрял» — заново (игрок стоял не по вине препятствия: «Случайность» отпустила клавиши). */
-    public void resetStuckWindow() { resetStuck(hx.length - 1); }
+    public void resetStuckWindow() {
+        resetStuck(hx.length - 1);
+    }
 
     /** Стоим на паузе точки / после приземления (в этот тик). */
-    public boolean pausing() { return pausingNow; }
+    public boolean pausing() {
+        return pausingNow;
+    }
 
     /** Последнее событие спуска (для симуляции/логов): высота падения последнего приземления. */
     private double lastFall = Double.NaN;
@@ -80,28 +105,64 @@ public final class WalkCore {
     private double expectSum;
 
     public void start(PointRoute route, int index, int stuckTicks) {
-        pts = route.points; actionPoint=actionHandled=-1;
-        farm=route.settings!=null&&route.settings.farm!=null&&route.settings.farm.enabled?route.settings.farm.copy():null;
+        pts = route.points;
+        actionPoint = actionHandled = -1;
+        farm = route.settings != null && route.settings.farm != null && route.settings.farm.enabled
+                ? route.settings.farm.copy()
+                : null;
         target = Math.max(0, Math.min(pts.size() - 1, index));
         seg = target - 1;
-        pauseLeft = 0; jumpTicks = 0; done = false; finishPause=false;
-        dropPhase = D_NONE; dropTicks = 0; landLeft = 0; floorTicks = 0; hasStart = false; lastFall = Double.NaN;
+        pauseLeft = 0;
+        jumpTicks = 0;
+        done = false;
+        finishPause = false;
+        dropPhase = D_NONE;
+        dropTicks = 0;
+        landLeft = 0;
+        floorTicks = 0;
+        hasStart = false;
+        lastFall = Double.NaN;
         reach = null;
-        extPause = 0; extNow = false;
+        extPause = 0;
+        extNow = false;
         resetStuck(stuckTicks);
     }
 
-    public int dropPhase()   { return dropPhase; }
-    public double lastFall() { return lastFall; }
+    public int dropPhase() {
+        return dropPhase;
+    }
 
-    public boolean done()   { return done; }
-    public int target()     { return target; }
-    public int segment()    { return seg; }
-    public List<RoutePoint> points() { return pts; }
+    public double lastFall() {
+        return lastFall;
+    }
+
+    public boolean done() {
+        return done;
+    }
+
+    public int target() {
+        return target;
+    }
+
+    public int segment() {
+        return seg;
+    }
+
+    public List<RoutePoint> points() {
+        return pts;
+    }
 
     /** Старая сигнатура без высоты (Y неизвестен: этажи не проверяются, спуск — по отрыву от земли не отслеживается). */
-    public Out tick(double x, double z, float curYaw, double reachRadius,
-                    boolean stuck, int stuckTicks, boolean drift, double driftMax, Out out) {
+    public Out tick(
+            double x,
+            double z,
+            float curYaw,
+            double reachRadius,
+            boolean stuck,
+            int stuckTicks,
+            boolean drift,
+            double driftMax,
+            Out out) {
         return tick(x, Double.NaN, z, true, curYaw, reachRadius, stuck, stuckTicks, drift, driftMax, false, out);
     }
 
@@ -111,30 +172,63 @@ public final class WalkCore {
      * @param onGround стоит ли игрок на земле
      * @param stuck/drift/floor — включены ли детекторы (и паника вообще); floor — «Не тот этаж» / «Нет пути»
      */
-    public Out tick(double x, double y, double z, boolean onGround, float curYaw, double reachRadius,
-                    boolean stuck, int stuckTicks, boolean drift, double driftMax, boolean floor, Out out) {
+    public Out tick(
+            double x,
+            double y,
+            double z,
+            boolean onGround,
+            float curYaw,
+            double reachRadius,
+            boolean stuck,
+            int stuckTicks,
+            boolean drift,
+            double driftMax,
+            boolean floor,
+            Out out) {
         out.forward = out.back = out.left = out.right = false;
         out.sprint = out.sneak = out.attack = out.use = out.jump = false;
-        out.slot = -1; out.panic = null;
-        if (done || pts.isEmpty()) { done = true; return out; }
-        if(finishPause) {
-            pausingNow=pauseLeft>0;
-            if(pauseLeft>0) pauseLeft--;
-            if(pauseLeft<=0) { finishPause=false;done=true; }
+        out.slot = -1;
+        out.panic = null;
+        if (done || pts.isEmpty()) {
+            done = true;
+            return out;
+        }
+        if (finishPause) {
+            pausingNow = pauseLeft > 0;
+            if (pauseLeft > 0) pauseLeft--;
+            if (pauseLeft <= 0) {
+                finishPause = false;
+                done = true;
+            }
             return out;
         }
         boolean knowY = !Double.isNaN(y);
-        currentGrounded=onGround;
+        currentGrounded = onGround;
 
         RoutePoint t = pts.get(target);
         double rr = reach != null && target < reach.length ? reach[target] : reachRadius;
-        if(actionPoint>=0){pausingNow=true;resetStuck(stuckTicks);return out;}
-        if(pauseLeft==0&&dropPhase==D_NONE&&actionHandled!=target&&t.pointAction!=null&&t.pointAction.active()&&reached(x,y,z,t,rr,floor&&knowY)){actionPoint=target;pausingNow=true;resetStuck(stuckTicks);return out;}
+        if (actionPoint >= 0) {
+            pausingNow = true;
+            resetStuck(stuckTicks);
+            return out;
+        }
+        if (pauseLeft == 0
+                && dropPhase == D_NONE
+                && actionHandled != target
+                && t.pointAction != null
+                && t.pointAction.active()
+                && reached(x, y, z, t, rr, floor && knowY)) {
+            actionPoint = target;
+            pausingNow = true;
+            resetStuck(stuckTicks);
+            return out;
+        }
         if (pauseLeft == 0 && dropPhase == D_NONE && reached(x, y, z, t, rr, floor && knowY)) {
             RoutePoint q = pts.get(target);
             seg = target;
-            pauseLeft = q.pauseTicks + (q.drop ? q.beforeDropTicks : 0)
-                + (farm!=null&&q.farmTurn&&!farm.fastSwitch?farm.switchPauseTicks:0);
+            pauseLeft = q.pauseTicks
+                    + (q.drop ? q.beforeDropTicks : 0)
+                    + (farm != null && q.farmTurn && !farm.fastSwitch ? farm.switchPauseTicks : 0);
             jumpTicks = q.jump ? 2 : 0;
             resetStuck(stuckTicks);
             floorTicks = 0;
@@ -142,16 +236,24 @@ public final class WalkCore {
                 double px = hasStart ? startX : target > 0 ? pts.get(target - 1).x : x;
                 double pz = hasStart ? startZ : target > 0 ? pts.get(target - 1).z : z;
                 double[] d = q.dropVector(px, pz, hasStart || target > 0, pts.get(target + 1));
-                dropDx = d[0]; dropDz = d[1];
-                dropPhase = D_EDGE; dropTicks = 0; landLeft = 0;
+                dropDx = d[0];
+                dropDz = d[1];
+                dropPhase = D_EDGE;
+                dropTicks = 0;
+                landLeft = 0;
                 dropFromY = knowY ? y : q.y;
             }
             hasStart = false;
             target++;
             if (target >= pts.size()) {
-                target = pts.size() - 1; dropPhase = D_NONE;
-                finishPause=pauseLeft>0; done=!finishPause;
-                if(finishPause) { pauseLeft--; pausingNow=true; }
+                target = pts.size() - 1;
+                dropPhase = D_NONE;
+                finishPause = pauseLeft > 0;
+                done = !finishPause;
+                if (finishPause) {
+                    pauseLeft--;
+                    pausingNow = true;
+                }
                 return out;
             }
             t = pts.get(target);
@@ -160,20 +262,28 @@ public final class WalkCore {
 
         boolean ext = extPause > 0 && dropPhase == D_NONE;
         boolean pausing;
-        if (ext) { extPause--; pausing = true; }
-        else { pausing = pauseLeft > 0; if (pausing) pauseLeft--; }
+        if (ext) {
+            extPause--;
+            pausing = true;
+        } else {
+            pausing = pauseLeft > 0;
+            if (pausing) pauseLeft--;
+        }
         extNow = ext;
         boolean dropping = !pausing && dropPhase != D_NONE;
         pausingNow = pausing || (dropping && dropPhase == D_LAND);
         if (dropping) {
             String p = tickDrop(x, y, z, onGround, curYaw, s, (floor || requireHeight) && knowY, out);
-            if (p != null) { out.panic = p; return out; }
+            if (p != null) {
+                out.panic = p;
+                return out;
+            }
         } else if (!pausing) {
             steer(x, z, t, curYaw, out);
         }
         boolean moving = out.forward || out.back || out.left || out.right;
         boolean inDrop = dropPhase == D_EDGE || dropPhase == D_AIR;
-        out.sneak = s != null && s.sneak && !inDrop;           // присед не даёт упасть с края
+        out.sneak = s != null && s.sneak && !inDrop; // присед не даёт упасть с края
         out.sprint = out.forward && !out.back && s != null && s.sprint && !out.sneak && !inDrop;
         out.attack = s != null && s.attack();
         out.use = s != null && s.use();
@@ -186,8 +296,12 @@ public final class WalkCore {
         if (floor && knowY && dropPhase == D_NONE && !pausing) {
             if (otherFloor && onGround) {
                 if (++floorTicks >= OTHER_FLOOR_TICKS) {
-                    out.panic = String.format(Locale.ROOT, "Нет пути: точка %d на другом этаже (Δy %.1f бл)%s",
-                            target + 1, t.y - y, target > 0 ? " — отметь «Спуск» у точки " + target : "");
+                    out.panic = String.format(
+                            Locale.ROOT,
+                            "Нет пути: точка %d на другом этаже (Δy %.1f бл)%s",
+                            target + 1,
+                            t.y - y,
+                            target > 0 ? " — отметь «Спуск» у точки " + target : "");
                     return out;
                 }
             } else floorTicks = 0;
@@ -199,9 +313,13 @@ public final class WalkCore {
                 if (push(x, z, exp, stuckTicks)) {
                     double moved = Math.hypot(x - hx[head], z - hz[head]);
                     if (expectSum >= 1.0 && moved < Math.min(0.3, expectSum * 0.15)) {
-                        out.panic = String.format(Locale.ROOT,
+                        out.panic = String.format(
+                                Locale.ROOT,
                                 "Застрял: к точке %d за %.1f с должен был пройти %.1f бл, прошёл %.2f",
-                                target + 1, stuckTicks / 20.0, expectSum, moved);
+                                target + 1,
+                                stuckTicks / 20.0,
+                                expectSum,
+                                moved);
                         return out;
                     }
                 }
@@ -212,39 +330,57 @@ public final class WalkCore {
         if (drift && target > 0 && dropPhase == D_NONE) {
             double ax = segStartX(), az = segStartZ();
             double d = RouteBuffer.distToSegmentXZ(x, z, ax, az, t.x, t.z);
-            if (d > driftMax) out.panic = String.format(Locale.ROOT,
-                    "Сошёл с маршрута на %.1f бл (отрезок %d → %d)", d, target, target + 1);
+            if (d > driftMax)
+                out.panic = String.format(
+                        Locale.ROOT, "Сошёл с маршрута на %.1f бл (отрезок %d → %d)", d, target, target + 1);
         }
         return out;
     }
 
     /** Фазы спуска. @return причина паники или null */
-    private String tickDrop(double x, double y, double z, boolean onGround, float yaw, RoutePoint q, boolean floor, Out out) {
-        int n = seg + 1;                                       // номер точки-спуска для сообщений
+    private String tickDrop(
+            double x, double y, double z, boolean onGround, float yaw, RoutePoint q, boolean floor, Out out) {
+        int n = seg + 1; // номер точки-спуска для сообщений
         boolean knowY = !Double.isNaN(y);
         switch (dropPhase) {
             case D_EDGE -> {
                 keysFor(dropDx, dropDz, yaw, out);
                 dropTicks++;
                 boolean falling = knowY ? !onGround && y < dropFromY - 0.2 : !onGround;
-                if (falling) { dropPhase = D_AIR; dropTicks = 0; }
-                else if (dropTicks > DROP_EDGE_MAX) {
-                    if (floor) return String.format(Locale.ROOT, "Спуск у точки %d: не упал за %.1f с (нет обрыва по направлению?)",
-                            n, DROP_EDGE_MAX / 20.0);
-                    land(x, z, q);                             // без проверки этажей — просто идём дальше
+                if (falling) {
+                    dropPhase = D_AIR;
+                    dropTicks = 0;
+                } else if (dropTicks > DROP_EDGE_MAX) {
+                    if (floor)
+                        return String.format(
+                                Locale.ROOT,
+                                "Спуск у точки %d: не упал за %.1f с (нет обрыва по направлению?)",
+                                n,
+                                DROP_EDGE_MAX / 20.0);
+                    land(x, z, q); // без проверки этажей — просто идём дальше
                 }
             }
             case D_AIR -> {
                 dropTicks++;
-                if (!onGround && q != null && (q.airHold || dropTicks <= q.edgeReleaseTicks)) keysFor(dropDx, dropDz, yaw, out);
+                if (!onGround && q != null && (q.airHold || dropTicks <= q.edgeReleaseTicks))
+                    keysFor(dropDx, dropDz, yaw, out);
                 if (onGround) {
                     double fell = knowY ? dropFromY - y : Double.NaN;
                     lastFall = fell;
                     if (floor && !Double.isNaN(fell)) {
-                        if (fell < (requireHeight && q != null && q.dropDepth > 0 ? Math.min(FLOOR_GAP_MIN, Math.max(.1, q.dropDepth - FLOOR_TOL)) : FLOOR_GAP_MIN))
-                            return String.format(Locale.ROOT, "Не тот этаж: после спуска у точки %d упал всего на %.1f бл", n, fell);
+                        if (fell
+                                < (requireHeight && q != null && q.dropDepth > 0
+                                        ? Math.min(FLOOR_GAP_MIN, Math.max(.1, q.dropDepth - FLOOR_TOL))
+                                        : FLOOR_GAP_MIN))
+                            return String.format(
+                                    Locale.ROOT, "Не тот этаж: после спуска у точки %d упал всего на %.1f бл", n, fell);
                         if (q != null && q.dropDepth > 0 && Math.abs(fell - q.dropDepth) > FLOOR_TOL)
-                            return String.format(Locale.ROOT, "Не тот этаж: упал на %.1f бл, ждали %.1f (точка %d)", fell, q.dropDepth, n);
+                            return String.format(
+                                    Locale.ROOT,
+                                    "Не тот этаж: упал на %.1f бл, ждали %.1f (точка %d)",
+                                    fell,
+                                    q.dropDepth,
+                                    n);
                     }
                     land(x, z, q);
                 } else if (dropTicks > DROP_AIR_MAX && floor) {
@@ -264,30 +400,41 @@ public final class WalkCore {
     public static final double FLOOR_GAP_MIN = 0.6;
 
     private void land(double x, double z, RoutePoint q) {
-        hasStart = true; startX = x; startZ = z;
+        hasStart = true;
+        startX = x;
+        startZ = z;
         landLeft = q != null ? q.landPauseTicks : 0;
         dropPhase = landLeft > 0 ? D_LAND : D_NONE;
         dropTicks = 0;
     }
 
-    private double segStartX() { return hasStart ? startX : pts.get(target - 1).x; }
-    private double segStartZ() { return hasStart ? startZ : pts.get(target - 1).z; }
+    private double segStartX() {
+        return hasStart ? startX : pts.get(target - 1).x;
+    }
+
+    private double segStartZ() {
+        return hasStart ? startZ : pts.get(target - 1).z;
+    }
 
     /** Последний reached(): по XZ дошли, но точка на другом этаже. */
     private boolean otherFloor;
     /** Navigation-only height completion; precision playback keeps its existing policy. */
     public boolean requireHeight;
+
     public boolean navigationFlying;
-    public static final double NAV_GROUND_HEIGHT_TOL=.2;
+    public static final double NAV_GROUND_HEIGHT_TOL = .2;
     private boolean currentGrounded;
 
     /** В радиусе по XZ или уже проскочили точку по ходу отрезка (не дальше 0.6 бл вбок); с floor — и на том же этаже. */
     private boolean reached(double x, double y, double z, RoutePoint t, double r, boolean floor) {
         otherFloor = false;
         boolean xz = reachedXZ(x, z, t, r);
-        if(requireHeight && !t.fly && !t.climb && !currentGrounded && !navigationFlying)return false;
-        double heightTolerance=requireHeight?(!t.fly&&!t.climb?NAV_GROUND_HEIGHT_TOL:.6):OTHER_FLOOR_DY;
-        if (xz && (floor || requireHeight) && Double.isFinite(y) && Math.abs(y - t.y) > heightTolerance) { otherFloor = true; return false; }
+        if (requireHeight && !t.fly && !t.climb && !currentGrounded && !navigationFlying) return false;
+        double heightTolerance = requireHeight ? (!t.fly && !t.climb ? NAV_GROUND_HEIGHT_TOL : .6) : OTHER_FLOOR_DY;
+        if (xz && (floor || requireHeight) && Double.isFinite(y) && Math.abs(y - t.y) > heightTolerance) {
+            otherFloor = true;
+            return false;
+        }
         return xz;
     }
 
@@ -298,7 +445,8 @@ public final class WalkCore {
         double ax = segStartX(), az = segStartZ();
         double vx = t.x - ax, vz = t.z - az, len = Math.hypot(vx, vz);
         if (len < 1e-6) return true;
-        vx /= len; vz /= len;
+        vx /= len;
+        vz /= len;
         return dx * vx + dz * vz > 0 && Math.abs(dx * vz - dz * vx) < 0.6;
     }
 
@@ -338,13 +486,16 @@ public final class WalkCore {
         double ax = hasA ? segStartX() : 0, az = hasA ? segStartZ() : 0;
         double ux = hasA ? t.x - ax : 0, uz = hasA ? t.z - az : 0, len = Math.hypot(ux, uz);
         if (!hasA || len < 1e-6) {
-            dx = t.x - x; dz = t.z - z;
+            dx = t.x - x;
+            dz = t.z - z;
         } else {
-            ux /= len; uz /= len;
+            ux /= len;
+            uz /= len;
             // смещение от линии вдоль нормали n = (uz, −ux); поправка — против нормали, не больше 45°
             double side = (x - ax) * uz - (z - az) * ux;
             double k = Math.max(-1, Math.min(1, side * LINE_GAIN));
-            dx = ux - k * uz; dz = uz + k * ux;
+            dx = ux - k * uz;
+            dz = uz + k * ux;
         }
         keysFor(dx, dz, yaw, out);
     }
@@ -371,7 +522,11 @@ public final class WalkCore {
         boolean wasForward = out.forward;
         boolean hadKeys = out.forward || out.back || out.left || out.right;
         out.forward = out.back = out.left = out.right = false;
-        if (dropPhase == D_EDGE || (dropPhase == D_AIR && hadKeys)) { keysFor(dropDx, dropDz, yaw, out); out.sprint = false; return; }
+        if (dropPhase == D_EDGE || (dropPhase == D_AIR && hadKeys)) {
+            keysFor(dropDx, dropDz, yaw, out);
+            out.sprint = false;
+            return;
+        }
         if (dropPhase != D_NONE) return;
         steer(x, z, pts.get(target), yaw, out);
         if (!out.forward || out.back) out.sprint = false;
@@ -386,7 +541,7 @@ public final class WalkCore {
         double f = (o.forward ? 1 : 0) - (o.back ? 1 : 0), l = (o.left ? 1 : 0) - (o.right ? 1 : 0);
         double r = Math.toRadians(yaw), sin = Math.sin(r), cos = Math.cos(r);
         double x = -sin * f + cos * l, z = cos * f + sin * l, n = Math.hypot(x, z);
-        return n < 1e-9 ? new double[]{0, 0} : new double[]{x / n, z / n};
+        return n < 1e-9 ? new double[] {0, 0} : new double[] {x / n, z / n};
     }
 
     /** Yaw Minecraft (0 — на +Z, 90 — на −X) от (x, z) к (tx, tz). */
@@ -402,8 +557,14 @@ public final class WalkCore {
     }
 
     private void resetStuck(int n) {
-        if (hx.length != n + 1) { hx = new double[n + 1]; hz = new double[n + 1]; he = new double[n + 1]; }
-        hn = 0; head = 0; expectSum = 0;
+        if (hx.length != n + 1) {
+            hx = new double[n + 1];
+            hz = new double[n + 1];
+            he = new double[n + 1];
+        }
+        hn = 0;
+        head = 0;
+        expectSum = 0;
     }
 
     /** @return true, когда окно заполнено (head — позиция n тиков назад) */
@@ -412,13 +573,17 @@ public final class WalkCore {
         int cap = n + 1;
         if (hn < cap) {
             int i = (head + hn) % cap;
-            hx[i] = x; hz[i] = z; he[i] = e;
+            hx[i] = x;
+            hz[i] = z;
+            he[i] = e;
             if (hn > 0) expectSum += e;
             return ++hn == cap;
         }
         int next = (head + 1) % cap;
         expectSum -= he[next];
-        hx[head] = x; hz[head] = z; he[head] = e;
+        hx[head] = x;
+        hz[head] = z;
+        he[head] = e;
         head = next;
         expectSum += e;
         return true;

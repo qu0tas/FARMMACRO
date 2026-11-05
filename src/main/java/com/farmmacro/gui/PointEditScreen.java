@@ -2,19 +2,24 @@ package com.farmmacro.gui;
 
 import com.farmmacro.route.RouteBuffer;
 import com.farmmacro.route.RoutePoint;
+import com.farmmacro.route.RouteRandomSettings;
+import com.farmmacro.route.Terrain;
+import com.farmmacro.route.TerrainLevel;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 
 /**
  * Параметры точки маршрута (Shift+ПКМ по точке в редакторе): действие на отрезке до следующей точки,
@@ -30,14 +35,16 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
 
     private static final List<Rows.Choice> DROP_DIRS = List.of(
             new Rows.Choice(RoutePoint.DIR_AUTO, "По ходу"),
-            new Rows.Choice("+x", "+X (восток)"), new Rows.Choice("-x", "−X (запад)"),
-            new Rows.Choice("+z", "+Z (юг)"), new Rows.Choice("-z", "−Z (север)"));
+            new Rows.Choice("+x", "+X (восток)"),
+            new Rows.Choice("-x", "−X (запад)"),
+            new Rows.Choice("+z", "+Z (юг)"),
+            new Rows.Choice("-z", "−Z (север)"));
 
     private final Screen parent;
     private final int index;
     private final List<Rows.Row> rows = new ArrayList<>();
     private double scroll;
-    private final DragWindow dragWindow=new DragWindow();
+    private final DragWindow dragWindow = new DragWindow();
     private boolean modified;
     private String tooltip;
     private boolean wantHand;
@@ -48,16 +55,41 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
         this.index = index;
     }
 
-    private RoutePoint pt() { return RouteBuffer.INSTANCE.get(index); }
+    private RoutePoint pt() {
+        return RouteBuffer.INSTANCE.get(index);
+    }
 
-    private int wW() { return Math.min(320, width - 16); }
-    private int wH() { return Math.min(300, height - 16); }
-    private int wX() { return dragWindow.x(width,wW()); }
-    private int wY() { return dragWindow.y(height,wH()); }
-    private int cX() { return wX() + 10; }
-    private int cY() { return wY() + 30; }
-    private int cW() { return wW() - 20; }
-    private int cH() { return wH() - 38; }
+    private int wW() {
+        return Math.min(320, width - 16);
+    }
+
+    private int wH() {
+        return Math.min(300, height - 16);
+    }
+
+    private int wX() {
+        return dragWindow.x(width, wW());
+    }
+
+    private int wY() {
+        return dragWindow.y(height, wH());
+    }
+
+    private int cX() {
+        return wX() + 10;
+    }
+
+    private int cY() {
+        return wY() + 30;
+    }
+
+    private int cW() {
+        return wW() - 20;
+    }
+
+    private int cH() {
+        return wH() - 38;
+    }
 
     @Override
     protected void init() {
@@ -67,103 +99,279 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
         }
     }
 
-    private void changed() { modified = true; RouteBuffer.INSTANCE.changed(); }
+    private void changed() {
+        modified = true;
+        RouteBuffer.INSTANCE.changed();
+    }
 
     /** Пересчитать глубину спуска по миру (после смены флага/направления/смещения). */
     private void dropChanged() {
         RoutePoint p = pt();
         if (p == null) return;
         if (p.drop && minecraft != null && minecraft.level != null)
-            com.farmmacro.route.Terrain.fillDepth(new com.farmmacro.route.TerrainLevel(minecraft.level), RouteBuffer.INSTANCE.points(), index);
+            Terrain.fillDepth(new TerrainLevel(minecraft.level), RouteBuffer.INSTANCE.points(), index);
         else if (!p.drop) p.dropDepth = 0;
         changed();
     }
 
     /** Сколько выделенных точек, кроме этой. */
-    private int others(List<Integer> sel) { int n = 0; for (int i : sel) if (i != index) n++; return n; }
+    private int others(List<Integer> sel) {
+        int n = 0;
+        for (int i : sel) if (i != index) n++;
+        return n;
+    }
 
     /** Смещение этой точки — точкам which (внутри уже открытого снимка окна, одно действие для Ctrl+Z). */
     private void applyOffset(List<Integer> which) {
         RoutePoint p = pt();
         if (p == null) return;
-        for (int i : which) { RoutePoint q = RouteBuffer.INSTANCE.get(i); if (q != null) q.setOffset(p.ox, p.oz); }
+        for (int i : which) {
+            RoutePoint q = RouteBuffer.INSTANCE.get(i);
+            if (q != null) q.setOffset(p.ox, p.oz);
+        }
         changed();
     }
 
     private void build() {
         rows.clear();
-        PointActionRows.build(rows,pt(),this::changed);
+        PointActionRows.build(rows, pt(), this::changed);
         rows.add(new Rows.Section("Отрезок до следующей точки"));
-        rows.add(new Rows.Selector("Действие", "Что держать, пока идём к следующей точке", () -> ACTIONS,
-                () -> pt() != null ? pt().action : RoutePoint.NONE, v -> { if (pt() != null) { pt().action = v; changed(); } }));
-        rows.add(new Rows.Selector("Клавиши фермы", "На отрезке ОТ этой точки. Предпочтительные клавиши; вне линии работает коррекция к точке, не слепой зажим.",
-            FarmSchemeRows::keyChoices,()->pt()!=null?pt().farmKeys:"",v->{if(pt()!=null){pt().farmKeys=v;changed();}})
-            .showIf(()->RouteBuffer.INSTANCE.settings().farm.enabled));
-        rows.add(new Rows.Toggle("Смена ряда", "Добавочная пауза из настроек фермы; быстрый режим отменяет только её, не ручную паузу точки.",
-            ()->pt()!=null&&pt().farmTurn,v->{if(pt()!=null){pt().farmTurn=v;changed();}})
-            .showIf(()->RouteBuffer.INSTANCE.settings().farm.enabled));
-        rows.add(new Rows.Toggle("Присесть", null, () -> pt() != null && pt().sneak, v -> { if (pt() != null) { pt().sneak = v; changed(); } }));
-        rows.add(new Rows.Toggle("Спринт", null, () -> pt() != null && pt().sprint, v -> { if (pt() != null) { pt().sprint = v; changed(); } }));
-        rows.add(new Rows.Toggle("Прыжок", "Один прыжок в начале отрезка", () -> pt() != null && pt().jump,
-                v -> { if (pt() != null) { pt().jump = v; changed(); } }));
-        rows.add(new Rows.Toggle("Зажим мыши", "Если в настройках маршрута (⚙) «Зажим мыши: по точкам» — держать выбранную там кнопку на этом отрезке",
-                () -> pt() != null && pt().hold, v -> { if (pt() != null) { pt().hold = v; changed(); } }));
-        rows.add(new Rows.Number("Слот хотбара", "0 — не менять", () -> pt() != null ? pt().slot : 0,
-                v -> { if (pt() != null) { pt().slot = (int) v; changed(); } }, 0, 9, 1, 1,
-                v -> v == 0 ? "не менять" : String.valueOf((int) v)).integer());
+        rows.add(new Rows.Selector(
+                "Действие",
+                "Что держать, пока идём к следующей точке",
+                () -> ACTIONS,
+                () -> pt() != null ? pt().action : RoutePoint.NONE,
+                v -> {
+                    if (pt() != null) {
+                        pt().action = v;
+                        changed();
+                    }
+                }));
+        rows.add(new Rows.Selector(
+                        "Клавиши фермы",
+                        "На отрезке ОТ этой точки. Предпочтительные клавиши; вне линии работает коррекция к точке, не слепой зажим.",
+                        FarmSchemeRows::keyChoices,
+                        () -> pt() != null ? pt().farmKeys : "",
+                        v -> {
+                            if (pt() != null) {
+                                pt().farmKeys = v;
+                                changed();
+                            }
+                        })
+                .showIf(() -> RouteBuffer.INSTANCE.settings().farm.enabled));
+        rows.add(new Rows.Toggle(
+                        "Смена ряда",
+                        "Добавочная пауза из настроек фермы; быстрый режим отменяет только её, не ручную паузу точки.",
+                        () -> pt() != null && pt().farmTurn,
+                        v -> {
+                            if (pt() != null) {
+                                pt().farmTurn = v;
+                                changed();
+                            }
+                        })
+                .showIf(() -> RouteBuffer.INSTANCE.settings().farm.enabled));
+        rows.add(new Rows.Toggle("Присесть", null, () -> pt() != null && pt().sneak, v -> {
+            if (pt() != null) {
+                pt().sneak = v;
+                changed();
+            }
+        }));
+        rows.add(new Rows.Toggle("Спринт", null, () -> pt() != null && pt().sprint, v -> {
+            if (pt() != null) {
+                pt().sprint = v;
+                changed();
+            }
+        }));
+        rows.add(new Rows.Toggle("Прыжок", "Один прыжок в начале отрезка", () -> pt() != null && pt().jump, v -> {
+            if (pt() != null) {
+                pt().jump = v;
+                changed();
+            }
+        }));
+        rows.add(new Rows.Toggle(
+                "Зажим мыши",
+                "Если в настройках маршрута (⚙) «Зажим мыши: по точкам» — держать выбранную там кнопку на этом отрезке",
+                () -> pt() != null && pt().hold,
+                v -> {
+                    if (pt() != null) {
+                        pt().hold = v;
+                        changed();
+                    }
+                }));
+        rows.add(new Rows.Number(
+                        "Слот хотбара",
+                        "0 — не менять",
+                        () -> pt() != null ? pt().slot : 0,
+                        v -> {
+                            if (pt() != null) {
+                                pt().slot = (int) v;
+                                changed();
+                            }
+                        },
+                        0,
+                        9,
+                        1,
+                        1,
+                        v -> v == 0 ? "не менять" : String.valueOf((int) v))
+                .integer());
         rows.add(new Rows.Section("Смещение в блоке"));
-        rows.add(new Rows.Number("Смещение X", "−0.5…+0.5 от центра блока (+ — на восток)", () -> pt() != null ? pt().ox : 0,
-                v -> { if (pt() != null) { pt().setOffset(v, pt().oz); changed(); } }, -0.5, 0.5, 0.05, 0.01,
+        rows.add(new Rows.Number(
+                "Смещение X",
+                "−0.5…+0.5 от центра блока (+ — на восток)",
+                () -> pt() != null ? pt().ox : 0,
+                v -> {
+                    if (pt() != null) {
+                        pt().setOffset(v, pt().oz);
+                        changed();
+                    }
+                },
+                -0.5,
+                0.5,
+                0.05,
+                0.01,
                 v -> (v > 0 ? "+" : "") + Rows.num(v)));
-        rows.add(new Rows.Number("Смещение Z", "−0.5…+0.5 от центра блока (+ — на юг)", () -> pt() != null ? pt().oz : 0,
-                v -> { if (pt() != null) { pt().setOffset(pt().ox, v); changed(); } }, -0.5, 0.5, 0.05, 0.01,
+        rows.add(new Rows.Number(
+                "Смещение Z",
+                "−0.5…+0.5 от центра блока (+ — на юг)",
+                () -> pt() != null ? pt().oz : 0,
+                v -> {
+                    if (pt() != null) {
+                        pt().setOffset(pt().ox, v);
+                        changed();
+                    }
+                },
+                -0.5,
+                0.5,
+                0.05,
+                0.01,
                 v -> (v > 0 ? "+" : "") + Rows.num(v)));
         rows.add(new Rows.Buttons(
                 new Rows.Btn("В центр", Rows.Style.SECONDARY, () -> {
-                    if (pt() != null) { pt().setOffset(0, 0); changed(); }
+                    if (pt() != null) {
+                        pt().setOffset(0, 0);
+                        changed();
+                    }
                 }),
-                new Rows.Btn(() -> "Выделенным (" + others(RouteBuffer.INSTANCE.selection()) + ")", () -> Rows.Style.SECONDARY, () -> {
-                    if (pt() != null) { applyOffset(RouteBuffer.INSTANCE.selection()); }
-                }).enabledIf(() -> others(RouteBuffer.INSTANCE.selection()) > 0)
+                new Rows.Btn(
+                                () -> "Выделенным (" + others(RouteBuffer.INSTANCE.selection()) + ")",
+                                () -> Rows.Style.SECONDARY,
+                                () -> {
+                                    if (pt() != null) {
+                                        applyOffset(RouteBuffer.INSTANCE.selection());
+                                    }
+                                })
+                        .enabledIf(() -> others(RouteBuffer.INSTANCE.selection()) > 0)
                         .tip("Это же смещение — всем выделенным точкам (Alt+ЛКМ, Ctrl+A в редакторе)"),
                 new Rows.Btn("Всему маршруту", Rows.Style.SECONDARY, () -> {
-                    if (pt() != null) applyOffset(RouteBuffer.INSTANCE.all());
-                }).tip("Это же смещение — всем точкам маршрута")));
-        rows.add(new Rows.Note("В редакторе: выбрать точку → стрелки сдвигают в блоке (Shift — мелкий шаг), Alt+ЛКМ — выделить ещё, Ctrl+A — все.", Ui.SUB));
+                            if (pt() != null) applyOffset(RouteBuffer.INSTANCE.all());
+                        })
+                        .tip("Это же смещение — всем точкам маршрута")));
+        rows.add(new Rows.Note(
+                "В редакторе: выбрать точку → стрелки сдвигают в блоке (Shift — мелкий шаг), Alt+ЛКМ — выделить ещё, Ctrl+A — все.",
+                Ui.SUB));
         rows.add(new Rows.Section("Спуск на этаж ниже"));
-        rows.add(new Rows.Toggle("Спуск", "Дойти до точки, шагнуть за край по направлению спуска, упасть, потом к следующей",
-                () -> pt() != null && pt().drop, v -> { if (pt() != null) { pt().drop = v; dropChanged(); } }));
-        rows.add(new Rows.Selector("Направление", "Куда шагнуть с точки, чтобы упасть", () -> DROP_DIRS,
-                () -> pt() != null ? pt().dropDir : RoutePoint.DIR_AUTO,
-                v -> { if (pt() != null) { pt().dropDir = v; dropChanged(); } }).enabledIf(() -> pt() != null && pt().drop));
-        rows.add(new Rows.Number("Пауза после приземления", null, () -> pt() != null ? pt().landPauseTicks : 0,
-                v -> { if (pt() != null) { pt().landPauseTicks = (int) v; changed(); } }, 0, 1200, 1, 5,
-                v -> v == 0 ? "нет" : (int) v + " т · " + String.format(Locale.ROOT, "%.2f", v / 20) + " с").integer()
-                .enabledIf(() -> pt() != null && pt().drop));
-        rows.add(new Rows.Toggle("В полёте держать клавишу", "Выкл — отпустить, как только оторвался от края (падать почти вертикально)",
-                () -> pt() != null && pt().airHold, v -> { if (pt() != null) { pt().airHold = v; changed(); } })
-                .enabledIf(() -> pt() != null && pt().drop));
-        rows.add(new Rows.Note(() -> {
-            RoutePoint p = pt();
-            if (p == null || !p.drop) return "Ctrl+D в редакторе — сделать точку спуском (или вставить спуск на краю).";
-            return p.dropDepth > 0 ? String.format(Locale.ROOT, "Падение по миру: %.1f бл%s", p.dropDepth, p.dropDepth > 3.01 ? " — будет урон" : "")
-                    : "Обрыв по направлению не найден — выбери направление или сдвинь точку к краю.";
-        }, Ui.SUB));
-        rows.add(new Rows.Section("В точке"));
-        rows.add(new Rows.Number("Пауза", "Стоять перед следующим отрезком (действие и слот уже включены)",
-                () -> pt() != null ? pt().pauseTicks : 0, v -> { if (pt() != null) { pt().pauseTicks = (int) v; changed(); } },
-                0, 1200, 1, 20, v -> v == 0 ? "нет" : (int) v + " т · " + String.format(Locale.ROOT, "%.1f", v / 20) + " с").integer());
-        rows.add(new Rows.Buttons(
-                new Rows.Btn("На все следующие", Rows.Style.SECONDARY, () -> {
-                    RoutePoint p = pt();
-                    if (p == null) return;
-                    for (int i = index + 1; i < RouteBuffer.INSTANCE.size(); i++) {
-                        RoutePoint q = RouteBuffer.INSTANCE.get(i);
-                        q.action = p.action; q.sneak = p.sneak; q.sprint = p.sprint; q.slot = p.slot; q.hold = p.hold;
-                        if(RouteBuffer.INSTANCE.settings().farm.enabled){q.farmKeys=p.farmKeys;q.farmTurn=p.farmTurn;}
+        rows.add(new Rows.Toggle(
+                "Спуск",
+                "Дойти до точки, шагнуть за край по направлению спуска, упасть, потом к следующей",
+                () -> pt() != null && pt().drop,
+                v -> {
+                    if (pt() != null) {
+                        pt().drop = v;
+                        dropChanged();
                     }
-                    changed();
-                }).tip("Действие, присед, спринт, зажим, слот и (для фермы) клавиши/смена ряда — всем точкам после этой")));
+                }));
+        rows.add(new Rows.Selector(
+                        "Направление",
+                        "Куда шагнуть с точки, чтобы упасть",
+                        () -> DROP_DIRS,
+                        () -> pt() != null ? pt().dropDir : RoutePoint.DIR_AUTO,
+                        v -> {
+                            if (pt() != null) {
+                                pt().dropDir = v;
+                                dropChanged();
+                            }
+                        })
+                .enabledIf(() -> pt() != null && pt().drop));
+        rows.add(new Rows.Number(
+                        "Пауза после приземления",
+                        null,
+                        () -> pt() != null ? pt().landPauseTicks : 0,
+                        v -> {
+                            if (pt() != null) {
+                                pt().landPauseTicks = (int) v;
+                                changed();
+                            }
+                        },
+                        0,
+                        1200,
+                        1,
+                        5,
+                        v -> v == 0 ? "нет" : (int) v + " т · " + String.format(Locale.ROOT, "%.2f", v / 20) + " с")
+                .integer()
+                .enabledIf(() -> pt() != null && pt().drop));
+        rows.add(new Rows.Toggle(
+                        "В полёте держать клавишу",
+                        "Выкл — отпустить, как только оторвался от края (падать почти вертикально)",
+                        () -> pt() != null && pt().airHold,
+                        v -> {
+                            if (pt() != null) {
+                                pt().airHold = v;
+                                changed();
+                            }
+                        })
+                .enabledIf(() -> pt() != null && pt().drop));
+        rows.add(new Rows.Note(
+                () -> {
+                    RoutePoint p = pt();
+                    if (p == null || !p.drop)
+                        return "Ctrl+D в редакторе — сделать точку спуском (или вставить спуск на краю).";
+                    return p.dropDepth > 0
+                            ? String.format(
+                                    Locale.ROOT,
+                                    "Падение по миру: %.1f бл%s",
+                                    p.dropDepth,
+                                    p.dropDepth > 3.01 ? " — будет урон" : "")
+                            : "Обрыв по направлению не найден — выбери направление или сдвинь точку к краю.";
+                },
+                Ui.SUB));
+        rows.add(new Rows.Section("В точке"));
+        rows.add(new Rows.Number(
+                        "Пауза",
+                        "Стоять перед следующим отрезком (действие и слот уже включены)",
+                        () -> pt() != null ? pt().pauseTicks : 0,
+                        v -> {
+                            if (pt() != null) {
+                                pt().pauseTicks = (int) v;
+                                changed();
+                            }
+                        },
+                        0,
+                        1200,
+                        1,
+                        20,
+                        v -> v == 0 ? "нет" : (int) v + " т · " + String.format(Locale.ROOT, "%.1f", v / 20) + " с")
+                .integer());
+        rows.add(
+                new Rows.Buttons(
+                        new Rows.Btn("На все следующие", Rows.Style.SECONDARY, () -> {
+                                    RoutePoint p = pt();
+                                    if (p == null) return;
+                                    for (int i = index + 1; i < RouteBuffer.INSTANCE.size(); i++) {
+                                        RoutePoint q = RouteBuffer.INSTANCE.get(i);
+                                        q.action = p.action;
+                                        q.sneak = p.sneak;
+                                        q.sprint = p.sprint;
+                                        q.slot = p.slot;
+                                        q.hold = p.hold;
+                                        if (RouteBuffer.INSTANCE.settings().farm.enabled) {
+                                            q.farmKeys = p.farmKeys;
+                                            q.farmTurn = p.farmTurn;
+                                        }
+                                    }
+                                    changed();
+                                })
+                                .tip(
+                                        "Действие, присед, спринт, зажим, слот и (для фермы) клавиши/смена ряда — всем точкам после этой")));
         buildRandom();
         rows.add(new Rows.Spacer(4));
         rows.add(new Rows.Buttons(
@@ -176,30 +384,51 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
                 new Rows.Btn("Готово", Rows.Style.PRIMARY, this::onClose)));
     }
 
-    private void localRange(String label, java.util.function.Supplier<com.farmmacro.route.RouteRandomSettings.Range> get,
-                            java.util.function.Consumer<com.farmmacro.route.RouteRandomSettings.Range> set,
-                            com.farmmacro.route.RouteRandomSettings.Range global, double max, boolean integer) {
-        rows.add(new Rows.Toggle(label + ": свои", "Выкл — общие значения из ⚙ → Рандом маршрута",
-                () -> get.get() != null, v -> { set.accept(v ? global.copy() : null); changed(); build(); }).adv());
-        if (get.get() != null) rows.add(RouteRandomRows.range(label,get.get(),max,integer,() -> pt()!=null,
-                r -> { r.run(); changed(); }).adv());
+    private void localRange(
+            String label,
+            Supplier<RouteRandomSettings.Range> get,
+            Consumer<RouteRandomSettings.Range> set,
+            RouteRandomSettings.Range global,
+            double max,
+            boolean integer) {
+        rows.add(new Rows.Toggle(
+                        label + ": свои",
+                        "Выкл — общие значения из ⚙ → Рандом маршрута",
+                        () -> get.get() != null,
+                        v -> {
+                            set.accept(v ? global.copy() : null);
+                            changed();
+                            build();
+                        })
+                .adv());
+        if (get.get() != null)
+            rows.add(RouteRandomRows.range(label, get.get(), max, integer, () -> pt() != null, r -> {
+                        r.run();
+                        changed();
+                    })
+                    .adv());
     }
+
     private void buildRandom() {
         rows.add(new Rows.Section("Рандом точки").adv());
-        var s=RouteBuffer.INSTANCE.settings().routeRandom;
-        localRange("Пауза, т",() -> pt().rndPause,v -> pt().rndPause=v,s.pause,1200,true);
-        localRange("Перед спуском, т",() -> pt().rndBeforeDrop,v -> pt().rndBeforeDrop=v,s.beforeDrop,1200,true);
-        localRange("После приземления +, т",() -> pt().rndLanding,v -> pt().rndLanding=v,s.landing,1200,true);
-        localRange("Шанс паузы, %",() -> pt().rndChance,v -> pt().rndChance=v,s.chance,100,false);
-        localRange("Макс. смещение, бл",() -> pt().rndOffset,v -> pt().rndOffset=v,s.offset,.15,false);
+        var s = RouteBuffer.INSTANCE.settings().routeRandom;
+        localRange("Пауза, т", () -> pt().rndPause, v -> pt().rndPause = v, s.pause, 1200, true);
+        localRange("Перед спуском, т", () -> pt().rndBeforeDrop, v -> pt().rndBeforeDrop = v, s.beforeDrop, 1200, true);
+        localRange("После приземления +, т", () -> pt().rndLanding, v -> pt().rndLanding = v, s.landing, 1200, true);
+        localRange("Шанс паузы, %", () -> pt().rndChance, v -> pt().rndChance = v, s.chance, 100, false);
+        localRange("Макс. смещение, бл", () -> pt().rndOffset, v -> pt().rndOffset = v, s.offset, .15, false);
     }
     // ── Отрисовка ────────────────────────────────────────────────────────────
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
         super.extractRenderState(g, mx, my, delta);
-        tooltip = null; wantHand = false;
-        if (pt() == null) { minecraft.setScreen(parent); return; }
+        tooltip = null;
+        wantHand = false;
+        if (pt() == null) {
+            minecraft.setScreen(parent);
+            return;
+        }
         int x = wX(), y = wY(), w = wW(), h = wH();
         Ui.shadow(g, x, y, w, h, 8);
         Ui.window(g, x, y, w, h, 8);
@@ -217,7 +446,10 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
         int ry = cy - (int) scroll;
         for (Rows.Row r : rows) {
             int rh = r.h(this, cw);
-            r.lastX = cx; r.lastY = ry; r.lastW = cw; r.lastH = rh;
+            r.lastX = cx;
+            r.lastY = ry;
+            r.lastW = cw;
+            r.lastH = rh;
             if (rh > 0 && ry + rh > cy && ry < cy + ch)
                 r.render(this, g, cx, ry, cw, in ? mx : -1, in ? my : -1, in && my >= ry && my < ry + rh);
             ry += rh;
@@ -233,7 +465,10 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
             if (ty + lines.size() * 10 + 8 > height - 4) ty = my - lines.size() * 10 - 10;
             Ui.roundBordered(g, tx, ty, tw + 12, lines.size() * 10 + 8, 4, Ui.TOOLTIP, Ui.BORDER);
             int ly = ty + 5;
-            for (var l : lines) { g.text(font, l, tx + 6, ly, Ui.TEXT, false); ly += 10; }
+            for (var l : lines) {
+                g.text(font, l, tx + 6, ly, Ui.TEXT, false);
+                ly += 10;
+            }
         }
     }
 
@@ -241,7 +476,7 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
-        if(dragWindow.click(e.x(),e.y(),e.button(),doubleClick,width,height,wW(),wH()))return true;
+        if (dragWindow.click(e.x(), e.y(), e.button(), doubleClick, width, height, wW(), wH())) return true;
         Rows.clearWheelFocus();
         double mx = e.x(), my = e.y();
         Rows.Row typing = Rows.focusedRow();
@@ -258,9 +493,19 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
     }
 
     @Override
-    public boolean mouseDragged(MouseButtonEvent e,double dx,double dy){if(dragWindow.move(e.x(),e.y()))return true;return super.mouseDragged(e,dx,dy);}
-    @Override public boolean mouseReleased(MouseButtonEvent e){if(dragWindow.release())return true;return super.mouseReleased(e);}
-    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+    public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) {
+        if (dragWindow.move(e.x(), e.y())) return true;
+        return super.mouseDragged(e, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent e) {
+        if (dragWindow.release()) return true;
+        return super.mouseReleased(e);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         for (Rows.Row r : rows) {
             if (r.lastH > 0 && my >= r.lastY && my < r.lastY + r.lastH) {
                 if (r.scroll(this, mx, my, sy)) return true;
@@ -276,17 +521,23 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
     @Override
     public boolean keyPressed(KeyEvent e) {
         if (Rows.textFocused() && Rows.textKey(e)) return true;
-        if (e.key() == 257 || e.key() == 335) { onClose(); return true; }   // Enter
+        if (e.key() == 257 || e.key() == 335) {
+            onClose();
+            return true;
+        } // Enter
         return super.keyPressed(e);
     }
 
     @Override
-    public boolean charTyped(net.minecraft.client.input.CharacterEvent e) {
+    public boolean charTyped(CharacterEvent e) {
         if (Rows.textChar(e)) return true;
         return super.charTyped(e);
     }
 
-    @Override public boolean isPauseScreen() { return false; }
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
 
     @Override
     public void onClose() {
@@ -297,9 +548,28 @@ public class PointEditScreen extends Screen implements Rows.Ctx {
     }
 
     // ── Rows.Ctx ─────────────────────────────────────────────────────────────
-    @Override public Font font() { return font; }
-    @Override public void clickSound() { minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0f)); }
-    @Override public void tooltip(String text) { tooltip = text; }
-    @Override public void hand() { wantHand = true; }
-    @Override public boolean shift() { return minecraft.hasShiftDown(); }
+    @Override
+    public Font font() {
+        return font;
+    }
+
+    @Override
+    public void clickSound() {
+        minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0f));
+    }
+
+    @Override
+    public void tooltip(String text) {
+        tooltip = text;
+    }
+
+    @Override
+    public void hand() {
+        wantHand = true;
+    }
+
+    @Override
+    public boolean shift() {
+        return minecraft.hasShiftDown();
+    }
 }

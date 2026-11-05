@@ -4,7 +4,6 @@ import com.farmmacro.config.HudSlot;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.hud.HudLayout;
 import com.farmmacro.notify.Webhook;
-
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,7 +23,11 @@ public final class PlayersCheck {
         check(PlayerRules.staffRank("[YOUTUBE] Star") == null, "[YOUTUBE] — не staff");
         check(PlayerRules.staffRank("[MVP+] Player") == null, "[MVP+] — не staff");
         check(PlayerRules.staffRank("Player [ADMIN]") == null, "тег не в начале — не staff");
-        check(PlayerRules.nameless("", "x") && PlayerRules.nameless("Bob", "§r") && !PlayerRules.nameless("Bob", "Bob"), "без имени");
+        check(
+                PlayerRules.nameless("", "x")
+                        && PlayerRules.nameless("Bob", "§r")
+                        && !PlayerRules.nameless("Bob", "Bob"),
+                "без имени");
         check("Steve".equals(PlayerRules.pmSender("From [MVP+] Steve: hi")), "ЛС");
         check(PlayerRules.pmSender("To [MVP+] Steve: hi") == null, "своё ЛС — нет");
         check(PlayerRules.pmSender("[MVP+] Steve: hi") == null, "общий чат — не ЛС");
@@ -32,16 +35,28 @@ public final class PlayersCheck {
         check(PlayerRules.isAfkWarning("§cYou are AFK. Move around to return."), "AFK");
         Set<String> fr = PlayerRules.parseNames("Alice, bob;  Carol x!y");
         check(fr.equals(Set.of("alice", "bob", "carol")), "parseNames: " + fr);
-        check(PlayerRules.isFriend(fr, "ALICE") && !PlayerRules.isFriend(fr, "dave") && !PlayerRules.isFriend(Set.of(), "a"), "isFriend");
+        check(
+                PlayerRules.isFriend(fr, "ALICE")
+                        && !PlayerRules.isFriend(fr, "dave")
+                        && !PlayerRules.isFriend(Set.of(), "a"),
+                "isFriend");
         check(PlayerRules.addName("Alice", "alice").equals("Alice"), "без повтора");
-        check(PlayerRules.addName("", "Bob").equals("Bob") && PlayerRules.addName("A1", "Bob").equals("A1, Bob"), "addName");
+        check(
+                PlayerRules.addName("", "Bob").equals("Bob")
+                        && PlayerRules.addName("A1", "Bob").equals("A1, Bob"),
+                "addName");
         check(PlayerRules.addName("A1", "bad name").equals("A1"), "неверный ник не дописывается");
-        check(PlayerRules.validName("Bob") && !PlayerRules.validName("ab") && !PlayerRules.validName("§eNPC"), "validName");
+        check(
+                PlayerRules.validName("Bob") && !PlayerRules.validName("ab") && !PlayerRules.validName("§eNPC"),
+                "validName");
 
         // ── ArrivalWatch ──
         ArrivalWatch a = new ArrivalWatch();
         Map<Integer, Double> far = new HashMap<>(), near = new HashMap<>();
-        for (int i = 0; i < 6; i++) { far.put(i, 50.0); near.put(i, 3.0); }
+        for (int i = 0; i < 6; i++) {
+            far.put(i, 50.0);
+            near.put(i, 3.0);
+        }
         check(a.tick(0, far, 8, 1000, 10_000) == 0, "без мира — 0");
         a.onWorld(0);
         a.tick(1000, far, 8, 1000, 10_000);
@@ -56,13 +71,17 @@ public final class PlayersCheck {
         a.tick(40_000, walk, 8, 1000, 10_000);
         check(a.tick(40_050, near, 8, 1000, 10_000) == 0, "подошли пешком (было 20 бл) — не телепорт");
         a.tick(50_000, far, 8, 1000, 10_000);
-        Map<Integer, Double> two = new HashMap<>(far); two.put(0, 3.0); two.put(1, 3.0);
+        Map<Integer, Double> two = new HashMap<>(far);
+        two.put(0, 3.0);
+        two.put(1, 3.0);
         check(a.tick(50_050, two, 8, 1000, 10_000) == 2, "двое");
         check(a.tick(52_000, two, 8, 1000, 10_000) == 0, "окно прошло");
 
         // ── BurstWatch ──
         BurstWatch b = new BurstWatch();
-        b.add(0, 1); b.add(100, 1); b.add(200, 2);
+        b.add(0, 1);
+        b.add(100, 1);
+        b.add(200, 2);
         check(b.count(250, 300) == 2, "две разные позиции");
         check(b.count(450, 300) == 1, "старое ушло из окна");
         b.clear();
@@ -93,7 +112,11 @@ public final class PlayersCheck {
         // ── LagGuard + тишина ──
         LagGuard g = new LagGuard();
         long t = 0, game = 0;
-        for (int i = 0; i < 6; i++) { t += 1000; game += 20; g.onTime(t, game); }
+        for (int i = 0; i < 6; i++) {
+            t += 1000;
+            game += 20;
+            g.onTime(t, game);
+        }
         check(!g.lagging(t + 40_000, 100), "время молчит, пакеты идут — не лаг");
         check(g.lagging(t + 40_000, 40_000), "молчит всё — лаг");
         check(!g.lagging(t + 40_000, -1), "неизвестно — как раньше (не лаг)");
@@ -111,8 +134,12 @@ public final class PlayersCheck {
         mc.chatKeywords = "бот, ROTATED";
         mc.chatKeywordsRev = 0;
         mc.sanitize();
-        check(mc.chatKeywords.startsWith("бот, ROTATED") && mc.chatKeywords.contains("KNOCKED OUT")
-                && mc.chatKeywords.indexOf("ROTATED") == mc.chatKeywords.lastIndexOf("ROTATED") && mc.chatKeywordsRev >= 1, "миграция: " + mc.chatKeywords);
+        check(
+                mc.chatKeywords.startsWith("бот, ROTATED")
+                        && mc.chatKeywords.contains("KNOCKED OUT")
+                        && mc.chatKeywords.indexOf("ROTATED") == mc.chatKeywords.lastIndexOf("ROTATED")
+                        && mc.chatKeywordsRev >= 1,
+                "миграция: " + mc.chatKeywords);
         String once = mc.chatKeywords;
         mc.sanitize();
         check(once.equals(mc.chatKeywords), "миграция один раз");
@@ -136,28 +163,41 @@ public final class PlayersCheck {
         check(HudLayout.snap(-30, 50, sw) == 0 && HudLayout.snap(500, 50, sw) == 350, "на экране");
         check(HudLayout.scaleStep(1, 1) == 1.1 && HudLayout.scaleStep(1, -1) == 0.9, "масштаб ±0.1");
         check(HudLayout.scaleStep(2, 1) == 2 && HudLayout.scaleStep(0.5, -1) == 0.5, "масштаб 0.5–2");
-        HudSlot bad = new HudSlot(); bad.scale = Double.NaN; bad.ox = Double.POSITIVE_INFINITY; bad.ax = 0.3; bad.sanitize();
+        HudSlot bad = new HudSlot();
+        bad.scale = Double.NaN;
+        bad.ox = Double.POSITIVE_INFINITY;
+        bad.ax = 0.3;
+        bad.sanitize();
         check(bad.scale == 1 && bad.ox == 6 && bad.ax == 0.5, "HudSlot.sanitize");
 
         // ── Webhook ──
         String url = "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_ABC-123";
-        check(Webhook.validUrl(url) && Webhook.validUrl(url.replace("discord.com", "canary.discord.com")), "верный URL");
-        check(!Webhook.validUrl("http://discord.com/api/webhooks/1/x") && !Webhook.validUrl("https://evil.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz")
-                && !Webhook.validUrl(null), "неверный URL");
+        check(
+                Webhook.validUrl(url) && Webhook.validUrl(url.replace("discord.com", "canary.discord.com")),
+                "верный URL");
+        check(
+                !Webhook.validUrl("http://discord.com/api/webhooks/1/x")
+                        && !Webhook.validUrl("https://evil.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz")
+                        && !Webhook.validUrl(null),
+                "неверный URL");
         String m = Webhook.masked(url);
-        check(!m.contains("abcdefghij") && !m.contains("123456789012345678") && m.equals("https://discord.com/api/webhooks/••••/••••"), "маска должна скрывать и ID, и токен: " + m);
+        check(
+                !m.contains("abcdefghij")
+                        && !m.contains("123456789012345678")
+                        && m.equals("https://discord.com/api/webhooks/••••/••••"),
+                "маска должна скрывать и ID, и токен: " + m);
         String text = Webhook.panicText("Игрок рядом", "12:00", "mc.hypixel.net");
         check(text.contains("Паника") && text.contains("Игрок рядом") && text.contains("mc.hypixel.net"), "текст");
         check(Webhook.panicText("x".repeat(5000), "t", "s").length() <= Webhook.CONTENT_MAX, "длина");
         String pl = Webhook.payload("@everyone \"q\"");
         check(pl.contains("\"allowed_mentions\":{\"parse\":[]}") && pl.contains("\\\"q\\\""), "payload: " + pl);
-        byte[] mp = Webhook.multipart("BND", pl, "pa nic/../x.png", new byte[]{1, 2, 3});
+        byte[] mp = Webhook.multipart("BND", pl, "pa nic/../x.png", new byte[] {1, 2, 3});
         String ms = new String(mp, StandardCharsets.ISO_8859_1);
-        check(ms.startsWith("--BND\r\n") && ms.endsWith("\r\n--BND--\r\n") && ms.contains("filename=\"pa_nic_.._x.png\""), "multipart");
-
-        // ── Reconnect.delaySec ──
-        check(com.farmmacro.macro.Reconnect.delaySec(30, 1, true) == 30 && com.farmmacro.macro.Reconnect.delaySec(30, 3, true) == 120, "рост ×2");
-        check(com.farmmacro.macro.Reconnect.delaySec(30, 3, false) == 30 && com.farmmacro.macro.Reconnect.delaySec(300, 5, true) == 600, "без роста / потолок");
+        check(
+                ms.startsWith("--BND\r\n")
+                        && ms.endsWith("\r\n--BND--\r\n")
+                        && ms.contains("filename=\"pa_nic_.._x.png\""),
+                "multipart");
 
         System.out.println("PlayersCheck: OK");
     }

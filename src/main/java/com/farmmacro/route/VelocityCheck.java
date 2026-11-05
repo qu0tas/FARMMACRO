@@ -25,7 +25,12 @@ public final class VelocityCheck {
     /** Последняя разница (для лога/теста). */
     public double lastDiff;
 
-    public void reset() { has = false; evx = evz = cmdx = cmdz = 0; grace = GRACE; lastDiff = 0; }
+    public void reset() {
+        has = false;
+        evx = evz = cmdx = cmdz = 0;
+        grace = GRACE;
+        lastDiff = 0;
+    }
 
     /**
      * Шаг 1 — до решения автохода: позиция после прошлого тика.
@@ -33,19 +38,44 @@ public final class VelocityCheck {
      * @return текст паники или null
      */
     public String observe(double x, double z, boolean excuse, double limit) {
-        if (!has) { has = true; px = x; pz = z; grace = GRACE; return null; }
+        if (!has) {
+            has = true;
+            px = x;
+            pz = z;
+            grace = GRACE;
+            return null;
+        }
         double ax = x - px, az = z - pz;
-        px = x; pz = z;
+        px = x;
+        pz = z;
         evx = evx * KEEP + cmdx * (1 - KEEP);
         evz = evz * KEEP + cmdz * (1 - KEEP);
-        if (excuse) { grace = GRACE; evx = ax; evz = az; lastDiff = 0; return null; }
+        if (excuse) {
+            grace = GRACE;
+            evx = ax;
+            evz = az;
+            lastDiff = 0;
+            return null;
+        }
         double diff = Math.hypot(ax - evx, az - evz);
         lastDiff = diff;
-        if (grace > 0) { grace--; evx = ax; evz = az; return null; }   // инерция после «оправдания» — берём факт
+        if (grace > 0) {
+            grace--;
+            evx = ax;
+            evz = az;
+            return null;
+        } // инерция после «оправдания» — берём факт
         if (diff > limit) {
-            String r = String.format(Locale.ROOT, "Аномалия скорости: %.3f бл/т вместо %.3f (разница %.3f > %.3f)",
-                    Math.hypot(ax, az), Math.hypot(evx, evz), diff, limit);
-            evx = ax; evz = az; grace = GRACE;
+            String r = String.format(
+                    Locale.ROOT,
+                    "Аномалия скорости: %.3f бл/т вместо %.3f (разница %.3f > %.3f)",
+                    Math.hypot(ax, az),
+                    Math.hypot(evx, evz),
+                    diff,
+                    limit);
+            evx = ax;
+            evz = az;
+            grace = GRACE;
             return r;
         }
         return null;
@@ -56,6 +86,7 @@ public final class VelocityCheck {
         boolean moving = o.forward || o.back || o.left || o.right;
         double speed = !moving ? 0 : o.sneak ? WalkCore.SNEAK : o.sprint ? WalkCore.SPRINT : WalkCore.WALK;
         double[] d = WalkCore.moveDir(o, yaw);
-        cmdx = d[0] * speed; cmdz = d[1] * speed;
+        cmdx = d[0] * speed;
+        cmdz = d[1] * speed;
     }
 }

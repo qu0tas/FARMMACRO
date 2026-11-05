@@ -15,12 +15,14 @@ public final class PlayerRules {
     private PlayerRules() {}
 
     /** Теги staff Hypixel. [YOUTUBE] — не staff (ютубер рядом — просто чужой игрок). */
-    public static final List<String> STAFF_TAGS = List.of("OWNER", "ADMIN", "GM", "GAME MASTER", "MOD", "MODERATOR", "HELPER", "MOJANG");
+    public static final List<String> STAFF_TAGS =
+            List.of("OWNER", "ADMIN", "GM", "GAME MASTER", "MOD", "MODERATOR", "HELPER", "MOJANG");
 
     private static final Pattern LEAD_TAG = Pattern.compile("^\\[([^\\]]{1,24})\\]\\s*");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
     /** «[MVP+] Ник: текст», «From [ADMIN] Ник: текст», «Ник: текст». */
-    private static final Pattern SENDER = Pattern.compile("^(?:(From|To) )?((?:\\[[^\\]]{1,24}\\]\\s*)*)([A-Za-z0-9_]{1,16})(?: [^:]{0,24})?: ");
+    private static final Pattern SENDER =
+            Pattern.compile("^(?:(From|To) )?((?:\\[[^\\]]{1,24}\\]\\s*)*)([A-Za-z0-9_]{1,16})(?: [^:]{0,24})?: ");
 
     /**
      * Staff-тег среди тегов в начале имени: «[ADMIN] Ник», «[302] [MOD] Ник» (уровень Skyblock впереди).
@@ -40,7 +42,8 @@ public final class PlayerRules {
 
     /** Игрок без имени: пустой ник профиля или пустое отображаемое имя (после очистки кодов цвета). */
     public static boolean nameless(String profileName, String displayName) {
-        return ServerText.clean(profileName).isEmpty() || (displayName != null && ServerText.clean(displayName).isEmpty());
+        return ServerText.clean(profileName).isEmpty()
+                || (displayName != null && ServerText.clean(displayName).isEmpty());
     }
 
     /** Личное сообщение Hypixel: «From [RANK] Ник: …». @return ник отправителя или null */
@@ -81,7 +84,9 @@ public final class PlayerRules {
     }
 
     public static boolean isFriend(Set<String> friends, String name) {
-        return name != null && !friends.isEmpty() && friends.contains(ServerText.clean(name).toLowerCase(Locale.ROOT));
+        return name != null
+                && !friends.isEmpty()
+                && friends.contains(ServerText.clean(name).toLowerCase(Locale.ROOT));
     }
 
     /** Похоже на настоящий ник (не NPC с пустым/служебным именем). */

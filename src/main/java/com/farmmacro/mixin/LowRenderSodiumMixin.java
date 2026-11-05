@@ -19,8 +19,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(targets = "net.caffeinemc.mods.sodium.client.world.LevelSlice", remap = false)
 public class LowRenderSodiumMixin {
 
-    @Inject(method = "getBlockState(III)Lnet/minecraft/world/level/block/state/BlockState;",
-            at = @At("HEAD"), cancellable = true, require = 0)
+    @Inject(
+            method = "getBlockState(III)Lnet/minecraft/world/level/block/state/BlockState;",
+            at = @At("HEAD"),
+            cancellable = true,
+            require = 0)
     private void farmmacro$lowRenderSodium(int x, int y, int z, CallbackInfoReturnable<BlockState> cir) {
         if (LowRender.hides(x, y, z)) cir.setReturnValue(Blocks.AIR.defaultBlockState());
     }

@@ -1,6 +1,12 @@
 package com.farmmacro.mixin;
 
+import com.farmmacro.combat.SpecialZealotHunt;
+import com.farmmacro.panic.AutomationSafety;
+import com.farmmacro.panic.LagGuard;
 import com.farmmacro.panic.PanicDetector;
+import com.farmmacro.route.FlightCapability;
+import com.farmmacro.stats.Telemetry;
+import com.farmmacro.util.Guard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.game.*;
@@ -10,6 +16,8 @@ import net.minecraft.network.protocol.game.ClientboundPlayerRotationPacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveMobEffectPacket;
 import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket;
 import net.minecraft.network.protocol.game.ClientboundUpdateMobEffectPacket;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.level.GameType;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -74,11 +82,6 @@ public class PanicPacketMixin {
         if (farmmacro$main()) packet.runUpdates(PanicDetector.INSTANCE::onServerBlockChange);
     }
 
-    @Inject(method = "handleParticleEvent", at = @At("HEAD"))
-    private void farmmacro$pestTrail(ClientboundLevelParticlesPacket packet, CallbackInfo ci){
-        if(farmmacro$main())com.farmmacro.pest.PestTracker.particle(Minecraft.getInstance(),packet);
-    }
-
     // ── Эффекты ──
 
     @Inject(method = "handleUpdateMobEffect", at = @At("HEAD"))
@@ -103,9 +106,8 @@ public class PanicPacketMixin {
     private void farmmacro$onSystemChat(ClientboundSystemChatPacket packet, CallbackInfo ci) {
         if (farmmacro$main() && packet.content() != null) {
             String text = packet.content().getString();
-            if(packet.overlay())com.farmmacro.util.Guard.run("stats/xp",()->com.farmmacro.stats.Telemetry.actionbar(Minecraft.getInstance(),text));
-            com.farmmacro.pest.PestHunter.INSTANCE.signal(Minecraft.getInstance(),text,packet.overlay());
-            if(!packet.overlay()) {com.farmmacro.market.StashSales.INSTANCE.signal(text);com.farmmacro.visitor.Visitors.INSTANCE.signal(text);com.farmmacro.pest.PestPlots.INSTANCE.onServerText(text);com.farmmacro.combat.SpecialZealotHunt.INSTANCE.notice(Minecraft.getInstance(),text);}
+            if (packet.overlay()) Guard.run("stats/xp", () -> Telemetry.actionbar(Minecraft.getInstance(), text));
+            if (!packet.overlay()) SpecialZealotHunt.INSTANCE.notice(Minecraft.getInstance(), text);
             PanicDetector.INSTANCE.onSystemText(text, packet.overlay() ? "надпись над хотбаром" : "чат");
             PanicDetector.INSTANCE.onChat(text, null, null, packet.overlay());
         }
@@ -114,17 +116,19 @@ public class PanicPacketMixin {
     // v1.13 «Лаги сервера»: момент прихода пакета времени — в сетевом потоке (первый вызов, до перекидывания в главный)
     @Inject(method = "handleSetTime", at = @At("HEAD"))
     private void farmmacro$onSetTime(ClientboundSetTimePacket packet, CallbackInfo ci) {
-        if (!farmmacro$main()) com.farmmacro.panic.LagGuard.INSTANCE.onTime(System.currentTimeMillis(), packet.gameTime());
+        if (!farmmacro$main()) LagGuard.INSTANCE.onTime(System.currentTimeMillis(), packet.gameTime());
     }
 
     @Inject(method = "handlePlayerChat", at = @At("HEAD"))
     private void farmmacro$onPlayerChat(ClientboundPlayerChatPacket packet, CallbackInfo ci) {
         if (!farmmacro$main()) return;
-        String text = packet.unsignedContent() != null ? packet.unsignedContent().getString()
+        String text = packet.unsignedContent() != null
+                ? packet.unsignedContent().getString()
                 : packet.body() != null ? packet.body().content() : null;
         var conn = Minecraft.getInstance().getConnection();
         var info = conn != null ? conn.getPlayerInfo(packet.sender()) : null;
-        PanicDetector.INSTANCE.onChat(text, packet.sender(), info != null ? info.getProfile().name() : null, false);
+        PanicDetector.INSTANCE.onChat(
+                text, packet.sender(), info != null ? info.getProfile().name() : null, false);
     }
 
     @Inject(method = "handleDisguisedChat", at = @At("HEAD"))
@@ -136,23 +140,28 @@ public class PanicPacketMixin {
     @Inject(method = "setTitleText", at = @At("HEAD"))
     private void farmmacro$onTitle(ClientboundSetTitleTextPacket packet, CallbackInfo ci) {
         if (farmmacro$main() && packet.text() != null) {
-            String text=packet.text().getString();
-            if(!com.farmmacro.combat.SpecialZealotHunt.INSTANCE.notice(Minecraft.getInstance(),text))PanicDetector.INSTANCE.onTitle(text,false);
+            String text = packet.text().getString();
+            if (!SpecialZealotHunt.INSTANCE.notice(Minecraft.getInstance(), text))
+                PanicDetector.INSTANCE.onTitle(text, false);
         }
     }
 
     @Inject(method = "setSubtitleText", at = @At("HEAD"))
     private void farmmacro$onSubtitle(ClientboundSetSubtitleTextPacket packet, CallbackInfo ci) {
         if (farmmacro$main() && packet.text() != null) {
-            String text=packet.text().getString();
-            if(!com.farmmacro.combat.SpecialZealotHunt.INSTANCE.notice(Minecraft.getInstance(),text))PanicDetector.INSTANCE.onTitle(text,true);
+            String text = packet.text().getString();
+            if (!SpecialZealotHunt.INSTANCE.notice(Minecraft.getInstance(), text))
+                PanicDetector.INSTANCE.onTitle(text, true);
         }
     }
 
     @Inject(method = "setActionBarText", at = @At("HEAD"))
     private void farmmacro$onActionBar(ClientboundSetActionBarTextPacket packet, CallbackInfo ci) {
         if (farmmacro$main() && packet.text() != null) {
-            com.farmmacro.util.Guard.run("stats/xp",()->com.farmmacro.stats.Telemetry.actionbar(Minecraft.getInstance(),packet.text().getString()));
+            Guard.run(
+                    "stats/xp",
+                    () -> Telemetry.actionbar(
+                            Minecraft.getInstance(), packet.text().getString()));
             PanicDetector.INSTANCE.onSystemText(packet.text().getString(), "надпись над хотбаром");
             PanicDetector.INSTANCE.onChat(packet.text().getString(), null, null, true);
         }
@@ -161,34 +170,33 @@ public class PanicPacketMixin {
     @Inject(method = "handleGameEvent", at = @At("HEAD"))
     private void farmmacro$onGameEvent(ClientboundGameEventPacket packet, CallbackInfo ci) {
         if (farmmacro$main() && packet.getEvent() == ClientboundGameEventPacket.CHANGE_GAME_MODE) {
-            var t = net.minecraft.world.level.GameType.byId((int) packet.getParam());
-            PanicDetector.INSTANCE.onGameModeChanged(t != null ? t.getShortDisplayName().getString() : null);
+            var t = GameType.byId((int) packet.getParam());
+            PanicDetector.INSTANCE.onGameModeChanged(
+                    t != null ? t.getShortDisplayName().getString() : null);
         }
     }
 
     @Inject(method = "handlePlayerAbilities", at = @At("HEAD"))
     private void farmmacro$onAbilities(ClientboundPlayerAbilitiesPacket packet, CallbackInfo ci) {
-        if (farmmacro$main()&&!com.farmmacro.market.MarketTrip.INSTANCE.spawnAbilities(packet.isFlying(),packet.canFly(),packet.getWalkingSpeed(),packet.getFlyingSpeed()))
-            PanicDetector.INSTANCE.onAbilities(packet.isFlying(), packet.canFly(), packet.getWalkingSpeed(), packet.getFlyingSpeed());
+        if (farmmacro$main())
+            PanicDetector.INSTANCE.onAbilities(
+                    packet.isFlying(), packet.canFly(), packet.getWalkingSpeed(), packet.getFlyingSpeed());
     }
 
     @Inject(method = "handlePlayerAbilities", at = @At("RETURN"))
-    private void farmmacro$flightApplied(ClientboundPlayerAbilitiesPacket packet, CallbackInfo ci){
-        if(farmmacro$main())com.farmmacro.route.FlightCapability.packet(Minecraft.getInstance(),packet.canFly(),packet.isFlying());
+    private void farmmacro$flightApplied(ClientboundPlayerAbilitiesPacket packet, CallbackInfo ci) {
+        if (farmmacro$main()) FlightCapability.packet(Minecraft.getInstance(), packet.canFly(), packet.isFlying());
     }
 
     // v1.11: «Параметры движения» — атрибуты игрока от сервера (скорость, прыжок, гравитация, шаг, размер)
     @Inject(method = "handleUpdateAttributes", at = @At("HEAD"))
     private void farmmacro$onAttributes(ClientboundUpdateAttributesPacket packet, CallbackInfo ci) {
-        if (farmmacro$main()&&!com.farmmacro.market.MarketTrip.INSTANCE.spawnAttributes(packet.getEntityId(),packet.getValues())) PanicDetector.INSTANCE.onAttributes(packet.getEntityId(), packet.getValues());
+        if (farmmacro$main()) PanicDetector.INSTANCE.onAttributes(packet.getEntityId(), packet.getValues());
     }
 
     @Inject(method = "handleRespawn", at = @At("HEAD"))
     private void farmmacro$onRespawn(ClientboundRespawnPacket packet, CallbackInfo ci) {
-        if (farmmacro$main()) {
-            boolean own=com.farmmacro.market.MarketTrip.INSTANCE.claimRespawn(packet);
-            if(!own){com.farmmacro.market.StashSales.INSTANCE.cancel(Minecraft.getInstance(),"незапрошенный respawn");PanicDetector.INSTANCE.onRespawn();}
-        }
+        if (farmmacro$main()) PanicDetector.INSTANCE.onRespawn();
     }
 
     @Inject(method = "handleSetEntityPassengersPacket", at = @At("HEAD"))
@@ -198,50 +206,40 @@ public class PanicPacketMixin {
 
     @Inject(method = "handleSetHeldSlot", at = @At("HEAD"))
     private void farmmacro$onHeldSlot(ClientboundSetHeldSlotPacket packet, CallbackInfo ci) {
-        if (farmmacro$main()){com.farmmacro.market.StashSales.INSTANCE.serverSlot(packet.slot());com.farmmacro.loadout.GlobalLoadouts.INSTANCE.cancel(Minecraft.getInstance(),"сервер задал слот руки");PanicDetector.INSTANCE.onServerSlot(packet.slot());}
+        if (farmmacro$main()) PanicDetector.INSTANCE.onServerSlot(packet.slot());
     }
 
     // Inspect applied inventory, never cancel vanilla packets/acknowledgements.
     @Inject(method = "handleContainerSetSlot", at = @At("RETURN"))
     private void farmmacro$safetyhandleContainerSetSlot(ClientboundContainerSetSlotPacket packet, CallbackInfo ci) {
-        if(farmmacro$main()){com.farmmacro.visitor.VisitorMenu.slot(Minecraft.getInstance(),packet.getContainerId(),packet.getSlot(),packet.getItem());com.farmmacro.market.SaleEvidence.slot(Minecraft.getInstance(),packet.getContainerId(),packet.getSlot(),packet.getItem());com.farmmacro.visitor.VisitorMenu.inventory(Minecraft.getInstance());com.farmmacro.market.SaleEvidence.inventory(Minecraft.getInstance());}
-        if(farmmacro$main())com.farmmacro.loadout.LoadoutEvidence.slot(Minecraft.getInstance(),packet.getContainerId(),packet.getSlot(),packet.getItem());
-        if(farmmacro$main())com.farmmacro.pest.PestMenuEvidence.slot(Minecraft.getInstance(),packet.getContainerId(),packet.getSlot(),packet.getItem());
-        if(farmmacro$main())com.farmmacro.panic.AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
-    }
-
-    @Inject(method = "handleSetCursorItem", at = @At("RETURN"))
-    private void farmmacro$pestCursor(ClientboundSetCursorItemPacket packet, CallbackInfo ci){
-        if(farmmacro$main()){com.farmmacro.visitor.VisitorMenu.slot(Minecraft.getInstance(),-1,-1,packet.contents());com.farmmacro.market.SaleEvidence.slot(Minecraft.getInstance(),-1,-1,packet.contents());}
-        if(farmmacro$main())com.farmmacro.loadout.LoadoutEvidence.slot(Minecraft.getInstance(),-1,-1,packet.contents());
-        if(farmmacro$main())com.farmmacro.pest.PestMenuEvidence.slot(Minecraft.getInstance(),-1,-1,packet.contents());
+        if (farmmacro$main()) AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
     }
 
     @Inject(method = "handleContainerContent", at = @At("RETURN"))
     private void farmmacro$safetyhandleContainerContent(ClientboundContainerSetContentPacket packet, CallbackInfo ci) {
-        if(farmmacro$main())com.farmmacro.util.Guard.run("stats/pet",()->com.farmmacro.stats.Telemetry.petMenu(Minecraft.getInstance(),packet.containerId(),packet.items()));
-        if(farmmacro$main()){com.farmmacro.visitor.VisitorMenu.content(Minecraft.getInstance(),packet.containerId(),packet.items(),packet.carriedItem());com.farmmacro.market.SaleEvidence.content(Minecraft.getInstance(),packet.containerId(),packet.items(),packet.carriedItem());com.farmmacro.visitor.VisitorMenu.inventory(Minecraft.getInstance());com.farmmacro.market.SaleEvidence.inventory(Minecraft.getInstance());}
-        if(farmmacro$main())com.farmmacro.loadout.LoadoutEvidence.content(Minecraft.getInstance(),packet.containerId(),packet.items(),packet.carriedItem());
-        if(farmmacro$main())com.farmmacro.pest.PestMenuEvidence.content(Minecraft.getInstance(),packet.containerId(),packet.items(),packet.carriedItem());
-        if(farmmacro$main())com.farmmacro.panic.AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
+        if (farmmacro$main())
+            Guard.run(
+                    "stats/pet",
+                    () -> Telemetry.petMenu(Minecraft.getInstance(), packet.containerId(), packet.items()));
+        if (farmmacro$main()) AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
     }
 
     @Inject(method = "handleSetPlayerInventory", at = @At("RETURN"))
     private void farmmacro$safetyhandleSetPlayerInventory(ClientboundSetPlayerInventoryPacket packet, CallbackInfo ci) {
-        if(farmmacro$main()){com.farmmacro.visitor.VisitorMenu.inventory(Minecraft.getInstance());com.farmmacro.market.SaleEvidence.inventory(Minecraft.getInstance());}
-        if(farmmacro$main())com.farmmacro.panic.AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
+        if (farmmacro$main()) AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
     }
 
     @Inject(method = "handleSetHeldSlot", at = @At("RETURN"))
     private void farmmacro$safetyhandleSetHeldSlot(ClientboundSetHeldSlotPacket packet, CallbackInfo ci) {
-        if(farmmacro$main())com.farmmacro.panic.AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
+        if (farmmacro$main()) AutomationSafety.INSTANCE.tick(Minecraft.getInstance());
     }
 
     @Inject(method = "handleDamageEvent", at = @At("HEAD"))
     private void farmmacro$onDamage(ClientboundDamageEventPacket packet, CallbackInfo ci) {
         if (farmmacro$main())
-            PanicDetector.INSTANCE.onDamageEvent(packet.entityId(),
-                    packet.sourceType() != null && packet.sourceType().is(net.minecraft.world.damagesource.DamageTypes.FALL));
+            PanicDetector.INSTANCE.onDamageEvent(
+                    packet.entityId(),
+                    packet.sourceType() != null && packet.sourceType().is(DamageTypes.FALL));
     }
 
     @Inject(method = "handlePlayerInfoUpdate", at = @At("HEAD"))

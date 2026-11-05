@@ -14,17 +14,23 @@ public final class ChatMatch {
      */
     public static String hit(String text, String ownName, boolean mentionName, String keywords) {
         if (text == null || text.isBlank()) return null;
-        if (mentionName && ownName != null && ownName.length() >= 3 && Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])"+Pattern.quote(ownName)+"(?![\\p{L}\\p{N}_])").matcher(text).find())
-            return "ник";
+        if (mentionName
+                && ownName != null
+                && ownName.length() >= 3
+                && Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])" + Pattern.quote(ownName) + "(?![\\p{L}\\p{N}_])")
+                        .matcher(text)
+                        .find()) return "ник";
         if (keywords != null)
             for (String w : keywords.split(",")) {
                 String raw = w.strip();
                 if (raw.isEmpty()) continue;
                 if (isCaps(raw)) {
-                    if (Pattern.compile("(?<![\\p{L}\\p{N}_])" + Pattern.quote(raw) + "(?![\\p{L}\\p{N}_])").matcher(text).find())
-                        return "слово «" + raw + "»";
-                } else if (Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])"+Pattern.quote(raw)+"(?![\\p{L}\\p{N}_])").matcher(text).find())
-                    return "слово «" + raw.toLowerCase(Locale.ROOT) + "»";
+                    if (Pattern.compile("(?<![\\p{L}\\p{N}_])" + Pattern.quote(raw) + "(?![\\p{L}\\p{N}_])")
+                            .matcher(text)
+                            .find()) return "слово «" + raw + "»";
+                } else if (Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])" + Pattern.quote(raw) + "(?![\\p{L}\\p{N}_])")
+                        .matcher(text)
+                        .find()) return "слово «" + raw.toLowerCase(Locale.ROOT) + "»";
             }
         return null;
     }
@@ -34,7 +40,10 @@ public final class ChatMatch {
         boolean letter = false;
         for (int i = 0; i < w.length(); i++) {
             char ch = w.charAt(i);
-            if (Character.isLetter(ch)) { letter = true; if (!Character.isUpperCase(ch)) return false; }
+            if (Character.isLetter(ch)) {
+                letter = true;
+                if (!Character.isUpperCase(ch)) return false;
+            }
         }
         return letter && w.length() >= 3;
     }

@@ -611,7 +611,7 @@ N («Продолжить с места») дальше «До дороги не
 
 ## 1.17.0: новые настройки
 
-Полное описание поведения и ограничений: [журнал релизов](../RELEASES-1.16.3-1.17.0.md).
+Полное описание поведения и ограничений: [журнал релизов](../docs/history/releases/RELEASES-1.16.3-1.17.0.md).
 
 - ⚙ маршрута → Конец маршрута: mode, distance 1–30, direction auto/±x/±z, command, delayMinMs/delayMaxMs, windowSeconds 1–60, postPauseMs/postJitterMs. Defaults: none, 3 бл, /warp garden, 500–1200 мс, 8 с, 1000 ±300 мс.
 - Shift+ПКМ, расширенный режим → Тип точки: waitMs/jitterMs, position radius/timeoutMs/panicOnTimeout, item slot/itemId/blockXYZ/cooldownMs, command. Тип position проверяется после достижения обычного радиуса точки. В простом режиме все типы исполняются как ordinary, файл не меняется.

@@ -10,16 +10,23 @@ public final class SyncMath {
     private SyncMath() {}
 
     /** Сдвиг/поворот из пакета сервера больше эпсилона? */
-    public static boolean posOver(double dist, double eps) { return dist > eps; }
-    public static boolean rotOver(double rot, double eps)  { return rot > eps; }
+    public static boolean posOver(double dist, double eps) {
+        return dist > eps;
+    }
+
+    public static boolean rotOver(double rot, double eps) {
+        return rot > eps;
+    }
 
     /** Текст паники «синхронизация»: что именно разошлось и насколько. */
-    public static String syncReason(String kind, double dist, double posEps, double dYaw, double dPitch, double rotEps) {
+    public static String syncReason(
+            String kind, double dist, double posEps, double dYaw, double dPitch, double rotEps) {
         boolean pos = posOver(dist, posEps), rot = rotOver(Math.max(dYaw, dPitch), rotEps);
         StringBuilder b = new StringBuilder("Сервер поправил ");
         if (pos) b.append(String.format(Locale.ROOT, "позицию на %.3f бл (> %.3f)", dist, posEps));
         if (pos && rot) b.append(" и ");
-        if (rot) b.append(String.format(Locale.ROOT, "взгляд на yaw %.3f° / pitch %.3f° (> %.3f°)", dYaw, dPitch, rotEps));
+        if (rot)
+            b.append(String.format(Locale.ROOT, "взгляд на yaw %.3f° / pitch %.3f° (> %.3f°)", dYaw, dPitch, rotEps));
         return b.append(" — пакет ").append(kind).toString();
     }
 
@@ -54,17 +61,19 @@ public final class SyncMath {
     }
 
     /** Изменилось больше порога (в %)? */
-    public static boolean changed(double a, double b, double epsPct) { return relPct(a, b) > epsPct; }
+    public static boolean changed(double a, double b, double epsPct) {
+        return relPct(a, b) > epsPct;
+    }
 
     /** Подпись атрибута для сообщения о панике (путь id: movement_speed → «скорость»). */
     public static String attrLabel(String path) {
         if (path == null) return "?";
         return switch (path) {
             case "movement_speed" -> "скорость";
-            case "jump_strength"  -> "силу прыжка";
-            case "gravity"        -> "гравитацию";
-            case "step_height"    -> "высоту шага";
-            case "scale"          -> "размер";
+            case "jump_strength" -> "силу прыжка";
+            case "gravity" -> "гравитацию";
+            case "step_height" -> "высоту шага";
+            case "scale" -> "размер";
             default -> path;
         };
     }
@@ -74,12 +83,17 @@ public final class SyncMath {
      * (3D DDA, Amanatides–Woo). В consumer — x, y, z клетки и расстояние от начала луча до входа в неё.
      * Первая клетка — та, где начало луча (расстояние 0).
      */
-    public interface CellConsumer { boolean accept(int x, int y, int z, double dist); }
+    public interface CellConsumer {
+        boolean accept(int x, int y, int z, double dist);
+    }
 
-    public static void cells(double ox, double oy, double oz, double dx, double dy, double dz, double range, CellConsumer c) {
+    public static void cells(
+            double ox, double oy, double oz, double dx, double dy, double dz, double range, CellConsumer c) {
         double n = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (n < 1e-9 || !(range > 0)) return;
-        dx /= n; dy /= n; dz /= n;
+        dx /= n;
+        dy /= n;
+        dz /= n;
         int x = (int) Math.floor(ox), y = (int) Math.floor(oy), z = (int) Math.floor(oz);
         int sx = dx > 0 ? 1 : dx < 0 ? -1 : 0, sy = dy > 0 ? 1 : dy < 0 ? -1 : 0, sz = dz > 0 ? 1 : dz < 0 ? -1 : 0;
         double tdx = sx != 0 ? Math.abs(1 / dx) : Double.POSITIVE_INFINITY;
@@ -91,9 +105,19 @@ public final class SyncMath {
         double t = 0;
         for (int guard = 0; guard < 256 && t <= range; guard++) {
             if (!c.accept(x, y, z, t)) return;
-            if (tmx <= tmy && tmx <= tmz) { t = tmx; x += sx; tmx += tdx; }
-            else if (tmy <= tmz)          { t = tmy; y += sy; tmy += tdy; }
-            else                          { t = tmz; z += sz; tmz += tdz; }
+            if (tmx <= tmy && tmx <= tmz) {
+                t = tmx;
+                x += sx;
+                tmx += tdx;
+            } else if (tmy <= tmz) {
+                t = tmy;
+                y += sy;
+                tmy += tdy;
+            } else {
+                t = tmz;
+                z += sz;
+                tmz += tdz;
+            }
         }
     }
 }

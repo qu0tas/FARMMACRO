@@ -14,7 +14,10 @@ public final class HudLayout {
 
     /** Левый верхний угол плашки w×h на экране sw×sh по слоту (с удержанием на экране). */
     public static int[] place(HudSlot s, double w, double h, int sw, int sh) {
-        return new int[]{(int) Math.round(clamp(axis(s.ax, s.ox, w, sw), w, sw)), (int) Math.round(clamp(axis(s.ay, s.oy, h, sh), h, sh))};
+        return new int[] {
+            (int) Math.round(clamp(axis(s.ax, s.ox, w, sw), w, sw)),
+            (int) Math.round(clamp(axis(s.ay, s.oy, h, sh), h, sh))
+        };
     }
 
     private static double axis(double a, double off, double size, int screen) {

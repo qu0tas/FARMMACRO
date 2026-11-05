@@ -17,11 +17,20 @@ public final class VelocitySim {
      * @param wallAt    тик, с которого стена гасит скорость; wallFlag — игра сообщила о столкновении
      * @param stopsEvery внешняя остановка каждые N тиков на 20 тиков (0 — нет)
      */
-    static R run(double keep, int pushAt, double pushV, boolean pushPacket, int wallAt, boolean wallFlag, int stopsEvery) {
+    static R run(
+            double keep, int pushAt, double pushV, boolean pushPacket, int wallAt, boolean wallFlag, int stopsEvery) {
         return run(keep, pushAt, pushV, pushPacket, wallAt, wallFlag, stopsEvery, 0.25);
     }
 
-    static R run(double keep, int pushAt, double pushV, boolean pushPacket, int wallAt, boolean wallFlag, int stopsEvery, double limit) {
+    static R run(
+            double keep,
+            int pushAt,
+            double pushV,
+            boolean pushPacket,
+            int wallAt,
+            boolean wallFlag,
+            int stopsEvery,
+            double limit) {
         var rows = TestRoutes.rows(0, 0, 31, 31, 3, 64);
         boolean alongX = rows.get(0).z == rows.get(1).z;
         float yaw = alongX ? 90f : 0f;
@@ -50,16 +59,24 @@ public final class VelocitySim {
             double[] dir = WalkCore.moveDir(out, yaw);
             vx = vx * keep + dir[0] * speed * (1 - keep);
             vz = vz * keep + dir[1] * speed * (1 - keep);
-            if (t == pushAt) { vx += pushV; if (pushPacket) grace = 4; }
-            if (wallAt >= 0 && t >= wallAt) { vx = 0; vz = 0; }
-            x += vx; z += vz;
+            if (t == pushAt) {
+                vx += pushV;
+                if (pushPacket) grace = 4;
+            }
+            if (wallAt >= 0 && t >= wallAt) {
+                vx = 0;
+                vz = 0;
+            }
+            x += vx;
+            z += vz;
         }
         return new R(30_000, "не дошёл", maxDiff);
     }
 
     private static void ok(boolean c, String what, R r) {
-        System.out.printf("  %-58s %s (тиков %d, макс. разница %.3f бл/т)%n", what,
-                r.panic == null ? "без паники" : "ПАНИКА: " + r.panic, r.ticks, r.maxDiff);
+        System.out.printf(
+                "  %-58s %s (тиков %d, макс. разница %.3f бл/т)%n",
+                what, r.panic == null ? "без паники" : "ПАНИКА: " + r.panic, r.ticks, r.maxDiff);
         if (!c) throw new IllegalStateException("VelocitySim: " + what + " → " + r);
     }
 
@@ -83,6 +100,7 @@ public final class VelocitySim {
         ok(h.panic != null && h.panic.startsWith("Аномалия"), "стена, допуск 0.1, без флага столкновения", h);
         R i = run(VelocityCheck.KEEP, -1, 0, false, 300, true, 0, 0.1);
         ok(i.panic != null && i.panic.contains("Застрял"), "стена, допуск 0.1, столкновение (оправдано)", i);
-        if (a.maxDiff > 0.05) throw new IllegalStateException("VelocitySim: модель расходится с ходьбой на " + a.maxDiff);
+        if (a.maxDiff > 0.05)
+            throw new IllegalStateException("VelocitySim: модель расходится с ходьбой на " + a.maxDiff);
     }
 }

@@ -1,0 +1,35 @@
+Downloading https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+..............10%..............20%...............30%..............40%...............50%..............60%...............70%..............80%..............90%...............100%
+
+Welcome to Gradle 9.7.1!
+
+Here are the highlights of this release:
+ - Isolated Projects graduates to incubating
+ - Broader Configuration Cache compatibility
+ - Resilient Sync helps you fix broken builds
+ - More source locations in problem reports
+
+For more details see https://docs.gradle.org/9.7.1/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.18.3
+
+> Task :clean
+
+> Task :compileJava
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :processResources
+> Task :classes
+> Task :processIncludeJars
+> Task :jar
+> Task :assemble
+
+[Incubating] Problems report is available at: file:///data/FARMMACRO/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 42s
+5 actionable tasks: 5 executed

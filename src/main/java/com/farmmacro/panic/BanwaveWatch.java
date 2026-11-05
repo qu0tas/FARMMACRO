@@ -3,9 +3,6 @@ package com.farmmacro.panic;
 import com.farmmacro.config.ModConfig;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -18,6 +15,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import net.minecraft.client.Minecraft;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * v1.13 «Банвейв»: статистика наказаний Hypixel (GET https://api.hypixel.net/v2/punishmentstats, заголовок API-Key).
@@ -30,7 +30,7 @@ import java.util.concurrent.CompletableFuture;
 public final class BanwaveWatch {
     private BanwaveWatch() {}
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Banwave");
+    private static final Logger LOGGER = LoggerFactory.getLogger("Kaelix/Banwave");
     public static final String URL = "https://api.hypixel.net/v2/punishmentstats";
     public static final long POLL_MS = 60_000, RETRY_MS = 120_000;
 
@@ -53,8 +53,9 @@ public final class BanwaveWatch {
     public static long bansIn(List<Sample> list, long nowMs, long windowMs, boolean withStaff) {
         if (list.size() < 2) return -1;
         Sample last = list.get(list.size() - 1), base = list.get(0);
-        for (Sample s : list) {                       // последний ответ не позже начала окна
-            if (s.ms() <= nowMs - windowMs) base = s; else break;
+        for (Sample s : list) { // последний ответ не позже начала окна
+            if (s.ms() <= nowMs - windowMs) base = s;
+            else break;
         }
         if (base == last) return 0;
         long d = last.watchdogTotal() - base.watchdogTotal();
@@ -67,17 +68,26 @@ public final class BanwaveWatch {
         JsonObject o = JsonParser.parseString(json).getAsJsonObject();
         if (!o.has("success") || !o.get("success").getAsBoolean()) return null;
         if (!o.has("watchdog_total") || !o.has("staff_total")) return null;
-        return new Sample(ms, o.get("watchdog_total").getAsLong(), o.get("staff_total").getAsLong());
+        return new Sample(
+                ms, o.get("watchdog_total").getAsLong(), o.get("staff_total").getAsLong());
     }
 
     // ── Ключ ─────────────────────────────────────────────────────────────────
 
-    private static Path keyFile() { return ModConfig.modDir().resolve("hypixel-api-key.txt"); }
+    private static Path keyFile() {
+        return ModConfig.modDir().resolve("hypixel-api-key.txt");
+    }
 
     public static synchronized String key() {
         if (key == null) {
-            try { key = Files.exists(keyFile()) ? Files.readString(keyFile(), StandardCharsets.UTF_8).strip() : ""; }
-            catch (Exception e) { LOGGER.warn("Не удалось прочитать ключ Hypixel", e); key = ""; }
+            try {
+                key = Files.exists(keyFile())
+                        ? Files.readString(keyFile(), StandardCharsets.UTF_8).strip()
+                        : "";
+            } catch (Exception e) {
+                LOGGER.warn("Не удалось прочитать ключ Hypixel", e);
+                key = "";
+            }
         }
         return key;
     }
@@ -85,13 +95,18 @@ public final class BanwaveWatch {
     /** @return false — ключ не похож на UUID */
     public static synchronized boolean setKey(String k) {
         k = k == null ? "" : k.strip();
-        if (!k.isEmpty() && !k.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) return false;
+        if (!k.isEmpty() && !k.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
+            return false;
         try {
             Files.createDirectories(keyFile().getParent());
             Files.writeString(keyFile(), k, StandardCharsets.UTF_8);
-        } catch (Exception e) { LOGGER.warn("Не удалось сохранить ключ Hypixel", e); }
+        } catch (Exception e) {
+            LOGGER.warn("Не удалось сохранить ключ Hypixel", e);
+        }
         key = k;
-        synchronized (samples) { samples.clear(); }
+        synchronized (samples) {
+            samples.clear();
+        }
         nextPollMs = 0;
         return true;
     }
@@ -99,41 +114,76 @@ public final class BanwaveWatch {
     // ── Опрос ────────────────────────────────────────────────────────────────
 
     /** Каждый тик из главного потока: пора — отправить запрос в фоне. */
+    @SuppressWarnings("FutureReturnValueIgnored") // ответ обрабатывается в whenComplete
     public static void tick() {
         ModConfig c = ModConfig.INSTANCE;
-        if (!c.detectBanwave) { status = "выключен"; return; }
+        if (!c.detectBanwave) {
+            status = "выключен";
+            return;
+        }
         String k = key();
-        if (k.isEmpty()) { status = "нет API-ключа"; return; }
+        if (k.isEmpty()) {
+            status = "нет API-ключа";
+            return;
+        }
         long now = System.currentTimeMillis();
         if (inFlight || now < nextPollMs) return;
         inFlight = true;
         nextPollMs = now + POLL_MS;
         if (status != null && !status.startsWith("собираю")) status = "жду ответ API";
-        if (client == null) client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-        HttpRequest req = HttpRequest.newBuilder(URI.create(URL)).timeout(Duration.ofSeconds(15))
-                .header("API-Key", k).header("User-Agent", "FarmMacro").GET().build();
+        if (client == null)
+            client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+        HttpRequest req = HttpRequest.newBuilder(URI.create(URL))
+                .timeout(Duration.ofSeconds(15))
+                .header("API-Key", k)
+                .header("User-Agent", "FarmMacro")
+                .GET()
+                .build();
         CompletableFuture<HttpResponse<String>> f = client.sendAsync(req, HttpResponse.BodyHandlers.ofString());
         f.whenComplete((resp, err) -> {
             try {
                 long t = System.currentTimeMillis();
-                if (err != null) { status = "нет связи с api.hypixel.net"; nextPollMs = t + RETRY_MS; return; }
+                if (err != null) {
+                    status = "нет связи с api.hypixel.net";
+                    nextPollMs = t + RETRY_MS;
+                    return;
+                }
                 int code = resp.statusCode();
-                if (code == 403) { status = "ключ не подходит (403)"; nextPollMs = t + RETRY_MS * 5; return; }
-                if (code == 429) { status = "лимит запросов (429)"; nextPollMs = t + RETRY_MS; return; }
-                if (code != 200) { status = "ошибка API " + code; nextPollMs = t + RETRY_MS; return; }
+                if (code == 403) {
+                    status = "ключ не подходит (403)";
+                    nextPollMs = t + RETRY_MS * 5;
+                    return;
+                }
+                if (code == 429) {
+                    status = "лимит запросов (429)";
+                    nextPollMs = t + RETRY_MS;
+                    return;
+                }
+                if (code != 200) {
+                    status = "ошибка API " + code;
+                    nextPollMs = t + RETRY_MS;
+                    return;
+                }
                 Sample s = parse(resp.body(), t);
-                if (s == null) { status = "непонятный ответ API"; return; }
+                if (s == null) {
+                    status = "непонятный ответ API";
+                    return;
+                }
                 synchronized (samples) {
                     samples.addLast(s);
                     while (samples.size() > 2 && samples.peekFirst().ms() < t - 3_600_000L) samples.pollFirst();
                 }
                 status = null;
                 String line = s.watchdogTotal() + " watchdog / " + s.staffTotal() + " staff (всего)";
-                net.minecraft.client.Minecraft.getInstance().execute(() -> EventLog.log("BANWAVE", line));
+                Minecraft.getInstance().execute(() -> EventLog.log("BANWAVE", line));
             } catch (Exception e) {
                 status = "ошибка разбора ответа";
                 LOGGER.warn("Банвейв: ответ не разобран", e);
-            } finally { inFlight = false; }
+            } finally {
+                inFlight = false;
+            }
         });
     }
 
@@ -141,7 +191,9 @@ public final class BanwaveWatch {
     public static long bans() {
         ModConfig c = ModConfig.INSTANCE;
         List<Sample> copy;
-        synchronized (samples) { copy = new ArrayList<>(samples); }
+        synchronized (samples) {
+            copy = new ArrayList<>(samples);
+        }
         return bansIn(copy, System.currentTimeMillis(), c.banwaveWindowMin * 60_000L, c.banwaveWithStaff);
     }
 
@@ -150,6 +202,8 @@ public final class BanwaveWatch {
         String s = status;
         if (s != null) return s;
         long b = bans();
-        return b < 0 ? "собираю данные (нужно 2 ответа)" : b + " банов за " + ModConfig.INSTANCE.banwaveWindowMin + " мин";
+        return b < 0
+                ? "собираю данные (нужно 2 ответа)"
+                : b + " банов за " + ModConfig.INSTANCE.banwaveWindowMin + " мин";
     }
 }

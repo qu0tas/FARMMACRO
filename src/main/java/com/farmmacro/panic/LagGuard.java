@@ -14,10 +14,10 @@ public final class LagGuard {
     public static final long LAG_MS = 1300, AFTER_MS = 900;
     /** Дольше этого пакетов нет — сервер их просто не шлёт (не лаг): ждём снова регулярных пакетов. */
     public static final long SILENT_MS = 30_000;
-    private static final int TPS_SAMPLES = 5, REGULAR_MIN = 3;
 
+    private static final int TPS_SAMPLES = 5, REGULAR_MIN = 3;
     private long lastMs = -1, lastGame, afterUntil;
-    private int regular;                                  // сколько пакетов подряд пришли с нормальным интервалом
+    private int regular; // сколько пакетов подряд пришли с нормальным интервалом
     private final double[] tps = new double[TPS_SAMPLES];
     private int tpsCount, tpsPos;
 
@@ -37,11 +37,14 @@ public final class LagGuard {
                 }
             }
         }
-        lastMs = nowMs; lastGame = gameTime;
+        lastMs = nowMs;
+        lastGame = gameTime;
     }
 
     /** Сервер лагает сейчас или только что (≤ AFTER_MS назад) перестал. */
-    public synchronized boolean lagging(long nowMs) { return lagging(nowMs, -1); }
+    public synchronized boolean lagging(long nowMs) {
+        return lagging(nowMs, -1);
+    }
 
     /**
      * v1.14: с учётом «Тишины сервера». anySilentMs — сколько нет вообще никаких пакетов (−1 — неизвестно).
@@ -49,7 +52,7 @@ public final class LagGuard {
      * если молчит всё — это лаг (а дальше «Тишина сервера» закроет соединение).
      */
     public synchronized boolean lagging(long nowMs, long anySilentMs) {
-        if (lastMs < 0 || regular < REGULAR_MIN) return false;      // сервер ещё не показал, что шлёт время регулярно
+        if (lastMs < 0 || regular < REGULAR_MIN) return false; // сервер ещё не показал, что шлёт время регулярно
         long gap = nowMs - lastMs;
         if (gap > SILENT_MS) return anySilentMs > LAG_MS;
         return gap > LAG_MS || nowMs < afterUntil;
@@ -61,7 +64,9 @@ public final class LagGuard {
     }
 
     /** Сколько мс нет пакета времени (−1 — ещё не было). */
-    public synchronized long silentMs(long nowMs) { return lastMs < 0 ? -1 : nowMs - lastMs; }
+    public synchronized long silentMs(long nowMs) {
+        return lastMs < 0 ? -1 : nowMs - lastMs;
+    }
 
     /** Средний TPS по последним пакетам; NaN — мало данных. */
     public synchronized double tps() {
@@ -73,6 +78,11 @@ public final class LagGuard {
 
     /** Новый сервер / отключение. */
     public synchronized void reset() {
-        lastMs = -1; lastGame = 0; afterUntil = 0; regular = 0; tpsCount = 0; tpsPos = 0;
+        lastMs = -1;
+        lastGame = 0;
+        afterUntil = 0;
+        regular = 0;
+        tpsCount = 0;
+        tpsPos = 0;
     }
 }

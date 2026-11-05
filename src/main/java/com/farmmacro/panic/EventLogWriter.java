@@ -23,7 +23,9 @@ public final class EventLogWriter {
         this.maxBytes = Math.max(1024, maxBytes);
     }
 
-    public Path fileFor(LocalDate day) { return dir.resolve("events-" + day + ".log"); }
+    public Path fileFor(LocalDate day) {
+        return dir.resolve("events-" + day + ".log");
+    }
 
     /** Дописать строки (каждая — без перевода строки). */
     public void write(List<String> lines, LocalDate day) throws IOException {
@@ -34,12 +36,19 @@ public final class EventLogWriter {
         boolean full = false;
         while (i < lines.size()) {
             long size = Files.exists(f) ? Files.size(f) : 0;
-            if (full || size >= maxBytes) { if (size > 0) rotate(f, day); size = 0; full = false; }
-            try (Writer w = Files.newBufferedWriter(f, StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+            if (full || size >= maxBytes) {
+                if (size > 0) rotate(f, day);
+                size = 0;
+                full = false;
+            }
+            try (Writer w = Files.newBufferedWriter(
+                    f, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
                 for (; i < lines.size(); i++) {
                     byte[] b = (lines.get(i) + "\n").getBytes(StandardCharsets.UTF_8);
-                    if (size > 0 && size + b.length > maxBytes) { full = true; break; }   // остальное — в новый файл
+                    if (size > 0 && size + b.length > maxBytes) {
+                        full = true;
+                        break;
+                    } // остальное — в новый файл
                     w.write(lines.get(i));
                     w.write('\n');
                     size += b.length;
@@ -51,7 +60,10 @@ public final class EventLogWriter {
     private void rotate(Path f, LocalDate day) throws IOException {
         for (int n = 1; n < 10_000; n++) {
             Path to = dir.resolve("events-" + day + "." + n + ".log");
-            if (!Files.exists(to)) { Files.move(f, to); return; }
+            if (!Files.exists(to)) {
+                Files.move(f, to);
+                return;
+            }
         }
         Files.delete(f);
     }

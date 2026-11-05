@@ -8,6 +8,7 @@ public final class ThemeCheck {
     private ThemeCheck() {}
 
     static int checks;
+
     static void check(boolean ok, String what) {
         if (!ok) throw new IllegalStateException("ThemeCheck: " + what);
         checks++;
@@ -17,7 +18,11 @@ public final class ThemeCheck {
         double r = ((c >> 16) & 0xFF) / 255.0, g = ((c >> 8) & 0xFF) / 255.0, b = (c & 0xFF) / 255.0;
         return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
     }
-    static double lin(double v) { return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+
+    static double lin(double v) {
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    }
+
     static double contrast(int a, int b) {
         double la = lum(a), lb = lum(b);
         return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
@@ -32,8 +37,12 @@ public final class ThemeCheck {
             check(contrast(Ui.TEXT, Ui.WINDOW) >= 7, t[0] + ": текст на окне " + contrast(Ui.TEXT, Ui.WINDOW));
             check(contrast(Ui.TEXT, Ui.CARD) >= 7, t[0] + ": текст на карточке");
             check(contrast(Ui.SUB, Ui.WINDOW) >= 3, t[0] + ": подпись на окне " + contrast(Ui.SUB, Ui.WINDOW));
-            check(contrast(Ui.ON_ACCENT, Ui.ACCENT) >= 2.5, t[0] + ": текст кнопки на акценте " + contrast(Ui.ON_ACCENT, Ui.ACCENT));
-            check(contrast(Ui.KNOB_ON, Ui.TOGGLE_ON) >= 1.8, t[0] + ": ручка на вкл. дорожке " + contrast(Ui.KNOB_ON, Ui.TOGGLE_ON));
+            check(
+                    contrast(Ui.ON_ACCENT, Ui.ACCENT) >= 2.5,
+                    t[0] + ": текст кнопки на акценте " + contrast(Ui.ON_ACCENT, Ui.ACCENT));
+            check(
+                    contrast(Ui.KNOB_ON, Ui.TOGGLE_ON) >= 1.8,
+                    t[0] + ": ручка на вкл. дорожке " + contrast(Ui.KNOB_ON, Ui.TOGGLE_ON));
             check(contrast(Ui.TEXT, Ui.TOOLTIP | 0xFF000000) >= 7, t[0] + ": текст подсказки");
             check(Ui.DANGER != Ui.ACCENT && Ui.DANGER != Ui.ON, t[0] + ": опасность совпадает с акцентом");
             check(((Ui.HUD_BG >>> 24) & 0xFF) >= 0xA0, t[0] + ": фон HUD слишком прозрачный");
@@ -46,7 +55,8 @@ public final class ThemeCheck {
         check("quiet".equals(Ui.theme()), "неизвестная тема → quiet");
         Ui.sync(null);
         check("quiet".equals(Ui.theme()), "null → quiet");
-        Ui.applyTheme("paper"); Ui.sync("paper");
+        Ui.applyTheme("paper");
+        Ui.sync("paper");
         check("paper".equals(Ui.theme()), "sync той же темы");
         Ui.sync("quiet");
 
@@ -64,7 +74,8 @@ public final class ThemeCheck {
         check(jumps == 0, "пропуски кадров " + jumps);
         check(Logo.frame(Logo.LOOP_MS) == 0 && Logo.frame(Long.MAX_VALUE / 2) < Logo.FRAMES, "цикл");
         check(Logo.gradient(0) == Logo.gradient(1) && Logo.gradient(0.999) != 0, "градиент по кругу");
-        System.out.printf("ThemeCheck (v1.16.0 Kaelix): %d тем, %d проверок — OK; кадров логотипа %d, цикл %.1f с%n",
+        System.out.printf(
+                "ThemeCheck (v1.16.0 Kaelix): %d тем, %d проверок — OK; кадров логотипа %d, цикл %.1f с%n",
                 Ui.THEMES.length, checks, Logo.FRAMES, Logo.LOOP_MS / 1000.0);
     }
 }

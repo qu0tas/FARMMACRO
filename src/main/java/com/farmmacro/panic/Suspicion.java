@@ -26,9 +26,14 @@ public final class Suspicion {
     /** Последняя посчитанная сумма — для HUD. */
     public volatile double lastScore;
 
-    public void reset() { events.clear(); lastScore = 0; }
+    public void reset() {
+        events.clear();
+        lastScore = 0;
+    }
 
-    public int size() { return events.size(); }
+    public int size() {
+        return events.size();
+    }
 
     /** Добавить событие. @return сумма очков сразу после него */
     public double add(String type, String detail, double weight, long nowMs, double halfLifeSec) {
@@ -44,7 +49,10 @@ public final class Suspicion {
         for (Iterator<Ev> it = events.iterator(); it.hasNext(); ) {
             Ev e = it.next();
             double age = Math.max(0, nowMs - e.ms());
-            if (age > hl * 10) { it.remove(); continue; }
+            if (age > hl * 10) {
+                it.remove();
+                continue;
+            }
             sum += e.weight() * Math.pow(0.5, age / hl);
         }
         lastScore = sum;
@@ -55,7 +63,8 @@ public final class Suspicion {
     public String reasonIfOver(long nowMs, double halfLifeSec, double limit) {
         double s = score(nowMs, halfLifeSec);
         if (s < limit || events.isEmpty()) return null;
-        return String.format(Locale.ROOT, "Много мелких аномалий (%.1f ≥ %.0f): ", s, limit) + summary(nowMs, halfLifeSec);
+        return String.format(Locale.ROOT, "Много мелких аномалий (%.1f ≥ %.0f): ", s, limit)
+                + summary(nowMs, halfLifeSec);
     }
 
     /** «лаг-откат ×3 (последнее: 0.08 бл), толчок ×1 (…)» — по убыванию вклада. */
@@ -70,12 +79,14 @@ public final class Suspicion {
             if (e.detail() != null && !e.detail().isEmpty()) last.put(e.type(), e.detail());
         }
         StringBuilder b = new StringBuilder();
-        sum.entrySet().stream().sorted((x, y) -> Double.compare(y.getValue()[0], x.getValue()[0])).forEach(en -> {
-            if (b.length() > 0) b.append(", ");
-            b.append(en.getKey()).append(" ×").append((int) en.getValue()[1]);
-            String d = last.get(en.getKey());
-            if (d != null) b.append(" (").append(d).append(')');
-        });
+        sum.entrySet().stream()
+                .sorted((x, y) -> Double.compare(y.getValue()[0], x.getValue()[0]))
+                .forEach(en -> {
+                    if (b.length() > 0) b.append(", ");
+                    b.append(en.getKey()).append(" ×").append((int) en.getValue()[1]);
+                    String d = last.get(en.getKey());
+                    if (d != null) b.append(" (").append(d).append(')');
+                });
         return b.toString();
     }
 }

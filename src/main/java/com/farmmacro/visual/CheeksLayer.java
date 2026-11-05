@@ -4,6 +4,8 @@ import com.farmmacro.config.ModConfig;
 import com.farmmacro.util.Guard;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.HashMap;
+import java.util.Map;
 import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityRenderLayerRegistrationCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
@@ -17,9 +19,6 @@ import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.resources.Identifier;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * v1.16.1 «Анимешные щёчки»: румянец на лице модели игрока. Только клиент: видишь только ты (F5, Freelook, инвентарь).
@@ -49,7 +48,8 @@ public final class CheeksLayer extends RenderLayer<AvatarRenderState, PlayerMode
     }
 
     private static Identifier tex(String name) {
-        return TEX.computeIfAbsent(name, n -> Identifier.fromNamespaceAndPath("farmmacro", "textures/entity/cheeks/" + n + ".png"));
+        return TEX.computeIfAbsent(
+                name, n -> Identifier.fromNamespaceAndPath("farmmacro", "textures/entity/cheeks/" + n + ".png"));
     }
 
     @Override
@@ -65,7 +65,8 @@ public final class CheeksLayer extends RenderLayer<AvatarRenderState, PlayerMode
         Guard.runOrDisable(GUARD, () -> draw(ps, out, light, st, head, c));
     }
 
-    private static void draw(PoseStack ps, SubmitNodeCollector out, int light, AvatarRenderState st, ModelPart head, ModConfig c) {
+    private static void draw(
+            PoseStack ps, SubmitNodeCollector out, int light, AvatarRenderState st, ModelPart head, ModConfig c) {
         float alpha = CheekMath.alpha(c.cheeksOpacity, c.cheeksPulse, st.ageInTicks);
         if (alpha <= 0.003f) return;
         int a = Math.round(alpha * 255);
@@ -80,7 +81,16 @@ public final class CheeksLayer extends RenderLayer<AvatarRenderState, PlayerMode
         ps.pushPose();
         try {
             head.translateAndRotate(ps);
-            submit(ps, out, RenderTypes.entityTranslucent(tex(CheekMath.base(c.cheeksStyle))), l, r, z, tint, overlay, light);
+            submit(
+                    ps,
+                    out,
+                    RenderTypes.entityTranslucent(tex(CheekMath.base(c.cheeksStyle))),
+                    l,
+                    r,
+                    z,
+                    tint,
+                    overlay,
+                    light);
             String deco = CheekMath.deco(c.cheeksStyle);
             if (deco != null)
                 submit(ps, out, RenderTypes.entityTranslucent(tex(deco)), l, r, z - 0.02f / 16f, white, overlay, light);
@@ -89,8 +99,16 @@ public final class CheeksLayer extends RenderLayer<AvatarRenderState, PlayerMode
         }
     }
 
-    private static void submit(PoseStack ps, SubmitNodeCollector out, RenderType type, float[] l, float[] r,
-                               float z, int argb, int overlay, int light) {
+    private static void submit(
+            PoseStack ps,
+            SubmitNodeCollector out,
+            RenderType type,
+            float[] l,
+            float[] r,
+            float z,
+            int argb,
+            int overlay,
+            int light) {
         out.submitCustomGeometry(ps, type, (pose, vc) -> {
             if (l != null) quad(vc, pose, l, z, argb, overlay, light);
             if (r != null) quad(vc, pose, r, z, argb, overlay, light);
@@ -98,7 +116,8 @@ public final class CheeksLayer extends RenderLayer<AvatarRenderState, PlayerMode
     }
 
     /** Пиксели лица → модель: x = (fx − 4)/16, y = (fy − 8)/16. */
-    private static void quad(VertexConsumer vc, PoseStack.Pose pose, float[] q, float z, int argb, int overlay, int light) {
+    private static void quad(
+            VertexConsumer vc, PoseStack.Pose pose, float[] q, float z, int argb, int overlay, int light) {
         float x0 = (q[0] - 4) / 16f, y0 = (q[1] - 8) / 16f, x1 = (q[2] - 4) / 16f, y1 = (q[3] - 8) / 16f;
         v(vc, pose, x0, y0, z, q[4], q[5], argb, overlay, light);
         v(vc, pose, x0, y1, z, q[4], q[7], argb, overlay, light);
@@ -106,8 +125,22 @@ public final class CheeksLayer extends RenderLayer<AvatarRenderState, PlayerMode
         v(vc, pose, x1, y0, z, q[6], q[5], argb, overlay, light);
     }
 
-    private static void v(VertexConsumer vc, PoseStack.Pose pose, float x, float y, float z, float u, float vv,
-                          int argb, int overlay, int light) {
-        vc.addVertex(pose, x, y, z).setColor(argb).setUv(u, vv).setOverlay(overlay).setLight(light).setNormal(pose, 0, 0, -1);
+    private static void v(
+            VertexConsumer vc,
+            PoseStack.Pose pose,
+            float x,
+            float y,
+            float z,
+            float u,
+            float vv,
+            int argb,
+            int overlay,
+            int light) {
+        vc.addVertex(pose, x, y, z)
+                .setColor(argb)
+                .setUv(u, vv)
+                .setOverlay(overlay)
+                .setLight(light)
+                .setNormal(pose, 0, 0, -1);
     }
 }

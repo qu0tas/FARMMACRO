@@ -17,7 +17,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  */
 @Mixin(MultiPlayerGameMode.class)
 public class GameModeBreakMixin {
-    @Unique private BlockState farmmacro$before;
+    @Unique
+    private BlockState farmmacro$before;
 
     @Inject(method = "destroyBlock", at = @At("HEAD"))
     private void farmmacro$beforeDestroy(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {

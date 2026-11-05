@@ -1,6 +1,18 @@
 package com.farmmacro.panic;
 
 import com.farmmacro.config.ModConfig;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.AbstractSoundInstance;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -10,19 +22,6 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Stream;
 
 /**
  * Звуки мода: сирена паники и «дзинь» по окончании макроса.
@@ -42,30 +41,30 @@ import java.util.stream.Stream;
  */
 public final class PanicSound {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Sound");
+    private static final Logger LOGGER = LoggerFactory.getLogger("Kaelix/Sound");
 
     public record Option(String id, String label) {}
 
     private static final String[][] BUILTIN = {
-            {"siren",  "Сирена"},
-            {"klaxon", "Тревога «ти-та»"},
-            {"alarm",  "Пищалка"},
-            {"alert",  "Цифровая тревога"},
+        {"siren", "Сирена"},
+        {"klaxon", "Тревога «ти-та»"},
+        {"alarm", "Пищалка"},
+        {"alert", "Цифровая тревога"},
     };
     private static final String[][] MC_PRESETS = {
-            {"minecraft:entity.ghast.scream",     "MC: крик гаста"},
-            {"minecraft:block.bell.use",          "MC: колокол"},
-            {"minecraft:block.anvil.land",        "MC: наковальня"},
-            {"minecraft:block.note_block.pling",  "MC: нотный блок"},
-            {"minecraft:entity.wither.spawn",     "MC: визер"},
-            {"minecraft:entity.elder_guardian.curse", "MC: проклятие стража"},
+        {"minecraft:entity.ghast.scream", "MC: крик гаста"},
+        {"minecraft:block.bell.use", "MC: колокол"},
+        {"minecraft:block.anvil.land", "MC: наковальня"},
+        {"minecraft:block.note_block.pling", "MC: нотный блок"},
+        {"minecraft:entity.wither.spawn", "MC: визер"},
+        {"minecraft:entity.elder_guardian.curse", "MC: проклятие стража"},
     };
 
     private static final Map<String, SoundDecoder.Clip> CACHE = new ConcurrentHashMap<>();
     private static final Set<String> LOADING = ConcurrentHashMap.newKeySet();
     /** Один фоновый поток для чтения файлов и декодирования. */
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "farmmacro-sound-loader");
+        Thread t = new Thread(r, "kaelix-sound-loader");
         t.setDaemon(true);
         t.setPriority(Thread.MIN_PRIORITY);
         return t;
@@ -73,7 +72,9 @@ public final class PanicSound {
 
     private PanicSound() {}
 
-    public static Path soundsDir() { return ModConfig.modDir().resolve("sounds"); }
+    public static Path soundsDir() {
+        return ModConfig.modDir().resolve("sounds");
+    }
 
     /** Создаёт папку звуков и переносит старый config/farmmacro/panic.wav (версии ≤1.1). */
     public static void init() {
@@ -111,7 +112,11 @@ public final class PanicSound {
                     SoundDecoder.Clip c = load(id);
                     if (c != null) {
                         CACHE.put(id, c);
-                        LOGGER.info("Звук {} готов: {} Гц, {} кан., {} с", id, c.sampleRate(), c.channels(),
+                        LOGGER.info(
+                                "Звук {} готов: {} Гц, {} кан., {} с",
+                                id,
+                                c.sampleRate(),
+                                c.channels(),
                                 String.format(Locale.ROOT, "%.2f", c.seconds()));
                     }
                 } catch (Throwable t) {
@@ -127,10 +132,14 @@ public final class PanicSound {
     }
 
     /** true — системный вывод сломался в этой сессии, всё играет через движок игры. */
-    public static boolean systemAudioBroken() { return SystemAudioPlayer.isBroken(); }
+    public static boolean systemAudioBroken() {
+        return SystemAudioPlayer.isBroken();
+    }
 
     /** Загружен ли звук для системного режима (для подсказки в меню). */
-    public static boolean isReady(String id) { return CACHE.containsKey(id); }
+    public static boolean isReady(String id) {
+        return CACHE.containsKey(id);
+    }
 
     /** Все доступные варианты для переключателя в GUI (свои файлы перечитываются при каждом вызове). */
     public static List<Option> options() {
@@ -152,11 +161,15 @@ public final class PanicSound {
         List<String> out = new ArrayList<>();
         try (Stream<Path> s = Files.list(soundsDir())) {
             s.filter(Files::isRegularFile)
-             .map(p -> p.getFileName().toString())
-             .filter(n -> { String l = n.toLowerCase(Locale.ROOT); return l.endsWith(".ogg") || l.endsWith(".wav"); })
-             .sorted(String.CASE_INSENSITIVE_ORDER)
-             .forEach(out::add);
-        } catch (Exception ignored) {}
+                    .map(p -> p.getFileName().toString())
+                    .filter(n -> {
+                        String l = n.toLowerCase(Locale.ROOT);
+                        return l.endsWith(".ogg") || l.endsWith(".wav");
+                    })
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .forEach(out::add);
+        } catch (Exception ignored) {
+        }
         return out;
     }
 
@@ -168,12 +181,18 @@ public final class PanicSound {
 
     // ── Воспроизведение ──────────────────────────────────────────────────────
 
-    public static void playPanic() { playPanic(null); }
+    public static void playPanic() {
+        playPanic(null);
+    }
 
     /** v1.14.2-pre: свой звук детектора (null — общий «Сигнал»); громкость, тон и вывод — общие. */
     public static void playPanic(String own) {
         ModConfig c = ModConfig.INSTANCE;
-        play(own != null ? own : c.panicSound, !c.panicSoundSafe && c.panicSoundSystem, c.panicSoundVolume, c.panicSoundPitch);
+        play(
+                own != null ? own : c.panicSound,
+                !c.panicSoundSafe && c.panicSoundSystem,
+                c.panicSoundVolume,
+                c.panicSoundPitch);
     }
 
     public static void playDone() {
@@ -188,15 +207,19 @@ public final class PanicSound {
     public static void play(String id, boolean system, float volume, float pitch) {
         if (id == null) id = "builtin:siren";
         try {
-            if (id.startsWith("mc:")) { playGame(Identifier.parse(id.substring(3)), volume, pitch); return; }
+            if (id.startsWith("mc:")) {
+                playGame(Identifier.parse(id.substring(3)), volume, pitch);
+                return;
+            }
             boolean wantSystem = !ModConfig.INSTANCE.panicSoundSafe
-                    && (system || id.startsWith("file:")) && !SystemAudioPlayer.isBroken();
+                    && (system || id.startsWith("file:"))
+                    && !SystemAudioPlayer.isBroken();
             if (wantSystem) {
                 SoundDecoder.Clip clip = CACHE.get(id);
                 if (clip != null) {
                     final String fid = id;
-                    SystemAudioPlayer.Job job = new SystemAudioPlayer.Job(clip, volume, pitch, id,
-                            () -> playGameFallback(fid, volume, pitch));
+                    SystemAudioPlayer.Job job = new SystemAudioPlayer.Job(
+                            clip, volume, pitch, id, () -> playGameFallback(fid, volume, pitch));
                     if (SystemAudioPlayer.submit(job)) return;
                 } else {
                     preload(id);
@@ -228,10 +251,16 @@ public final class PanicSound {
                 SoundEvent ev = BuiltInRegistries.SOUND_EVENT.getValue(id);
                 if (ev == null) ev = SoundEvent.createVariableRangeEvent(id); // события мода (sounds.json) не в реестре
                 final SoundEvent sound = ev;
-                mc.getSoundManager().play(
-                        new AbstractSoundInstance(sound, SoundSource.MASTER, RandomSource.create()) {
-                            { this.volume = volume; this.pitch = pitch; this.relative = true; }
-                        });
+                // Внутри анонимного класса имена volume/pitch — это унаследованные поля, а не параметры метода:
+                // раньше было «this.volume = volume» (само себе), и громкость/высота из настроек игнорировались.
+                final float wantVolume = volume, wantPitch = pitch;
+                mc.getSoundManager().play(new AbstractSoundInstance(sound, SoundSource.MASTER, RandomSource.create()) {
+                    {
+                        this.volume = wantVolume;
+                        this.pitch = wantPitch;
+                        this.relative = true;
+                    }
+                });
             } catch (Throwable t) {
                 LOGGER.error("Движок игры не проиграл {}: {}", id, t.toString());
             }
@@ -246,7 +275,10 @@ public final class PanicSound {
         if (id.startsWith("builtin:")) {
             name = id.substring(8) + ".ogg";
             try (InputStream in = PanicSound.class.getResourceAsStream("/assets/farmmacro/sounds/panic/" + name)) {
-                if (in == null) { LOGGER.warn("Нет встроенного звука {}", name); return null; }
+                if (in == null) {
+                    LOGGER.warn("Нет встроенного звука {}", name);
+                    return null;
+                }
                 raw = in.readAllBytes();
             }
         } else {

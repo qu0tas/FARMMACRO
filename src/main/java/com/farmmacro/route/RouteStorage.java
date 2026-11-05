@@ -1,29 +1,28 @@
 package com.farmmacro.route;
 
+import com.farmmacro.macro.MacroSettings;
 import com.farmmacro.macro.MacroStorage;
+import com.farmmacro.util.AtomicFiles;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import net.fabricmc.loader.api.FabricLoader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import net.fabricmc.loader.api.FabricLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Файлы маршрутов по точкам: config/farmmacro_routes/*.json (формат {@link PointRoute}). */
 public final class RouteStorage {
     public static final RouteStorage INSTANCE = new RouteStorage();
-    private static final Logger LOGGER = LoggerFactory.getLogger("FarmMacro/Routes");
+    private static final Logger LOGGER = LoggerFactory.getLogger("Kaelix/Routes");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     public static final Path DIR = FabricLoader.getInstance().getConfigDir().resolve("farmmacro_routes");
 
@@ -61,11 +60,11 @@ public final class RouteStorage {
      * Записать новые настройки в существующий файл (⚙ у сохранённого маршрута): точки, имя и дата — как были.
      * @return false — файл не читается или не записался
      */
-    public boolean saveSettings(String filename, com.farmmacro.macro.MacroSettings settings) {
+    public boolean saveSettings(String filename, MacroSettings settings) {
         Path f = resolve(filename);
         PointRoute r = f == null ? null : load(filename);
         if (r == null) return false;
-        r.settings = settings == null ? new com.farmmacro.macro.MacroSettings() : settings.copy();
+        r.settings = settings == null ? new MacroSettings() : settings.copy();
         return write(f, r);
     }
 
@@ -75,15 +74,7 @@ public final class RouteStorage {
             r.version = PointRoute.VERSION;
             r.settings.refresh();
             r.camera = null;
-            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-            try (Writer w = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
-                GSON.toJson(r, w);
-            }
-            try {
-                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (Exception atomicNotSupported) {
-                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
-            }
+            AtomicFiles.writeUtf8(file, w -> GSON.toJson(r, w));
             LOGGER.info("Сохранён маршрут «{}» ({} точек) -> {}", r.name, r.points.size(), file.getFileName());
             return true;
         } catch (Exception e) {
@@ -96,7 +87,8 @@ public final class RouteStorage {
         List<RouteInfo> out = new ArrayList<>();
         if (!Files.isDirectory(DIR)) return out;
         try (Stream<Path> s = Files.list(DIR)) {
-            for (Path f : (Iterable<Path>) s.filter(p -> p.getFileName().toString().endsWith(".json"))::iterator) {
+            for (Path f :
+                    (Iterable<Path>) s.filter(p -> p.getFileName().toString().endsWith(".json"))::iterator) {
                 String fn = f.getFileName().toString();
                 long mod = Files.getLastModifiedTime(f).toMillis();
                 RouteInfo info = cache.get(fn);
@@ -121,7 +113,10 @@ public final class RouteStorage {
         Path f = resolve(filename);
         if (f == null) return null;
         PointRoute r = read(f);
-        if (r != null && r.points.isEmpty()) { LOGGER.warn("В маршруте {} нет точек", filename); return null; }
+        if (r != null && r.points.isEmpty()) {
+            LOGGER.warn("В маршруте {} нет точек", filename);
+            return null;
+        }
         return r;
     }
 

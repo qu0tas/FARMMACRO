@@ -13,11 +13,22 @@ public final class ServerText {
 
     /** Слова перезагрузки/лимбо в системном сообщении или титре (без учёта регистра). */
     public static final List<String> RESTART_WORDS = List.of(
-            "server closing", "server is restarting", "server restart", "restarting in", "reboot", "about to restart",
-            "you can't use this when the server is about to", "evacuat", "limbo",
-            "перезагр", "рестарт", "сервер закрывается", "лимбо");
+            "server closing",
+            "server is restarting",
+            "server restart",
+            "restarting in",
+            "reboot",
+            "about to restart",
+            "you can't use this when the server is about to",
+            "evacuat",
+            "limbo",
+            "перезагр",
+            "рестарт",
+            "сервер закрывается",
+            "лимбо");
 
-    private static final Pattern CLOSING = Pattern.compile("server closing:?\\s*(\\d{1,2}):(\\d{2})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CLOSING =
+            Pattern.compile("server closing:?\\s*(\\d{1,2}):(\\d{2})", Pattern.CASE_INSENSITIVE);
     private static final Pattern NUMBER = Pattern.compile("(\\d[\\d,.  ]*)");
 
     /** Убрать коды цвета §x и «невидимые»/эмодзи-символы, которыми Hypixel разбивает строки табло. */
@@ -27,9 +38,14 @@ public final class ServerText {
         StringBuilder b = new StringBuilder(t.length());
         t.codePoints().forEach(cp -> {
             int type = Character.getType(cp);
-            boolean ok = Character.isLetterOrDigit(cp) || Character.isSpaceChar(cp)
-                    || (cp < 0x2000 && type != Character.CONTROL && type != Character.FORMAT
-                        && type != Character.PRIVATE_USE && type != Character.SURROGATE && type != Character.UNASSIGNED);
+            boolean ok = Character.isLetterOrDigit(cp)
+                    || Character.isSpaceChar(cp)
+                    || (cp < 0x2000
+                            && type != Character.CONTROL
+                            && type != Character.FORMAT
+                            && type != Character.PRIVATE_USE
+                            && type != Character.SURROGATE
+                            && type != Character.UNASSIGNED);
             if (ok) b.appendCodePoint(Character.isSpaceChar(cp) ? ' ' : cp);
         });
         return b.toString().replaceAll(" {2,}", " ").strip();
@@ -65,11 +81,17 @@ public final class ServerText {
         boolean in = false;
         for (String raw : lines) {
             String t = clean(raw), l = t.toLowerCase(Locale.ROOT);
-            if (l.contains("jacob's contest") || l.contains("jacobs contest")) { in = true; continue; }
+            if (l.contains("jacob's contest") || l.contains("jacobs contest")) {
+                in = true;
+                continue;
+            }
             if (!in) continue;
             int at = l.indexOf("collected");
             int len = 9;
-            if (at < 0) { at = l.indexOf(" with "); len = 6; }
+            if (at < 0) {
+                at = l.indexOf(" with ");
+                len = 6;
+            }
             if (at < 0) continue;
             Matcher m = NUMBER.matcher(t.substring(at + len));
             if (m.find()) {

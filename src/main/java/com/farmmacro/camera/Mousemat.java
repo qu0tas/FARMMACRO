@@ -3,6 +3,11 @@ package com.farmmacro.camera;
 import com.farmmacro.config.ModConfig;
 import com.farmmacro.macro.MacroManager;
 import com.farmmacro.panic.EventLog;
+import com.farmmacro.panic.PanicHandoff;
+import com.farmmacro.route.NavigationInput;
+import com.farmmacro.util.Clock;
+import java.util.Locale;
+import java.util.concurrent.ThreadLocalRandom;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -11,8 +16,6 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
-
-import java.util.Locale;
 
 /**
  * v1.16.3 Squeaky Mousemat: пресет камеры ставится предметом Skyblock — взять Mousemat в руку (с задержкой смены
@@ -25,7 +28,13 @@ import java.util.Locale;
 public final class Mousemat {
     private Mousemat() {}
 
-    private enum Ph { IDLE, SELECT, CLICK, WAIT, RESTORE }
+    private enum Ph {
+        IDLE,
+        SELECT,
+        CLICK,
+        WAIT,
+        RESTORE
+    }
 
     private static Ph ph = Ph.IDLE;
     private static int slot, prevSlot, waitTicks;
@@ -34,7 +43,9 @@ public final class Mousemat {
     private static boolean rotated;
     private static String label = "";
 
-    public static boolean busy() { return ph != Ph.IDLE; }
+    public static boolean busy() {
+        return ph != Ph.IDLE;
+    }
 
     /** Слот хотбара с Mousemat (0–8) или -1. */
     public static int findSlot(LocalPlayer p, int wanted) {
@@ -60,7 +71,7 @@ public final class Mousemat {
      * Начать Snap к пресету. @return false — Mousemat не найден (вызывающий решает: обычный поворот или ничего).
      */
     public static boolean start(Minecraft mc, ModConfig.CamPreset preset, String what) {
-        if(com.farmmacro.route.NavigationInput.busy()||!com.farmmacro.panic.PanicHandoff.allowStart(mc))return false;
+        if (NavigationInput.busy() || !PanicHandoff.allowStart(mc)) return false;
         LocalPlayer p = mc.player;
         if (p == null || preset == null) return false;
         int s = findSlot(p, preset.matSlot);
@@ -74,7 +85,10 @@ public final class Mousemat {
         rotated = false;
         waitTicks = 0;
         ph = Ph.SELECT;
-        EventLog.log("MOUSEMAT", "старт: слот " + (s + 1) + ", ждём yaw " + CameraPresets.deg(wantYaw) + " pitch " + CameraPresets.deg(wantPitch));
+        EventLog.log(
+                "MOUSEMAT",
+                "старт: слот " + (s + 1) + ", ждём yaw " + CameraPresets.deg(wantYaw) + " pitch "
+                        + CameraPresets.deg(wantPitch));
         return true;
     }
 
@@ -89,33 +103,50 @@ public final class Mousemat {
     public static void tick(Minecraft mc) {
         if (ph == Ph.IDLE) return;
         LocalPlayer p = mc.player;
-        if (p == null) { cancel(); return; }
+        if (p == null) {
+            cancel();
+            return;
+        }
         ModConfig c = ModConfig.INSTANCE;
-        var rnd = java.util.concurrent.ThreadLocalRandom.current();
+        var rnd = ThreadLocalRandom.current();
         switch (ph) {
             case SELECT -> {
                 MacroManager.selectSlot(p, slot);
-                if (p.getInventory().getSelectedSlot() == slot) { ph = Ph.CLICK; waitTicks = 2 + rnd.nextInt(4); }
+                if (p.getInventory().getSelectedSlot() == slot) {
+                    ph = Ph.CLICK;
+                    waitTicks = 2 + rnd.nextInt(4);
+                }
             }
             case CLICK -> {
-                if (mc.screen != null) return;                 // окно открыто — клик не дойдёт, ждём
+                if (mc.screen != null) return; // окно открыто — клик не дойдёт, ждём
                 if (--waitTicks > 0) return;
                 KeyMapping key = "use".equals(c.mousematClick) ? mc.options.keyUse : mc.options.keyAttack;
                 KeyMapping.click(KeyMappingHelper.getBoundKeyOf(key));
-                windowUntil = System.currentTimeMillis() + c.mousematWaitMs;
+                windowUntil = Clock.millis() + c.mousematWaitMs;
                 ph = Ph.WAIT;
             }
             case WAIT -> {
-                if (rotated) { ph = Ph.RESTORE; waitTicks = 3 + rnd.nextInt(6); return; }
-                if (System.currentTimeMillis() > windowUntil) {
-                    msg(mc, "§6Mousemat не повернул камеру за " + c.mousematWaitMs + " мс — проверь, что в нём сохранён угол пресета");
+                if (rotated) {
+                    ph = Ph.RESTORE;
+                    waitTicks = 3 + rnd.nextInt(6);
+                    return;
+                }
+                if (Clock.millis() > windowUntil) {
+                    msg(
+                            mc,
+                            "§6Mousemat не повернул камеру за " + c.mousematWaitMs
+                                    + " мс — проверь, что в нём сохранён угол пресета");
                     EventLog.log("MOUSEMAT", "нет поворота от сервера");
-                    ph = Ph.RESTORE; waitTicks = 2;
+                    ph = Ph.RESTORE;
+                    waitTicks = 2;
                 }
             }
             case RESTORE -> {
                 if (--waitTicks > 0) return;
-                if (!c.mousematRestoreSlot || prevSlot == slot) { done(mc); return; }
+                if (!c.mousematRestoreSlot || prevSlot == slot) {
+                    done(mc);
+                    return;
+                }
                 MacroManager.selectSlot(p, prevSlot);
                 if (p.getInventory().getSelectedSlot() == prevSlot) done(mc);
             }
@@ -134,13 +165,22 @@ public final class Mousemat {
      * Совпадение: окно ожидания, позиция не сдвинулась (≤ 0.05 бл), угол = пресет ± допуск.
      */
     public static boolean acceptServerRotation(float yaw, float pitch, double moved) {
-        if (ph != Ph.WAIT || System.currentTimeMillis() > windowUntil || moved > 0.05) return false;
+        if (ph != Ph.WAIT || Clock.millis() > windowUntil || moved > 0.05) return false;
         ModConfig c = ModConfig.INSTANCE;
         if (!MousematMath.matches(yaw, pitch, wantYaw, wantPitch, c.mousematTolerance)) {
-            EventLog.log("MOUSEMAT", String.format(Locale.ROOT, "поворот не тот: %.2f/%.2f, ждали %.2f/%.2f",
-                    yaw, pitch, wantYaw, wantPitch));
-            msg(Minecraft.getInstance(), String.format(Locale.ROOT,
-                    "§6Mousemat повернул в %.1f / %.1f, а пресет %.1f / %.1f — запиши угол в Mousemat (ПКМ)", yaw, pitch, wantYaw, wantPitch));
+            EventLog.log(
+                    "MOUSEMAT",
+                    String.format(
+                            Locale.ROOT, "поворот не тот: %.2f/%.2f, ждали %.2f/%.2f", yaw, pitch, wantYaw, wantPitch));
+            msg(
+                    Minecraft.getInstance(),
+                    String.format(
+                            Locale.ROOT,
+                            "§6Mousemat повернул в %.1f / %.1f, а пресет %.1f / %.1f — запиши угол в Mousemat (ПКМ)",
+                            yaw,
+                            pitch,
+                            wantYaw,
+                            wantPitch));
             return false;
         }
         rotated = true;

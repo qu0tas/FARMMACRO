@@ -1,6 +1,7 @@
 package com.farmmacro.visual;
 
 import java.util.List;
+import net.minecraft.util.Mth;
 
 /** Пресеты цветов шляпы и расчёт цвета по углу. Цвета — 0xRRGGBB. */
 public final class HatColors {
@@ -11,16 +12,16 @@ public final class HatColors {
     public static final List<Preset> PRESETS = List.of(
             new Preset("purple", "Фиолетовый", 0x9B30FF),
             new Preset("orange", "Оранжевый", 0xFF8A1F),
-            new Preset("cyan",   "Голубой",    0x38D6FF),
-            new Preset("pink",   "Розовый",    0xFF4FB3),
-            new Preset("red",    "Красный",    0xFF3344),
-            new Preset("yellow", "Жёлтый",     0xFFE14D),
-            new Preset("green",  "Зелёный",    0x4DFF88),
-            new Preset("blue",   "Синий",      0x3D6BFF),
-            new Preset("white",  "Белый",      0xF2F2F2),
-            new Preset("gray",   "Серый",      0x8A8A8A),
+            new Preset("cyan", "Голубой", 0x38D6FF),
+            new Preset("pink", "Розовый", 0xFF4FB3),
+            new Preset("red", "Красный", 0xFF3344),
+            new Preset("yellow", "Жёлтый", 0xFFE14D),
+            new Preset("green", "Зелёный", 0x4DFF88),
+            new Preset("blue", "Синий", 0x3D6BFF),
+            new Preset("white", "Белый", 0xF2F2F2),
+            new Preset("gray", "Серый", 0x8A8A8A),
             new Preset("dark_gray", "Тёмно-серый", 0x3A3A3A),
-            new Preset("black",  "Чёрный",     0x000000));
+            new Preset("black", "Чёрный", 0x000000));
 
     /** Id «как задумано в моде» для настроек цвета отдельных элементов (точки, маяки, HUD…). */
     public static final String DEFAULT = "default";
@@ -36,10 +37,10 @@ public final class HatColors {
         return (((rgb >> 16) & 255) * 3 + ((rgb >> 8) & 255) * 6 + (rgb & 255)) / 10;
     }
 
-    public static final List<String[]> STYLES = List.of(
-            new String[]{"gradient", "Градиент"},
-            new String[]{"solid", "Однотонный"},
-            new String[]{"rainbow", "Перелив"});
+    public static final List<String[]> STYLES =
+            List.of(new String[] {"gradient", "Градиент"}, new String[] {"solid", "Однотонный"}, new String[] {
+                "rainbow", "Перелив"
+            });
 
     public static int rgb(String id) {
         for (Preset p : PRESETS) if (p.id().equals(id)) return p.rgb();
@@ -67,9 +68,11 @@ public final class HatColors {
         return (r << 16) | (g << 8) | bl;
     }
 
-    public static int lighten(int c, float k) { return mix(c, 0xFFFFFF, k); }
+    public static int lighten(int c, float k) {
+        return mix(c, 0xFFFFFF, k);
+    }
 
     private static int hsv(float h, float s, float v) {
-        return net.minecraft.util.Mth.hsvToRgb(h, s, v) & 0xFFFFFF;
+        return Mth.hsvToRgb(h, s, v) & 0xFFFFFF;
     }
 }
